@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'agent_defaults.dart';
+import 'chat_quick_action.dart';
 import 'chat_role.dart';
 import 'system_prompt.dart';
 import 'web_search.dart';
@@ -253,6 +254,7 @@ class AppSettings {
   final bool hasCompletedOnboarding;
   final String? onboardingInputJson;
   final int onboardingVersion;
+  final ChatQuickActions chatQuickActions;
 
   AgentPermissionSnapshot get agentPermissionSnapshot =>
       AgentPermissionSnapshot(permissions: agentGrantedPermissions);
@@ -295,6 +297,20 @@ class AppSettings {
     this.hasCompletedOnboarding = false,
     this.onboardingInputJson,
     this.onboardingVersion = 1,
+    this.chatQuickActions = const ChatQuickActions(
+      left: ChatQuickAction(
+        type: ChatQuickAction.typeFeaturePage,
+        featureId: 'schedule',
+      ),
+      up: ChatQuickAction(
+        type: ChatQuickAction.typeFeaturePage,
+        featureId: 'notes',
+      ),
+      right: ChatQuickAction(
+        type: ChatQuickAction.typeFeaturePage,
+        featureId: 'todos',
+      ),
+    ),
   }) : roles = roles ?? [ChatRole.defaultRole()];
 
   factory AppSettings.defaults() {
@@ -341,6 +357,7 @@ class AppSettings {
     bool? hasCompletedOnboarding,
     Object? onboardingInputJson = _sentinel,
     int? onboardingVersion,
+    ChatQuickActions? chatQuickActions,
   }) {
     return AppSettings(
       themeColor: themeColor ?? this.themeColor,
@@ -409,6 +426,7 @@ class AppSettings {
           ? this.onboardingInputJson
           : onboardingInputJson as String?,
       onboardingVersion: onboardingVersion ?? this.onboardingVersion,
+      chatQuickActions: chatQuickActions ?? this.chatQuickActions,
     );
   }
 
@@ -535,6 +553,7 @@ class AppSettings {
       hasCompletedOnboarding: json['hasCompletedOnboarding'] as bool? ?? true,
       onboardingInputJson: json['onboardingInputJson'] as String?,
       onboardingVersion: (json['onboardingVersion'] as num?)?.toInt() ?? 1,
+      chatQuickActions: ChatQuickActions.fromJson(json['chatQuickActions']),
     );
   }
 
@@ -582,6 +601,7 @@ class AppSettings {
       if (onboardingInputJson != null)
         'onboardingInputJson': onboardingInputJson,
       'onboardingVersion': onboardingVersion,
+      'chatQuickActions': chatQuickActions.toJson(),
     };
   }
 

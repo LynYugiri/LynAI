@@ -29,7 +29,7 @@
 | 阶段 | 行为 |
 |------|------|
 | 生成 | `generate()` 优先选择 `deepseek-v4-pro`（否则第一个启用 Chat 模型）通过 `ApiService.sendChatRequest` 生成 JSON 草稿；超时、非法 JSON、无模型或服务不可用时回退 `buildLocalDraft()`。 |
-| 校验 | 草稿只接受白名单字段：角色名/提示词、角色记忆最多 6 条、Agent intents、默认功能页枚举、知识库/类别/条目数量上限、牌组/卡片上限、任务/笔记上限、SKILL 名称与正文。非法模块丢弃或修正。 |
+| 校验 | 草稿只接受白名单字段：角色名/提示词、角色记忆最多 6 条、Agent intents、知识库/类别/条目数量上限、牌组/卡片上限、任务/笔记上限、SKILL 名称与正文。非法模块丢弃或修正。 |
 | 应用 | `applyDraft()` 按角色 → Agent → 知识库 → 记忆卡牌组 → 任务清单 → 笔记 → SKILL 的顺序调用各 Provider；同名资源复用，失败按分组记录不阻塞其他组。 |
 | 权限 | `permissionsForIntents()` 把 `notes/todos/schedules/knowledge/plugins/minimal` 映射为 `LynAIPermissions.agentAssignable` 内的权限 ID，AI 不直接输出权限 ID。 |
 | SKILL | 通过 `PluginProvider.createPlugin(kind: skill)` 创建或复用插件，写入 `plugin.json` 与 `skills/<name>.md` 后启用并置为 `active`。 |

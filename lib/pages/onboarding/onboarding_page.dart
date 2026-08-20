@@ -51,18 +51,6 @@ class _OnboardingPageState extends State<OnboardingPage> {
     'other': '其他',
   };
 
-  static const _featureOptions = <String, String>{
-    'dashboard': '功能总览',
-    'history': '对话历史',
-    'schedule': '日程表',
-    'notes': '笔记',
-    'todos': '待办清单',
-    'roleplay': '情景演绎',
-    'knowledge': '知识库',
-    'cards': '记忆卡',
-    'jottings': '随记',
-  };
-
   final OnboardingWizardController _controller = OnboardingWizardController();
   final TextEditingController _occupationCustomController =
       TextEditingController();
@@ -421,12 +409,6 @@ class _OnboardingPageState extends State<OnboardingPage> {
                 .toList(growable: false),
           ),
         ),
-        _sectionCard(
-          title: '默认功能页',
-          subtitle:
-              _featureOptions[draft.defaultFeature] ?? draft.defaultFeature,
-          onEdit: () => _editDefaultFeature(draft),
-        ),
         for (final base in draft.knowledgeBases)
           _sectionCard(
             title: '知识库：${base.name}',
@@ -618,12 +600,6 @@ class _OnboardingPageState extends State<OnboardingPage> {
         ),
       ),
     );
-  }
-
-  Future<void> _editDefaultFeature(OnboardingDraft draft) async {
-    final feature = await _showFeatureDialog(draft.defaultFeature);
-    if (feature == null) return;
-    _controller.updateDraft(draft.copyWith(defaultFeature: feature));
   }
 
   Future<void> _editKnowledgeBase(
@@ -976,33 +952,6 @@ class _OnboardingPageState extends State<OnboardingPage> {
       ),
     );
     return result;
-  }
-
-  Future<String?> _showFeatureDialog(String current) async {
-    return showDialog<String>(
-      context: context,
-      builder: (ctx) => SimpleDialog(
-        title: const Text('选择默认功能页'),
-        children: _featureOptions.entries
-            .map((entry) {
-              return SimpleDialogOption(
-                onPressed: () => Navigator.pop(ctx, entry.key),
-                child: Row(
-                  children: [
-                    Icon(
-                      current == entry.key
-                          ? Icons.radio_button_checked
-                          : Icons.radio_button_off,
-                    ),
-                    const SizedBox(width: 8),
-                    Text(entry.value),
-                  ],
-                ),
-              );
-            })
-            .toList(growable: false),
-      ),
-    );
   }
 }
 

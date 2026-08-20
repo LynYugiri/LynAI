@@ -57,7 +57,6 @@ void main() {
     expect(draft.memoryDecks, isNotEmpty);
     expect(draft.taskLists, isNotEmpty);
     expect(draft.agent.enabledByDefault, isTrue);
-    expect(draft.defaultFeature, 'knowledge');
   });
 
   test(

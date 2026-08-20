@@ -8,7 +8,6 @@ class OnboardingDraft {
   final OnboardingRoleDraft role;
   final AgentWorkingMemory roleMemory;
   final OnboardingAgentDraft agent;
-  final String defaultFeature;
   final List<OnboardingKnowledgeBaseDraft> knowledgeBases;
   final List<OnboardingMemoryDeckDraft> memoryDecks;
   final List<OnboardingTaskListDraft> taskLists;
@@ -19,7 +18,6 @@ class OnboardingDraft {
     required this.role,
     required this.roleMemory,
     required this.agent,
-    this.defaultFeature = 'dashboard',
     this.knowledgeBases = const [],
     this.memoryDecks = const [],
     this.taskLists = const [],
@@ -69,10 +67,6 @@ class OnboardingDraft {
               Map<String, dynamic>.from(json['agent']),
             )
           : OnboardingAgentDraft(enabledByDefault: false, intents: const []),
-      defaultFeature:
-          (json['defaultFeature'] as String?)?.trim().isNotEmpty == true
-          ? (json['defaultFeature'] as String).trim()
-          : 'dashboard',
       knowledgeBases: _list(json['knowledgeBases'])
           .map(
             (item) => OnboardingKnowledgeBaseDraft.fromJson(
@@ -113,7 +107,6 @@ class OnboardingDraft {
     'role': role.toJson(),
     'roleMemory': roleMemory.toJson(),
     'agent': agent.toJson(),
-    'defaultFeature': defaultFeature,
     'knowledgeBases': knowledgeBases.map((e) => e.toJson()).toList(),
     'memoryDecks': memoryDecks.map((e) => e.toJson()).toList(),
     'taskLists': taskLists.map((e) => e.toJson()).toList(),
@@ -125,7 +118,6 @@ class OnboardingDraft {
     OnboardingRoleDraft? role,
     AgentWorkingMemory? roleMemory,
     OnboardingAgentDraft? agent,
-    String? defaultFeature,
     List<OnboardingKnowledgeBaseDraft>? knowledgeBases,
     List<OnboardingMemoryDeckDraft>? memoryDecks,
     List<OnboardingTaskListDraft>? taskLists,
@@ -136,7 +128,6 @@ class OnboardingDraft {
       role: role ?? this.role,
       roleMemory: roleMemory ?? this.roleMemory,
       agent: agent ?? this.agent,
-      defaultFeature: defaultFeature ?? this.defaultFeature,
       knowledgeBases: knowledgeBases ?? this.knowledgeBases,
       memoryDecks: memoryDecks ?? this.memoryDecks,
       taskLists: taskLists ?? this.taskLists,

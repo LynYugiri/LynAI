@@ -139,6 +139,7 @@ OCR 悬浮翻译使用请求内轻量文本组。Native OCR 输出 `text`、识�
 | 悬浮助手 | `floatingAssistant`，包含 Android 悬浮聊天、按需读屏、语音输入、翻译入口（多目标语言、源语言检测、覆盖层样式、屏蔽应用包名 `blockedPackages`、专用翻译模型 `translationModelId` 缺省时跟随当前聊天模型）、Agent Plan 显示、气泡/面板位置尺寸持久化（`bubbleX/Y`、`panelX/Y`、`panelWidth/Height`）。`screenContextMode` 仅保留 `manual`/`disabled` 两档，旧的 `ask` 取值在反序列化时回退为 `manual`。 |
 | 更新日志 | `lastSeenChangelogVersion` |
 | 新手向导 | `hasCompletedOnboarding`, `onboardingInputJson`, `onboardingVersion` |
+| 对话快捷手势 | `chatQuickActions`：底部对话按钮长按盘的 ← ↑ → 三个方向绑定 |
 
 `AppSettings.fromJson()` 会跳过坏角色、坏角色分组和坏提示词。缺失默认角色时自动补回；当前角色不存在时回退到默认角色。
 

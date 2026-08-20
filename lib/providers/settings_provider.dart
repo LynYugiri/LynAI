@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:uuid/uuid.dart';
 import '../models/agent_working_memory.dart';
 import '../models/app_settings.dart';
+import '../models/chat_quick_action.dart';
 import '../models/chat_role.dart';
 import '../models/conversation.dart';
 import '../models/model_config.dart';
@@ -30,6 +31,14 @@ class SettingsProvider extends ChangeNotifier with SerializedSaveQueue {
 
   AppSettings get settings => _settings;
   bool get usingStorageV2 => _usingStorageV2;
+
+  ChatQuickActions get chatQuickActions => _settings.chatQuickActions;
+
+  void setChatQuickActions(ChatQuickActions actions) {
+    _settings = _settings.copyWith(chatQuickActions: actions);
+    _queueSaveSettings();
+    notifyListeners();
+  }
 
   Future<bool> migrateModelIds(Map<String, String> migrations) async {
     if (migrations.isEmpty) return false;

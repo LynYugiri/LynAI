@@ -39,18 +39,6 @@ class OnboardingService {
     'minimal',
   };
 
-  static const validFeatures = {
-    'dashboard',
-    'history',
-    'schedule',
-    'notes',
-    'todos',
-    'roleplay',
-    'knowledge',
-    'cards',
-    'jottings',
-  };
-
   static const _maxKnowledgeBases = 1;
   static const _maxCategoriesPerBase = 4;
   static const _maxEntriesPerBase = 2;
@@ -195,12 +183,6 @@ class OnboardingService {
             .toList(growable: false),
       );
 
-      final feature =
-          (json['defaultFeature'] as String?)?.trim() ?? 'dashboard';
-      final defaultFeature = validFeatures.contains(feature)
-          ? feature
-          : 'dashboard';
-
       final knowledgeBases = _list(json['knowledgeBases'])
           .take(_maxKnowledgeBases)
           .map(
@@ -258,7 +240,6 @@ class OnboardingService {
         role: role,
         roleMemory: memory,
         agent: sanitizedAgent,
-        defaultFeature: defaultFeature,
         knowledgeBases: knowledgeBases,
         memoryDecks: memoryDecks,
         taskLists: taskLists,
@@ -478,7 +459,6 @@ class OnboardingService {
       role: role,
       roleMemory: memory,
       agent: agent,
-      defaultFeature: _defaultFeatureFor(purposes),
       knowledgeBases: wantsKnowledge
           ? [
               OnboardingKnowledgeBaseDraft(
@@ -637,17 +617,6 @@ class OnboardingService {
     }
   }
 
-  String _defaultFeatureFor(Set<String> purposes) {
-    if (purposes.contains('knowledge')) return 'knowledge';
-    if (purposes.contains('cards')) return 'cards';
-    if (purposes.contains('todos')) return 'todos';
-    if (purposes.contains('schedule')) return 'schedule';
-    if (purposes.contains('notes') || purposes.contains('writing')) {
-      return 'notes';
-    }
-    return 'dashboard';
-  }
-
   String _defaultSkillBody(OnboardingInput input) {
     return '''
 # 每日复习工作流
@@ -751,11 +720,6 @@ class OnboardingService {
         enabled: draft.agent.enabledByDefault,
         permissions: permissionsForIntents(draft.agent.intents),
         maxToolRounds: defaultAgentMaxToolRounds,
-      );
-      settingsProvider.setLastFeature(
-        validFeatures.contains(draft.defaultFeature)
-            ? draft.defaultFeature
-            : 'dashboard',
       );
       result.role = '已创建角色「${draft.role.name}」';
     } catch (e) {

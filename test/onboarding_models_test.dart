@@ -106,7 +106,6 @@ void main() {
         enabledByDefault: true,
         intents: ['notes', 'todos'],
       ),
-      defaultFeature: 'knowledge',
       knowledgeBases: [
         OnboardingKnowledgeBaseDraft(
           name: 'kb',
