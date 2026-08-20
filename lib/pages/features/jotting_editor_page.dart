@@ -315,9 +315,9 @@ class JottingEditorPageState extends State<JottingEditorPage> {
     final normalized = _normalizeTag(result);
     if (normalized == null || normalized == oldTag) return;
     setState(() {
-      _tags = _tags
-          .map((tag) => tag == oldTag ? normalized : tag)
-          .toList(growable: false);
+      final next = _tags.where((tag) => tag != oldTag).toList();
+      if (!next.contains(normalized)) next.add(normalized);
+      _tags = next;
     });
     if (!_preview) _contentFocus.requestFocus();
   }
