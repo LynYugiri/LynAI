@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -7,6 +8,7 @@ import 'package:provider/provider.dart';
 import '../../models/jotting.dart';
 import '../../models/local_date.dart';
 import '../../providers/jotting_provider.dart';
+import '../../services/storage_v2_service.dart';
 import '../../widgets/latex_renderer.dart';
 import 'feature_shared.dart';
 import 'jotting_detail_page.dart';
@@ -492,6 +494,8 @@ class _JottingsPageState extends State<JottingsPage> {
                     label: Text(expanded ? '收起' : '展开全文'),
                   ),
                 ],
+                _buildTimelineAttachments(item),
+                _buildTimelineReferences(item),
                 if (item.tags.isNotEmpty) ...[
                   const SizedBox(height: 6),
                   Wrap(
@@ -522,6 +526,57 @@ class _JottingsPageState extends State<JottingsPage> {
             ),
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildTimelineAttachments(Jotting item) {
+    if (item.attachments.isEmpty) return const SizedBox.shrink();
+    final images = item.attachments.where((item) => item.isImage).toList();
+    final files = item.attachments.where((item) => !item.isImage).toList();
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (images.isNotEmpty)
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: [
+                for (final image in images)
+                  _TimelineImageAttachment(attachment: image),
+              ],
+            ),
+          if (files.isNotEmpty)
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: [
+                for (final file in files) _TimelineFileAttachment(attachment: file),
+              ],
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTimelineReferences(Jotting item) {
+    if (item.references.isEmpty) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: Wrap(
+        spacing: 6,
+        runSpacing: 6,
+        children: [
+          for (final reference in item.references)
+            _TimelineReferenceChip(
+              reference: reference,
+              onTap: widget.onReferenceTap == null
+                  ? null
+                  : () => widget.onReferenceTap!(reference),
+            ),
+        ],
       ),
     );
   }
@@ -800,4 +855,180 @@ class _TimelineRow {
   final Jotting? jotting;
 
   bool get isDate => dateLabel != null;
+}
+
+class _TimelineImageAttachment extends StatefulWidget {
+  const _TimelineImageAttachment({required this.attachment});
+
+  final JottingAttachment attachment;
+
+  @override
+  State<_TimelineImageAttachment> createState() =>
+      _TimelineImageAttachmentState();
+}
+
+class _TimelineImageAttachmentState extends State<_TimelineImageAttachment> {
+  String? _path;
+
+  @override
+  void initState() {
+    super.initState();
+    _resolvePath();
+  }
+
+  Future<void> _resolvePath() async {
+    try {
+      final storage = context.read<StorageV2Service>();
+      final resource = await storage.findResourceById(
+        widget.attachment.resourceId,
+      );
+      final path = resource == null ? null : await storage.resourcePath(resource);
+      if (!mounted) return;
+      setState(() => _path = path);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _path = null);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return GestureDetector(
+      onTap: _path == null ? null : () => _openImage(context),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(10),
+        child: SizedBox(
+          width: 72,
+          height: 72,
+          child: _path == null
+              ? DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: scheme.surfaceContainerHighest,
+                  ),
+                  child: const Icon(Icons.image_outlined),
+                )
+              : Image.file(
+                  File(_path!),
+                  width: 72,
+                  height: 72,
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, _, _) => DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: scheme.surfaceContainerHighest,
+                    ),
+                    child: const Icon(Icons.broken_image_outlined),
+                  ),
+                ),
+        ),
+      ),
+    );
+  }
+
+  void _openImage(BuildContext context) {
+    showDialog<void>(
+      context: context,
+      builder: (context) => Dialog.fullscreen(
+        child: Stack(
+          children: [
+            Positioned.fill(
+              child: InteractiveViewer(
+                child: Image.file(File(_path!), fit: BoxFit.contain),
+              ),
+            ),
+            Positioned(
+              top: 8,
+              right: 8,
+              child: IconButton(
+                tooltip: '关闭',
+                icon: const Icon(Icons.close),
+                onPressed: () => Navigator.pop(context),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _TimelineFileAttachment extends StatelessWidget {
+  const _TimelineFileAttachment({required this.attachment});
+
+  final JottingAttachment attachment;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.insert_drive_file_outlined, size: 16, color: scheme.primary),
+          const SizedBox(width: 4),
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 160),
+            child: Text(
+              attachment.originalName,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.labelSmall,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _TimelineReferenceChip extends StatelessWidget {
+  const _TimelineReferenceChip({required this.reference, this.onTap});
+
+  final JottingReference reference;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final (icon, color) = switch (reference.type) {
+      JottingReferenceType.note => (Icons.sticky_note_2_outlined, Colors.blue),
+      JottingReferenceType.task => (Icons.checklist, Colors.green),
+      JottingReferenceType.knowledgeEntry => (
+        Icons.local_library_outlined,
+        Colors.orange,
+      ),
+    };
+    return Material(
+      color: scheme.surfaceContainerHighest,
+      borderRadius: BorderRadius.circular(10),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(10),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 16, color: color),
+              const SizedBox(width: 4),
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 160),
+                child: Text(
+                  reference.title.isEmpty ? '未命名引用' : reference.title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.labelSmall,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }
