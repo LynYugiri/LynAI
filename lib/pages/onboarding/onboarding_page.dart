@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../../models/agent_working_memory.dart';
 import '../../models/onboarding/onboarding_draft.dart';
+import '../../models/onboarding/onboarding_input.dart';
 import '../../providers/feature_provider.dart';
 import '../../providers/knowledge_provider.dart';
 import '../../providers/memory_card_provider.dart';
@@ -27,29 +28,31 @@ class OnboardingPage extends StatefulWidget {
 }
 
 class _OnboardingPageState extends State<OnboardingPage> {
-  static const _purposeOptions = <String, String>{
-    'chat': '聊天问答',
-    'writing': '写作创作',
-    'coding': '编程开发',
-    'research': '学习研究',
-    'knowledge': '知识库',
-    'todos': '日程待办',
-    'cards': '记忆卡学习',
-    'roleplay': '角色扮演',
-    'automation': '插件与自动化',
-    'privacy': '本地优先',
-  };
+  /// 第一步展示的用途选项，文案统一来自 [OnboardingInput.purposeLabels]。
+  static const _purposeOptionKeys = <String>[
+    'chat',
+    'writing',
+    'coding',
+    'research',
+    'knowledge',
+    'todos',
+    'cards',
+    'roleplay',
+    'automation',
+    'privacy',
+  ];
 
-  static const _occupationOptions = <String, String>{
-    'student': '学生',
-    'developer': '开发者',
-    'researcher': '研究人员',
-    'creator': '内容创作者',
-    'professional': '职场人士',
-    'freelancer': '自由职业',
-    'teacher': '教师',
-    'other': '其他',
-  };
+  /// 第二步展示的职业选项，文案统一来自 [OnboardingInput.occupationLabels]。
+  static const _occupationOptionKeys = <String>[
+    'student',
+    'developer',
+    'researcher',
+    'creator',
+    'professional',
+    'freelancer',
+    'teacher',
+    'other',
+  ];
 
   final OnboardingWizardController _controller = OnboardingWizardController();
   final TextEditingController _occupationCustomController =
@@ -272,19 +275,19 @@ class _OnboardingPageState extends State<OnboardingPage> {
         Wrap(
           spacing: 8,
           runSpacing: 8,
-          children: _purposeOptions.entries
-              .map((entry) {
-                final selected = _selectedPurposes.contains(entry.key);
+          children: _purposeOptionKeys
+              .map((key) {
+                final selected = _selectedPurposes.contains(key);
                 return FilterChip(
-                  label: Text(entry.value),
+                  label: Text(OnboardingInput.purposeLabels[key] ?? key),
                   selected: selected,
                   showCheckmark: false,
                   onSelected: (value) {
                     setState(() {
                       if (value) {
-                        _selectedPurposes.add(entry.key);
+                        _selectedPurposes.add(key);
                       } else {
-                        _selectedPurposes.remove(entry.key);
+                        _selectedPurposes.remove(key);
                       }
                     });
                   },
@@ -305,12 +308,12 @@ class _OnboardingPageState extends State<OnboardingPage> {
         Wrap(
           spacing: 8,
           runSpacing: 8,
-          children: _occupationOptions.entries
-              .map((entry) {
+          children: _occupationOptionKeys
+              .map((key) {
                 return ChoiceChip(
-                  label: Text(entry.value),
-                  selected: _occupation == entry.key,
-                  onSelected: (_) => setState(() => _occupation = entry.key),
+                  label: Text(OnboardingInput.occupationLabels[key] ?? key),
+                  selected: _occupation == key,
+                  onSelected: (_) => setState(() => _occupation = key),
                 );
               })
               .toList(growable: false),

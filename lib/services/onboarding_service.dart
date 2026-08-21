@@ -121,12 +121,8 @@ class OnboardingService {
 
   String _buildAiUserPrompt(OnboardingInput input, OnboardingDraft? current) {
     final buffer = StringBuffer()
-      ..writeln(
-        '用户用途：${input.purposes.isEmpty ? '未指定' : input.purposes.join('、')}',
-      )
-      ..writeln(
-        '身份职业：${input.occupation}${input.occupationCustom.trim().isEmpty ? '' : '（${input.occupationCustom.trim()}）'}',
-      );
+      ..writeln('用户用途：${_purposeSummary(input)}')
+      ..writeln('身份职业：${_occupationLabel(input)}');
     if (input.freeText.trim().isNotEmpty) {
       buffer.writeln('补充描述：${input.freeText.trim()}');
     }
@@ -566,8 +562,7 @@ class OnboardingService {
   }
 
   String _roleDescriptionFor(OnboardingInput input) {
-    final purpose = input.purposes.isEmpty ? '日常对话' : input.purposes.join('、');
-    return '根据新手向导生成：面向${_occupationLabel(input)}，主要用于$purpose。';
+    return '根据新手向导生成：面向${_occupationLabel(input)}，主要用于${_purposeSummary(input)}。';
   }
 
   String _rolePromptFor(OnboardingInput input) {
@@ -575,7 +570,7 @@ class OnboardingService {
       ..writeln('你是 LynAI 中为用户定制的${_roleNameFor(input)}。')
       ..writeln('用户身份：${_occupationLabel(input)}。');
     if (input.purposes.isNotEmpty) {
-      buffer.writeln('用户主要用途：${input.purposes.join('、')}。');
+      buffer.writeln('用户主要用途：${_purposeSummary(input)}。');
     }
     if (input.freeText.trim().isNotEmpty) {
       buffer.writeln('用户补充要求：${input.freeText.trim()}');
@@ -594,27 +589,20 @@ class OnboardingService {
     return '帮助用户更高效地使用 LynAI';
   }
 
+  String _purposeSummary(OnboardingInput input) {
+    if (input.purposes.isEmpty) return '日常对话';
+    return input.purposes
+        .map((key) => OnboardingInput.purposeLabels[key] ?? key)
+        .join('、');
+  }
+
   String _occupationLabel(OnboardingInput input) {
     final custom = input.occupationCustom.trim();
     if (custom.isNotEmpty) return custom;
-    switch (input.occupation) {
-      case 'student':
-        return '学生';
-      case 'developer':
-        return '开发者';
-      case 'researcher':
-        return '研究人员';
-      case 'creator':
-        return '内容创作者';
-      case 'professional':
-        return '职场人士';
-      case 'freelancer':
-        return '自由职业者';
-      case 'teacher':
-        return '教师';
-      default:
-        return 'LynAI 用户';
+    if (input.occupation == 'other' || input.occupation.isEmpty) {
+      return 'LynAI 用户';
     }
+    return OnboardingInput.occupationLabels[input.occupation] ?? 'LynAI 用户';
   }
 
   String _defaultSkillBody(OnboardingInput input) {

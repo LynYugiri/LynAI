@@ -5,6 +5,35 @@
 class OnboardingInput {
   static const currentVersion = 1;
 
+  /// 用途 key 到展示文案的映射，向导页与生成服务共用，保证同一用途在
+  /// 界面、本地模板和 AI 提示词里表述一致。
+  static const purposeLabels = <String, String>{
+    'chat': '聊天与问答',
+    'writing': '写作与润色',
+    'coding': '编程与调试',
+    'research': '学习与研究',
+    'knowledge': '建立个人知识库',
+    'todos': '管理日程与待办',
+    'schedule': '安排日程',
+    'cards': '用记忆卡复习',
+    'roleplay': '沉浸式角色对话',
+    'automation': '自动化工作流',
+    'notes': '记录与整理笔记',
+    'privacy': '把数据留在本地',
+  };
+
+  /// 职业 key 到展示文案的映射，供界面和生成服务共用。
+  static const occupationLabels = <String, String>{
+    'student': '学生',
+    'developer': '开发者',
+    'researcher': '研究人员',
+    'creator': '内容创作者',
+    'professional': '职场人士',
+    'freelancer': '自由职业',
+    'teacher': '教师',
+    'other': '其他',
+  };
+
   final int version;
   final List<String> purposes;
   final String occupation;
