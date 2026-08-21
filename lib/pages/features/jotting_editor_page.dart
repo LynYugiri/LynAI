@@ -1,3 +1,6 @@
+import 'dart:io';
+
+import 'package:file_picker/file_picker.dart' show FileType;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -6,7 +9,8 @@ import '../../providers/feature_provider.dart';
 import '../../providers/jotting_provider.dart';
 import '../../providers/knowledge_provider.dart';
 import '../../providers/task_provider.dart';
-import '../../widgets/latex_renderer.dart';
+import '../../services/storage_v2_service.dart';
+import '../../utils/file_picker_io_utils.dart';
 
 /// Result returned by [JottingEditorPage] after a durable local save.
 class JottingEditorResult {
@@ -39,8 +43,9 @@ class JottingEditorPageState extends State<JottingEditorPage> {
   List<String> _tags = const [];
   List<JottingReference> _initialReferences = const [];
   List<JottingReference> _references = const [];
-  TextSelection _lastSelection = const TextSelection.collapsed(offset: 0);
-  bool _preview = false;
+  List<JottingAttachment> _initialAttachments = const [];
+  List<JottingAttachment> _attachments = const [];
+  bool _tagsExpanded = false;
   bool _saving = false;
 
   bool get _isNew => widget.jottingId == null;
@@ -48,7 +53,8 @@ class JottingEditorPageState extends State<JottingEditorPage> {
   bool get _dirty =>
       _contentController.text != _initialContent ||
       !_sameStringList(_tags, _initialTags) ||
-      !_sameReferences(_references, _initialReferences);
+      !_sameReferences(_references, _initialReferences) ||
+      !_sameAttachments(_attachments, _initialAttachments);
 
   @override
   void initState() {
@@ -63,12 +69,14 @@ class JottingEditorPageState extends State<JottingEditorPage> {
       item?.references ?? const <JottingReference>[],
     );
     _references = List.of(_initialReferences);
+    _initialAttachments = List.unmodifiable(
+      item?.attachments ?? const <JottingAttachment>[],
+    );
+    _attachments = List.of(_initialAttachments);
     _contentController.value = TextEditingValue(
       text: _initialContent,
       selection: TextSelection.collapsed(offset: _initialContent.length),
     );
-    _lastSelection = _contentController.selection;
-    _contentController.addListener(_trackSelection);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       _contentFocus.requestFocus();
@@ -77,17 +85,10 @@ class JottingEditorPageState extends State<JottingEditorPage> {
 
   @override
   void dispose() {
-    _contentController.removeListener(_trackSelection);
     _contentController.dispose();
     _contentFocus.dispose();
     _editorScrollController.dispose();
     super.dispose();
-  }
-
-  void _trackSelection() {
-    if (_contentController.selection.isValid) {
-      _lastSelection = _contentController.selection;
-    }
   }
 
   @override
@@ -132,10 +133,10 @@ class JottingEditorPageState extends State<JottingEditorPage> {
           top: false,
           child: Column(
             children: [
-              Expanded(child: _preview ? _buildPreview() : _buildEditor()),
+              Expanded(child: _buildEditor()),
+              _buildAttachmentCards(),
               _buildReferenceCards(),
               _buildTagEditor(),
-              _buildBottomToolbar(),
             ],
           ),
         ),
@@ -163,17 +164,32 @@ class JottingEditorPageState extends State<JottingEditorPage> {
     );
   }
 
-  Widget _buildPreview() {
-    final content = _contentController.text;
-    return SingleChildScrollView(
-      key: const ValueKey('jotting-editor-preview'),
-      padding: const EdgeInsets.fromLTRB(18, 16, 18, 28),
-      child: content.trim().isEmpty
-          ? Text(
-              '暂无内容',
-              style: TextStyle(color: Theme.of(context).colorScheme.outline),
-            )
-          : MarkdownWithLatex(content: content),
+  Widget _buildAttachmentCards() {
+    if (_attachments.isEmpty) return const SizedBox.shrink();
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.fromLTRB(12, 4, 12, 4),
+      padding: const EdgeInsets.fromLTRB(10, 4, 10, 4),
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: scheme.outlineVariant),
+      ),
+      child: Column(
+        children: [
+          for (var index = 0; index < _attachments.length; index++)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              child: _EditorAttachmentCard(
+                attachment: _attachments[index],
+                onDelete: _saving
+                    ? null
+                    : () => _removeAttachmentAt(index),
+              ),
+            ),
+        ],
+      ),
     );
   }
 
@@ -208,54 +224,22 @@ class JottingEditorPageState extends State<JottingEditorPage> {
 
   Widget _buildTagEditor() {
     final scheme = Theme.of(context).colorScheme;
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(12, 6, 12, 6),
-      decoration: BoxDecoration(
-        color: scheme.surfaceContainerLow,
-        border: Border(
-          top: BorderSide(color: scheme.outlineVariant.withValues(alpha: 0.5)),
-        ),
-      ),
-      child: Wrap(
-        spacing: 6,
-        runSpacing: 6,
-        crossAxisAlignment: WrapCrossAlignment.center,
-        children: [
-          for (final tag in _tags)
-            ActionChip(
-              label: Text('#$tag'),
-              visualDensity: VisualDensity.compact,
-              onPressed: _saving ? null : () => _editTag(tag),
-            ),
-          ActionChip(
-            label: const Text('+'),
-            tooltip: '添加标签',
-            visualDensity: VisualDensity.compact,
-            onPressed: _saving ? null : () => _addTag(),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildBottomToolbar() {
-    final scheme = Theme.of(context).colorScheme;
     return Material(
       color: scheme.surfaceContainerHighest.withValues(alpha: 0.72),
-      child: SizedBox(
-        height: 52,
-        child: ListView(
-          scrollDirection: Axis.horizontal,
-          padding: const EdgeInsets.symmetric(horizontal: 6),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(8, 4, 4, 4),
+        child: Row(
           children: [
-            _toolButton(Icons.sticky_note_2_outlined, '插入笔记', _pickNoteReference),
-            _toolButton(Icons.checklist, '插入任务', _pickTaskReference),
-            _toolButton(Icons.local_library_outlined, '插入知识库', _pickKnowledgeReference),
-            _toolButton(
-              _preview ? Icons.edit_outlined : Icons.visibility_outlined,
-              _preview ? '返回编辑' : '预览',
-              _togglePreview,
+            Expanded(child: _buildTagArea(scheme)),
+            IconButton(
+              tooltip: '插入引用',
+              icon: const Icon(Icons.link_outlined),
+              onPressed: _saving ? null : _pickReference,
+            ),
+            IconButton(
+              tooltip: '添加附件',
+              icon: const Icon(Icons.attach_file_outlined),
+              onPressed: _saving ? null : _pickAttachment,
             ),
           ],
         ),
@@ -263,24 +247,61 @@ class JottingEditorPageState extends State<JottingEditorPage> {
     );
   }
 
-  Widget _toolButton(IconData icon, String tooltip, VoidCallback action) {
-    return IconButton(
-      tooltip: tooltip,
-      icon: Icon(icon),
-      onPressed: _saving ? null : action,
+  Widget _buildTagArea(ColorScheme scheme) {
+    if (_tags.isEmpty) {
+      return Align(
+        alignment: Alignment.centerLeft,
+        child: ActionChip(
+          avatar: Icon(Icons.sell_outlined, size: 16, color: scheme.primary),
+          label: const Text('#标签'),
+          tooltip: '添加标签',
+          visualDensity: VisualDensity.compact,
+          onPressed: _saving ? null : _addTag,
+        ),
+      );
+    }
+
+    final visibleTags = _tagsExpanded ? _tags : _tags.take(3).toList();
+    final hiddenCount = _tags.length - visibleTags.length;
+    return Wrap(
+      spacing: 6,
+      runSpacing: 6,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: [
+        for (final tag in visibleTags)
+          ActionChip(
+            label: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 140),
+              child: Text(
+                '#$tag',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            visualDensity: VisualDensity.compact,
+            onPressed: _saving ? null : () => _editTag(tag),
+          ),
+        if (hiddenCount > 0)
+          ActionChip(
+            label: Text('+$hiddenCount'),
+            tooltip: _tagsExpanded ? '折叠标签' : '展开全部标签',
+            visualDensity: VisualDensity.compact,
+            onPressed: _saving
+                ? null
+                : () => setState(() => _tagsExpanded = !_tagsExpanded),
+          ),
+        ActionChip(
+          label: const Text('+'),
+          tooltip: '添加标签',
+          visualDensity: VisualDensity.compact,
+          onPressed: _saving ? null : _addTag,
+        ),
+      ],
     );
   }
 
-  Future<void> _togglePreview() async {
-    if (_preview) {
-      setState(() => _preview = false);
-      await Future<void>.delayed(Duration.zero);
-      if (mounted) _contentFocus.requestFocus();
-      return;
-    }
-    _lastSelection = _normalizedSelection;
-    FocusManager.instance.primaryFocus?.unfocus();
-    setState(() => _preview = true);
+  void _removeAttachmentAt(int index) {
+    setState(() => _attachments = List.of(_attachments)..removeAt(index));
   }
 
   void _removeReferenceAt(int index) {
@@ -319,7 +340,7 @@ class JottingEditorPageState extends State<JottingEditorPage> {
       if (!next.contains(normalized)) next.add(normalized);
       _tags = next;
     });
-    if (!_preview) _contentFocus.requestFocus();
+    _contentFocus.requestFocus();
   }
 
   Future<void> _addTag() async {
@@ -355,7 +376,7 @@ class JottingEditorPageState extends State<JottingEditorPage> {
       }
       _tags = List.of(_tags)..add(normalized);
     });
-    if (!_preview) _contentFocus.requestFocus();
+    _contentFocus.requestFocus();
   }
 
   String? _normalizeTag(String raw) {
@@ -364,42 +385,76 @@ class JottingEditorPageState extends State<JottingEditorPage> {
     return value;
   }
 
-  Future<void> _pickNoteReference() => _pickReference(
-    icon: Icons.sticky_note_2_outlined,
-    label: '笔记',
-    picker: const _JottingReferencePicker(type: JottingReferenceType.note),
-  );
-
-  Future<void> _pickTaskReference() => _pickReference(
-    icon: Icons.checklist,
-    label: '任务',
-    picker: const _JottingReferencePicker(type: JottingReferenceType.task),
-  );
-
-  Future<void> _pickKnowledgeReference() => _pickReference(
-    icon: Icons.local_library_outlined,
-    label: '知识库',
-    picker: const _JottingReferencePicker(
-      type: JottingReferenceType.knowledgeEntry,
-    ),
-  );
-
-  Future<void> _pickReference({
-    required IconData icon,
-    required String label,
-    required Widget picker,
-  }) async {
+  Future<void> _pickReference() async {
     final reference = await showModalBottomSheet<JottingReference>(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
-      builder: (context) => picker,
+      builder: (context) => const _JottingReferencePicker(),
     );
     if (!mounted || reference == null) return;
     setState(() {
       _references = List.of(_references)..add(reference);
     });
-    if (!_preview) _contentFocus.requestFocus();
+    _contentFocus.requestFocus();
+  }
+
+  Future<void> _pickAttachment() async {
+    final files = await pickMultipleFilePayloads(
+      dialogTitle: '选择附件',
+      type: FileType.any,
+    );
+    if (files.isEmpty || !mounted) return;
+    setState(() => _saving = true);
+    try {
+      final storage = context.read<StorageV2Service>();
+      for (final file in files) {
+        final tempDir = await Directory.systemTemp.createTemp('lynai_jotting_');
+        final tempFile = File('${tempDir.path}/${file.name}');
+        try {
+          await file.copyTo(tempFile);
+          final mimeType = _mimeTypeForName(file.name);
+          final resource = await storage.importResourceFile(
+            tempFile.path,
+            originalName: file.name,
+            mimeType: mimeType,
+            role: 'jotting',
+          );
+          setState(() {
+            _attachments = List.of(_attachments)
+              ..add(
+                JottingAttachment(
+                  resourceId: resource.id,
+                  originalName: resource.originalName,
+                  mimeType: resource.mimeType,
+                ),
+              );
+          });
+        } finally {
+          await tempDir.delete(recursive: true);
+        }
+      }
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('添加附件失败：$error')));
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  String _mimeTypeForName(String name) {
+    final lower = name.toLowerCase();
+    if (lower.endsWith('.png')) return 'image/png';
+    if (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) return 'image/jpeg';
+    if (lower.endsWith('.gif')) return 'image/gif';
+    if (lower.endsWith('.webp')) return 'image/webp';
+    if (lower.endsWith('.mp4')) return 'video/mp4';
+    if (lower.endsWith('.mp3')) return 'audio/mpeg';
+    if (lower.endsWith('.pdf')) return 'application/pdf';
+    if (lower.endsWith('.txt')) return 'text/plain';
+    return 'application/octet-stream';
   }
 
   Future<void> _requestClose() async {
@@ -447,6 +502,7 @@ class JottingEditorPageState extends State<JottingEditorPage> {
             content,
             tags: _tags,
             references: _references,
+            attachments: _attachments,
           );
       if (id != null) {
         await provider.update(
@@ -454,12 +510,14 @@ class JottingEditorPageState extends State<JottingEditorPage> {
           content: content,
           tags: _tags,
           references: _references,
+          attachments: _attachments,
         );
       }
       if (!mounted) return;
       _initialContent = content;
       _initialTags = List.unmodifiable(_tags);
       _initialReferences = List.unmodifiable(_references);
+      _initialAttachments = List.unmodifiable(_attachments);
       Navigator.of(
         context,
       ).pop(JottingEditorResult(jottingId: savedId, created: id == null));
@@ -471,21 +529,6 @@ class JottingEditorPageState extends State<JottingEditorPage> {
       setState(() => _saving = false);
     }
   }
-
-  TextSelection get _normalizedSelection {
-    final selection = _contentController.selection.isValid
-        ? _contentController.selection
-        : _lastSelection;
-    if (!selection.isValid) {
-      return TextSelection.collapsed(offset: _contentController.text.length);
-    }
-    return TextSelection(
-      baseOffset: _clampOffset(selection.baseOffset),
-      extentOffset: _clampOffset(selection.extentOffset),
-    );
-  }
-
-  int _clampOffset(int value) => value.clamp(0, _contentController.text.length);
 
   bool _sameStringList(List<String> left, List<String> right) {
     if (left.length != right.length) return false;
@@ -507,6 +550,23 @@ class JottingEditorPageState extends State<JottingEditorPage> {
           a.id != b.id ||
           a.title != b.title ||
           a.snippet != b.snippet) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  bool _sameAttachments(
+    List<JottingAttachment> left,
+    List<JottingAttachment> right,
+  ) {
+    if (left.length != right.length) return false;
+    for (var index = 0; index < left.length; index++) {
+      final a = left[index];
+      final b = right[index];
+      if (a.resourceId != b.resourceId ||
+          a.originalName != b.originalName ||
+          a.mimeType != b.mimeType) {
         return false;
       }
     }
@@ -579,10 +639,97 @@ class _ReferenceCard extends StatelessWidget {
   }
 }
 
-class _JottingReferencePicker extends StatefulWidget {
-  const _JottingReferencePicker({required this.type});
+class _EditorAttachmentCard extends StatefulWidget {
+  const _EditorAttachmentCard({
+    required this.attachment,
+    required this.onDelete,
+  });
 
-  final JottingReferenceType type;
+  final JottingAttachment attachment;
+  final VoidCallback? onDelete;
+
+  @override
+  State<_EditorAttachmentCard> createState() => _EditorAttachmentCardState();
+}
+
+class _EditorAttachmentCardState extends State<_EditorAttachmentCard> {
+  String? _path;
+
+  @override
+  void initState() {
+    super.initState();
+    _resolvePath();
+  }
+
+  Future<void> _resolvePath() async {
+    try {
+      final storage = context.read<StorageV2Service>();
+      final resource = await storage.findResourceById(widget.attachment.resourceId);
+      final path = resource == null ? null : await storage.resourcePath(resource);
+      if (!mounted) return;
+      setState(() => _path = path);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _path = null);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Material(
+      color: scheme.surface,
+      borderRadius: BorderRadius.circular(12),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(10, 8, 4, 8),
+        child: Row(
+          children: [
+            if (widget.attachment.isImage)
+              ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: _path == null
+                    ? const SizedBox.square(
+                        dimension: 44,
+                        child: Icon(Icons.image_outlined),
+                      )
+                    : Image.file(
+                        File(_path!),
+                        width: 44,
+                        height: 44,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, _, _) =>
+                            const SizedBox.square(
+                              dimension: 44,
+                              child: Icon(Icons.broken_image_outlined),
+                            ),
+                      ),
+              )
+            else
+              const Icon(Icons.insert_drive_file_outlined, size: 22),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                widget.attachment.originalName,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontWeight: FontWeight.w700),
+              ),
+            ),
+            if (widget.onDelete != null)
+              IconButton(
+                tooltip: '删除附件',
+                icon: const Icon(Icons.close, size: 18),
+                onPressed: widget.onDelete,
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _JottingReferencePicker extends StatefulWidget {
+  const _JottingReferencePicker();
 
   @override
   State<_JottingReferencePicker> createState() =>
@@ -591,6 +738,7 @@ class _JottingReferencePicker extends StatefulWidget {
 
 class _JottingReferencePickerState extends State<_JottingReferencePicker> {
   final _searchController = TextEditingController();
+  JottingReferenceType _type = JottingReferenceType.note;
   String _query = '';
 
   @override
@@ -611,12 +759,27 @@ class _JottingReferencePickerState extends State<_JottingReferencePicker> {
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
               child: Text(
-                _title,
+                '插入引用',
                 style: Theme.of(
                   context,
                 ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
               ),
             ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Wrap(
+                spacing: 6,
+                children: [
+                  for (final type in JottingReferenceType.values)
+                    ChoiceChip(
+                      label: Text(_typeLabel(type)),
+                      selected: _type == type,
+                      onSelected: (_) => setState(() => _type = type),
+                    ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 8),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: TextField(
@@ -656,7 +819,7 @@ class _JottingReferencePickerState extends State<_JottingReferencePicker> {
                           onTap: () => Navigator.pop(
                             context,
                             JottingReference(
-                              type: widget.type,
+                              type: _type,
                               id: item.id,
                               title: item.title,
                               snippet: item.snippet,
@@ -672,13 +835,13 @@ class _JottingReferencePickerState extends State<_JottingReferencePicker> {
     );
   }
 
-  String get _title => switch (widget.type) {
-    JottingReferenceType.note => '插入笔记引用',
-    JottingReferenceType.task => '插入任务引用',
-    JottingReferenceType.knowledgeEntry => '插入知识库引用',
+  String _typeLabel(JottingReferenceType type) => switch (type) {
+    JottingReferenceType.note => '笔记',
+    JottingReferenceType.task => '任务',
+    JottingReferenceType.knowledgeEntry => '知识库',
   };
 
-  IconData get _icon => switch (widget.type) {
+  IconData get _icon => switch (_type) {
     JottingReferenceType.note => Icons.sticky_note_2_outlined,
     JottingReferenceType.task => Icons.checklist,
     JottingReferenceType.knowledgeEntry => Icons.local_library_outlined,
@@ -688,7 +851,7 @@ class _JottingReferencePickerState extends State<_JottingReferencePicker> {
     BuildContext context,
   ) {
     final query = _query.trim().toLowerCase();
-    switch (widget.type) {
+    switch (_type) {
       case JottingReferenceType.note:
         final notes = context.read<FeatureProvider>().notes;
         return [

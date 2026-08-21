@@ -64,4 +64,47 @@ void main() {
     });
     expect(invalidTags.tags, isEmpty);
   });
+
+  test('references and attachments roundtrip and tolerate invalid values', () {
+    final createdAt = DateTime.utc(2026, 8, 16, 12);
+    final jotting = Jotting(
+      id: 'j4',
+      content: '带引用和附件的随记',
+      tags: const [],
+      references: const [
+        JottingReference(
+          type: JottingReferenceType.note,
+          id: 'n1',
+          title: '笔记一',
+          snippet: '摘要',
+        ),
+      ],
+      attachments: const [
+        JottingAttachment(
+          resourceId: 'res_1',
+          originalName: 'photo.png',
+          mimeType: 'image/png',
+        ),
+      ],
+      createdAt: createdAt,
+      updatedAt: createdAt,
+    );
+
+    final restored = Jotting.fromJson(jotting.toJson());
+    expect(restored.references.single.id, 'n1');
+    expect(restored.references.single.type, JottingReferenceType.note);
+    expect(restored.attachments.single.resourceId, 'res_1');
+    expect(restored.attachments.single.isImage, isTrue);
+
+    final invalid = Jotting.fromJson({
+      'id': 'j5',
+      'content': '正文',
+      'references': 'not-a-list',
+      'attachments': 'not-a-list',
+      'createdAt': createdAt.toIso8601String(),
+      'updatedAt': createdAt.toIso8601String(),
+    });
+    expect(invalid.references, isEmpty);
+    expect(invalid.attachments, isEmpty);
+  });
 }

@@ -1,6 +1,10 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
 import '../../models/jotting.dart';
+import '../../services/storage_v2_service.dart';
 import '../../widgets/latex_renderer.dart';
 
 /// Read-only detail view for a local jotting.
@@ -72,6 +76,14 @@ class JottingDetail extends StatelessWidget {
                           ? null
                           : () => onReferenceTap!(reference),
                     ),
+                  ),
+              ],
+              if (jotting.attachments.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                for (final attachment in jotting.attachments)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: _AttachmentCard(attachment: attachment),
                   ),
               ],
               const Divider(height: 28),
@@ -149,6 +161,118 @@ class _ReferenceCard extends StatelessWidget {
                 Icon(Icons.chevron_right, color: scheme.outline),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _AttachmentCard extends StatefulWidget {
+  const _AttachmentCard({required this.attachment});
+
+  final JottingAttachment attachment;
+
+  @override
+  State<_AttachmentCard> createState() => _AttachmentCardState();
+}
+
+class _AttachmentCardState extends State<_AttachmentCard> {
+  String? _path;
+
+  @override
+  void initState() {
+    super.initState();
+    _resolvePath();
+  }
+
+  Future<void> _resolvePath() async {
+    try {
+      final storage = context.read<StorageV2Service>();
+      final resource = await storage.findResourceById(
+        widget.attachment.resourceId,
+      );
+      final path = resource == null ? null : await storage.resourcePath(resource);
+      if (!mounted) return;
+      setState(() => _path = path);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _path = null);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Material(
+      color: scheme.surfaceContainerLow,
+      borderRadius: BorderRadius.circular(12),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: widget.attachment.isImage && _path != null
+            ? () => _openImage(context)
+            : null,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+          child: Row(
+            children: [
+              if (widget.attachment.isImage)
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: _path == null
+                      ? const SizedBox.square(
+                          dimension: 44,
+                          child: Icon(Icons.image_outlined),
+                        )
+                      : Image.file(
+                          File(_path!),
+                          width: 44,
+                          height: 44,
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, _, _) => const SizedBox.square(
+                            dimension: 44,
+                            child: Icon(Icons.broken_image_outlined),
+                          ),
+                        ),
+                )
+              else
+                const Icon(Icons.insert_drive_file_outlined, size: 22),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  widget.attachment.originalName,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontWeight: FontWeight.w700),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _openImage(BuildContext context) {
+    showDialog<void>(
+      context: context,
+      builder: (context) => Dialog.fullscreen(
+        child: Stack(
+          children: [
+            Positioned.fill(
+              child: InteractiveViewer(
+                child: Image.file(File(_path!), fit: BoxFit.contain),
+              ),
+            ),
+            Positioned(
+              top: 8,
+              right: 8,
+              child: IconButton(
+                tooltip: '关闭',
+                icon: const Icon(Icons.close),
+                onPressed: () => Navigator.pop(context),
+              ),
+            ),
+          ],
         ),
       ),
     );

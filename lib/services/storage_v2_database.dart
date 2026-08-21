@@ -562,6 +562,9 @@ class JottingRows extends Table {
   TextColumn get referencesJson => text()
       .named('references_json')
       .withDefault(const Constant('[]'))();
+  TextColumn get attachmentsJson => text()
+      .named('attachments_json')
+      .withDefault(const Constant('[]'))();
   TextColumn get createdAt => text().named('created_at')();
   TextColumn get updatedAt => text().named('updated_at')();
 
@@ -1130,7 +1133,7 @@ class SyncScopeState {
 class StorageV2DriftDatabase extends _$StorageV2DriftDatabase {
   StorageV2DriftDatabase(File file) : super(_open(file));
 
-  static const currentSchemaVersion = 31;
+  static const currentSchemaVersion = 32;
 
   bool needsTransportHeadBackfill = false;
 
@@ -1405,6 +1408,13 @@ SET captures_local = active
         await _addColumnIfMissing(
           'jottings',
           'references_json',
+          "TEXT NOT NULL DEFAULT '[]'",
+        );
+      }
+      if (from < 32) {
+        await _addColumnIfMissing(
+          'jottings',
+          'attachments_json',
           "TEXT NOT NULL DEFAULT '[]'",
         );
       }
@@ -6551,6 +6561,20 @@ CREATE TABLE IF NOT EXISTS cloud_reseed_tasks (
     }
   }
 
+  List<Map<String, dynamic>> _parseAttachmentsJson(String? raw) {
+    if (raw == null || raw.isEmpty) return const [];
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is! List) return const [];
+      return decoded
+          .whereType<Map>()
+          .map((item) => Map<String, dynamic>.from(item))
+          .toList(growable: false);
+    } catch (_) {
+      return const [];
+    }
+  }
+
   Future<Map<String, dynamic>> _loadJottings(
     StorageV2DriftDatabase db,
   ) async {
@@ -6566,6 +6590,7 @@ CREATE TABLE IF NOT EXISTS cloud_reseed_tasks (
                 'content': row.content,
                 'tags': _parseTagsJson(row.tagsJson),
                 'references': _parseReferencesJson(row.referencesJson),
+                'attachments': _parseAttachmentsJson(row.attachmentsJson),
                 'createdAt': row.createdAt,
                 'updatedAt': row.updatedAt,
               },
@@ -7267,6 +7292,10 @@ CREATE TABLE IF NOT EXISTS cloud_reseed_tasks (
           .whereType<Map>()
           .map((item) => Map<String, dynamic>.from(item))
           .toList(growable: false);
+      final attachments = (json['attachments'] as List<dynamic>? ?? const [])
+          .whereType<Map>()
+          .map((item) => Map<String, dynamic>.from(item))
+          .toList(growable: false);
       await db
           .into(db.jottingRows)
           .insert(
@@ -7275,6 +7304,7 @@ CREATE TABLE IF NOT EXISTS cloud_reseed_tasks (
               content: content,
               tagsJson: Value(jsonEncode(tags)),
               referencesJson: Value(jsonEncode(references)),
+              attachmentsJson: Value(jsonEncode(attachments)),
               createdAt: createdAt,
               updatedAt: updatedAt,
             ),

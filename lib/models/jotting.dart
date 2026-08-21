@@ -49,10 +49,42 @@ class JottingReference {
   };
 }
 
+/// 随记附件快照。
+///
+/// 文件内容通过 `StorageV2Service.importResourceFile` 导入私有存储后，
+/// 这里只保存资源 ID 和展示信息。
+class JottingAttachment {
+  const JottingAttachment({
+    required this.resourceId,
+    required this.originalName,
+    required this.mimeType,
+  });
+
+  final String resourceId;
+  final String originalName;
+  final String mimeType;
+
+  bool get isImage => mimeType.startsWith('image/');
+
+  factory JottingAttachment.fromJson(Map<String, dynamic> json) {
+    return JottingAttachment(
+      resourceId: json['resourceId'] as String? ?? '',
+      originalName: json['originalName'] as String? ?? '附件',
+      mimeType: json['mimeType'] as String? ?? 'application/octet-stream',
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+    'resourceId': resourceId,
+    'originalName': originalName,
+    'mimeType': mimeType,
+  };
+}
+
 /// 随记数据模型。
 ///
-/// 随记是时间序列上的轻量记录：没有标题和分页，只有正文、标签、引用卡片
-/// 和时间戳。正文按 Markdown 原文保存，渲染时复用 [MarkdownWithLatex]。
+/// 随记是时间序列上的轻量记录：没有标题和分页，只有正文、标签、引用卡片、
+/// 附件和时间戳。正文按 Markdown 原文保存，渲染时复用 [MarkdownWithLatex]。
 class Jotting {
   const Jotting({
     required this.id,
@@ -61,6 +93,7 @@ class Jotting {
     required this.createdAt,
     required this.updatedAt,
     this.references = const [],
+    this.attachments = const [],
   });
 
   final String id;
@@ -74,6 +107,9 @@ class Jotting {
   /// 结构化引用卡片。
   final List<JottingReference> references;
 
+  /// 附件列表。
+  final List<JottingAttachment> attachments;
+
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -85,6 +121,9 @@ class Jotting {
 
   /// 每条随记最多可保存的引用卡片数。
   static const maxReferenceCount = 30;
+
+  /// 每条随记最多可保存的附件数。
+  static const maxAttachmentCount = 20;
 
   /// 归一化标签列表：trim、小写、去重、丢弃空标签，并执行长度/数量约束。
   static List<String> normalizeTags(Iterable<String> values) {
@@ -107,6 +146,7 @@ class Jotting {
       content: json['content'] as String? ?? '',
       tags: normalizeTags(_tagsFromJson(json['tags'])),
       references: _referencesFromJson(json['references']),
+      attachments: _attachmentsFromJson(json['attachments']),
       createdAt: DateTime.parse(json['createdAt'] as String),
       updatedAt: DateTime.parse(json['updatedAt'] as String),
     );
@@ -132,12 +172,29 @@ class Jotting {
     return List.unmodifiable(result);
   }
 
+  static List<JottingAttachment> _attachmentsFromJson(Object? raw) {
+    if (raw is! List) return const [];
+    final result = <JottingAttachment>[];
+    for (final item in raw) {
+      if (item is! Map) continue;
+      final attachment = JottingAttachment.fromJson(
+        Map<String, dynamic>.from(item),
+      );
+      if (attachment.resourceId.isEmpty) continue;
+      result.add(attachment);
+      if (result.length >= maxAttachmentCount) break;
+    }
+    return List.unmodifiable(result);
+  }
+
   Map<String, dynamic> toJson() => {
     'id': id,
     'content': content,
     'tags': tags,
     if (references.isNotEmpty)
       'references': references.map((item) => item.toJson()).toList(),
+    if (attachments.isNotEmpty)
+      'attachments': attachments.map((item) => item.toJson()).toList(),
     'createdAt': createdAt.toUtc().toIso8601String(),
     'updatedAt': updatedAt.toUtc().toIso8601String(),
   };
@@ -147,6 +204,7 @@ class Jotting {
     String? content,
     List<String>? tags,
     List<JottingReference>? references,
+    List<JottingAttachment>? attachments,
     DateTime? createdAt,
     DateTime? updatedAt,
   }) {
@@ -155,6 +213,7 @@ class Jotting {
       content: content ?? this.content,
       tags: tags ?? this.tags,
       references: references ?? this.references,
+      attachments: attachments ?? this.attachments,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
     );

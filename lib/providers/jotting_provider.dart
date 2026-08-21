@@ -90,6 +90,7 @@ class JottingProvider extends ChangeNotifier with SerializedSaveQueue {
     String content, {
     List<String> tags = const [],
     List<JottingReference> references = const [],
+    List<JottingAttachment> attachments = const [],
     DateTime? createdAt,
   }) async {
     final trimmed = content.trim();
@@ -102,6 +103,7 @@ class JottingProvider extends ChangeNotifier with SerializedSaveQueue {
       content: trimmed,
       tags: Jotting.normalizeTags(tags),
       references: _normalizeReferences(references),
+      attachments: _normalizeAttachments(attachments),
       createdAt: now,
       updatedAt: now,
     );
@@ -127,6 +129,7 @@ class JottingProvider extends ChangeNotifier with SerializedSaveQueue {
     required String content,
     List<String> tags = const [],
     List<JottingReference> references = const [],
+    List<JottingAttachment> attachments = const [],
   }) async {
     final trimmed = content.trim();
     if (trimmed.isEmpty) {
@@ -142,6 +145,7 @@ class JottingProvider extends ChangeNotifier with SerializedSaveQueue {
       content: trimmed,
       tags: Jotting.normalizeTags(tags),
       references: _normalizeReferences(references),
+      attachments: _normalizeAttachments(attachments),
       createdAt: current.createdAt,
       updatedAt: DateTime.now(),
     );
@@ -252,6 +256,7 @@ class JottingProvider extends ChangeNotifier with SerializedSaveQueue {
           content: item.content,
           tags: Jotting.normalizeTags(item.tags),
           references: _normalizeReferences(item.references),
+          attachments: _normalizeAttachments(item.attachments),
           createdAt: item.createdAt,
           updatedAt: item.updatedAt,
         ),
@@ -279,11 +284,25 @@ class JottingProvider extends ChangeNotifier with SerializedSaveQueue {
     return List.unmodifiable(result);
   }
 
+  List<JottingAttachment> _normalizeAttachments(
+    Iterable<JottingAttachment> values,
+  ) {
+    final seen = <String>{};
+    final result = <JottingAttachment>[];
+    for (final item in values) {
+      if (item.resourceId.isEmpty || !seen.add(item.resourceId)) continue;
+      result.add(item);
+      if (result.length >= Jotting.maxAttachmentCount) break;
+    }
+    return List.unmodifiable(result);
+  }
+
   bool _sameJotting(Jotting left, Jotting right) {
     return left.id == right.id &&
         left.content == right.content &&
         listEquals(left.tags, right.tags) &&
         _sameReferences(left.references, right.references) &&
+        _sameAttachments(left.attachments, right.attachments) &&
         left.createdAt == right.createdAt &&
         left.updatedAt == right.updatedAt;
   }
@@ -300,6 +319,23 @@ class JottingProvider extends ChangeNotifier with SerializedSaveQueue {
           a.id != b.id ||
           a.title != b.title ||
           a.snippet != b.snippet) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  bool _sameAttachments(
+    List<JottingAttachment> left,
+    List<JottingAttachment> right,
+  ) {
+    if (left.length != right.length) return false;
+    for (var index = 0; index < left.length; index++) {
+      final a = left[index];
+      final b = right[index];
+      if (a.resourceId != b.resourceId ||
+          a.originalName != b.originalName ||
+          a.mimeType != b.mimeType) {
         return false;
       }
     }

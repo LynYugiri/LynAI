@@ -91,7 +91,8 @@ void main() {
 
       expect(find.text('新随记'), findsOneWidget);
       expect(find.widgetWithText(FilledButton, '完成'), findsOneWidget);
-      expect(find.byTooltip('插入笔记'), findsOneWidget);
+      expect(find.byTooltip('插入引用'), findsOneWidget);
+      expect(find.byTooltip('添加附件'), findsOneWidget);
 
       await tester.tap(find.byTooltip('取消新建'));
       await tester.pumpAndSettle();
