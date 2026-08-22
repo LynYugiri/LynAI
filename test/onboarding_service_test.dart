@@ -42,6 +42,7 @@ void main() {
     final service = OnboardingService();
     final draft = service.buildLocalDraft(
       OnboardingInput(
+        userName: '小明',
         purposes: const ['knowledge', 'cards', 'todos'],
         occupation: 'student',
         freeText: '准备考研',
@@ -51,12 +52,14 @@ void main() {
 
     expect(draft.role.name, '学习助手');
     expect(draft.role.systemPrompt, contains('学生'));
+    expect(draft.role.systemPrompt, contains('小明'));
     expect(draft.roleMemory.goal, '准备考研');
     expect(draft.knowledgeBases, isNotEmpty);
     expect(draft.knowledgeBases.single.categories.length, 2);
     expect(draft.memoryDecks, isNotEmpty);
     expect(draft.taskLists, isNotEmpty);
     expect(draft.agent.enabledByDefault, isTrue);
+    expect(draft.welcomeMessage, contains('小明'));
     expect(draft.welcomeMessage, contains('学习助手'));
     expect(draft.welcomeMessage, contains('学习资料库'));
     expect(draft.welcomeMessage, contains('准备考研'));

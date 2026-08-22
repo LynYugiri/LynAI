@@ -52,6 +52,11 @@ class OnboardingWizardController extends ChangeNotifier {
     notifyListeners();
   }
 
+  void setUserName(String name) {
+    _input = _input.copyWith(userName: name.trim(), updatedAt: DateTime.now());
+    notifyListeners();
+  }
+
   void setPurposes(List<String> purposes) {
     _input = _input.copyWith(
       purposes: purposes.toSet().toList(growable: false),

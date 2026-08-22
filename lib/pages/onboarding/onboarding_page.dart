@@ -55,6 +55,7 @@ class _OnboardingPageState extends State<OnboardingPage> {
   ];
 
   final OnboardingWizardController _controller = OnboardingWizardController();
+  final TextEditingController _nameController = TextEditingController();
   final TextEditingController _occupationCustomController =
       TextEditingController();
   final TextEditingController _freeTextController = TextEditingController();
@@ -75,6 +76,7 @@ class _OnboardingPageState extends State<OnboardingPage> {
     _controller.loadLastInput(settings);
     _selectedPurposes = _controller.input.purposes.toSet();
     _occupation = _controller.input.occupation;
+    _nameController.text = _controller.input.userName;
     _occupationCustomController.text = _controller.input.occupationCustom;
     _freeTextController.text = _controller.input.freeText;
   }
@@ -82,6 +84,7 @@ class _OnboardingPageState extends State<OnboardingPage> {
   @override
   void dispose() {
     _controller.dispose();
+    _nameController.dispose();
     _occupationCustomController.dispose();
     _freeTextController.dispose();
     _welcomeController.dispose();
@@ -155,6 +158,7 @@ class _OnboardingPageState extends State<OnboardingPage> {
   }
 
   void _saveInputToController() {
+    _controller.setUserName(_nameController.text);
     _controller.setPurposes(_selectedPurposes.toList(growable: false));
     _controller.setOccupation(
       _occupation,
@@ -163,10 +167,10 @@ class _OnboardingPageState extends State<OnboardingPage> {
     _controller.setFreeText(_freeTextController.text);
   }
 
-  // ─── Step 1: 三个问题分步 ──────────────────────────────────
+  // ─── Step 1: 四个问题分步 ──────────────────────────────────
 
   void _goToQuestion(int index) {
-    if (index < 0 || index > 2 || index == _questionIndex) return;
+    if (index < 0 || index > 3 || index == _questionIndex) return;
     _questionPageController.animateToPage(
       index,
       duration: const Duration(milliseconds: 420),
@@ -183,6 +187,7 @@ class _OnboardingPageState extends State<OnboardingPage> {
             controller: _questionPageController,
             onPageChanged: (index) => setState(() => _questionIndex = index),
             children: [
+              _buildNameQuestion(),
               _buildPurposeQuestion(),
               _buildOccupationQuestion(),
               _buildFreeTextQuestion(),
@@ -205,16 +210,16 @@ class _OnboardingPageState extends State<OnboardingPage> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            '第 ${_questionIndex + 1} / 3 步',
+            '第 ${_questionIndex + 1} / 4 步',
             style: Theme.of(context).textTheme.labelMedium,
           ),
           const SizedBox(height: 8),
           Row(
-            children: List.generate(3, (index) {
+            children: List.generate(4, (index) {
               final active = index <= _questionIndex;
               return Expanded(
                 child: Padding(
-                  padding: EdgeInsets.only(right: index == 2 ? 0 : 6),
+                  padding: EdgeInsets.only(right: index == 3 ? 0 : 6),
                   child: AnimatedContainer(
                     duration: const Duration(milliseconds: 300),
                     curve: Curves.easeInOut,
@@ -234,7 +239,7 @@ class _OnboardingPageState extends State<OnboardingPage> {
   }
 
   Widget _buildQuestionNavBar() {
-    final isLast = _questionIndex == 2;
+    final isLast = _questionIndex == 3;
     return SafeArea(
       top: false,
       child: Padding(
@@ -273,6 +278,24 @@ class _OnboardingPageState extends State<OnboardingPage> {
         Text(title, style: Theme.of(context).textTheme.headlineSmall),
         const SizedBox(height: 4),
         Text(subtitle, style: Theme.of(context).textTheme.bodyMedium),
+      ],
+    );
+  }
+
+  Widget _buildNameQuestion() {
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+      children: [
+        _buildQuestionTitle('你的名字是？', '可选。我会用你的名字称呼你，并写进你的专属配置'),
+        const SizedBox(height: 16),
+        TextField(
+          controller: _nameController,
+          textInputAction: TextInputAction.next,
+          decoration: const InputDecoration(
+            hintText: '例如：小明 / Alex',
+            border: OutlineInputBorder(),
+          ),
+        ),
       ],
     );
   }
@@ -352,7 +375,7 @@ class _OnboardingPageState extends State<OnboardingPage> {
           controller: _freeTextController,
           minLines: 6,
           maxLines: 12,
-          autofocus: _questionIndex == 2,
+          autofocus: _questionIndex == 3,
           textInputAction: TextInputAction.newline,
           decoration: const InputDecoration(
             hintText: '例如：我在准备考研，希望帮我整理笔记、制定复习计划，回复简洁一点',

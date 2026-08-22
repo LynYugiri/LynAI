@@ -149,7 +149,7 @@ OCR 悬浮翻译使用请求内轻量文本组。Native OCR 输出 `text`、识�
 
 `ChatRole` 保存角色名、系统提示词、默认模型、可选主题色和可选的 `defaultMemory`（`AgentWorkingMemory`）。`defaultMemory` 仅作为该角色新建对话时的初始工作记忆；`null` 或空记忆行为与旧版本一致。`ChatRoleGroup` 保存角色分组，分组里的角色 ID 会在加载时过滤掉不存在的角色。
 
-新手向导模型在 `lib/models/onboarding/`：`OnboardingInput` 保存用户上次选择的用途、身份和补充描述，并集中维护用途/职业 key 到展示文案的 `purposeLabels`、`occupationLabels`；`OnboardingDraft` 及其子结构是 AI/本地模板生成的编辑草稿，落地前不写入数据库，其中 `welcomeMessage` 是随草稿一起生成、可编辑和单独重新生成的欢迎语。
+新手向导模型在 `lib/models/onboarding/`：`OnboardingInput` 保存用户上次填写的名字（`userName`）、用途、身份和补充描述，并集中维护用途/职业 key 到展示文案的 `purposeLabels`、`occupationLabels`；`OnboardingDraft` 及其子结构是 AI/本地模板生成的编辑草稿，落地前不写入数据库，其中 `welcomeMessage` 是随草稿一起生成、可编辑和单独重新生成的欢迎语。
 
 ## 任务与任务清单
 

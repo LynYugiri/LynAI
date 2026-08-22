@@ -35,6 +35,7 @@ class OnboardingInput {
   };
 
   final int version;
+  final String userName;
   final List<String> purposes;
   final String occupation;
   final String occupationCustom;
@@ -43,6 +44,7 @@ class OnboardingInput {
 
   const OnboardingInput({
     this.version = currentVersion,
+    this.userName = '',
     this.purposes = const [],
     this.occupation = 'other',
     this.occupationCustom = '',
@@ -55,6 +57,7 @@ class OnboardingInput {
   }
 
   bool get isEmpty =>
+      userName.trim().isEmpty &&
       purposes.isEmpty &&
       occupation == 'other' &&
       occupationCustom.trim().isEmpty &&
@@ -71,6 +74,7 @@ class OnboardingInput {
     }
     return OnboardingInput(
       version: (json['version'] as num?)?.toInt() ?? currentVersion,
+      userName: (json['userName'] as String?)?.trim() ?? '',
       purposes: purposes.toSet().toList(growable: false),
       occupation: (json['occupation'] as String?)?.trim().isNotEmpty == true
           ? (json['occupation'] as String).trim()
@@ -88,6 +92,7 @@ class OnboardingInput {
 
   Map<String, dynamic> toJson() => {
     'version': version,
+    if (userName.isNotEmpty) 'userName': userName,
     'purposes': purposes,
     'occupation': occupation,
     if (occupationCustom.isNotEmpty) 'occupationCustom': occupationCustom,
@@ -97,6 +102,7 @@ class OnboardingInput {
 
   OnboardingInput copyWith({
     int? version,
+    String? userName,
     List<String>? purposes,
     String? occupation,
     String? occupationCustom,
@@ -105,6 +111,7 @@ class OnboardingInput {
   }) {
     return OnboardingInput(
       version: version ?? this.version,
+      userName: userName ?? this.userName,
       purposes: purposes ?? this.purposes,
       occupation: occupation ?? this.occupation,
       occupationCustom: occupationCustom ?? this.occupationCustom,

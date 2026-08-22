@@ -73,6 +73,7 @@ void main() {
 
   test('OnboardingInput round-trip trims duplicates', () {
     final input = OnboardingInput(
+      userName: ' 小明 ',
       purposes: const ['knowledge', 'knowledge', 'todos'],
       occupation: 'student',
       occupationCustom: ' 考研学生 ',
@@ -82,6 +83,7 @@ void main() {
     final restored = OnboardingInput.fromJson(
       jsonDecode(jsonEncode(input.toJson())) as Map<String, dynamic>,
     );
+    expect(restored.userName, '小明');
     expect(restored.purposes, ['knowledge', 'todos']);
     expect(restored.occupationCustom, '考研学生');
     expect(restored.freeText, '请帮我复习');

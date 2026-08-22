@@ -173,7 +173,11 @@ class OnboardingService {
   }
 
   String _buildAiUserPrompt(OnboardingInput input, OnboardingDraft? current) {
-    final buffer = StringBuffer()
+    final buffer = StringBuffer();
+    if (input.userName.trim().isNotEmpty) {
+      buffer.writeln('用户姓名：${input.userName.trim()}');
+    }
+    buffer
       ..writeln('用户用途：${_purposeSummary(input)}')
       ..writeln('身份职业：${_occupationLabel(input)}');
     if (input.freeText.trim().isNotEmpty) {
@@ -476,6 +480,14 @@ class OnboardingService {
           ? _memoryGoalFor(input)
           : input.freeText.trim(),
       entries: [
+        if (input.userName.trim().isNotEmpty)
+          AgentMemoryEntry(
+            id: _uuid.v4(),
+            kind: AgentMemoryEntry.fact,
+            content: '用户姓名：${input.userName.trim()}',
+            pinned: true,
+            createdAt: DateTime.now(),
+          ),
         AgentMemoryEntry(
           id: _uuid.v4(),
           kind: AgentMemoryEntry.fact,
@@ -596,8 +608,13 @@ class OnboardingService {
   }
 
   String _buildLocalWelcome(OnboardingInput input, OnboardingDraft draft) {
-    final buffer = StringBuffer()
-      ..write('我是你的${draft.role.name}。');
+    final name = input.userName.trim();
+    final buffer = StringBuffer();
+    if (name.isNotEmpty) {
+      buffer.write('你好，$name！我是你的${draft.role.name}。');
+    } else {
+      buffer.write('我是你的${draft.role.name}。');
+    }
     final goal = input.freeText.trim();
     if (goal.isNotEmpty) {
       buffer.write('以后你可以直接告诉我「$goal」，我会在需要时调用笔记、待办和知识库。');
@@ -649,8 +666,11 @@ class OnboardingService {
 
   String _rolePromptFor(OnboardingInput input) {
     final buffer = StringBuffer()
-      ..writeln('你是 LynAI 中为用户定制的${_roleNameFor(input)}。')
-      ..writeln('用户身份：${_occupationLabel(input)}。');
+      ..writeln('你是 LynAI 中为用户定制的${_roleNameFor(input)}。');
+    if (input.userName.trim().isNotEmpty) {
+      buffer.writeln('用户姓名：${input.userName.trim()}。');
+    }
+    buffer.writeln('用户身份：${_occupationLabel(input)}。');
     if (input.purposes.isNotEmpty) {
       buffer.writeln('用户主要用途：${_purposeSummary(input)}。');
     }
