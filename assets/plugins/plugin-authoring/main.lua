@@ -1,0 +1,1 @@
+-- Skill-only built-in plugin. Runtime handlers are intentionally absent.

@@ -117,6 +117,9 @@ flutter:
     - assets/plugins/mobile-agent-skills/
     - assets/plugins/mobile-agent-skills/defaults/
     - assets/plugins/mobile-agent-skills/defaults/skills/
+    - assets/plugins/plugin-authoring/
+    - assets/plugins/plugin-authoring/defaults/
+    - assets/plugins/plugin-authoring/defaults/skills/
     - changelogs/
     - third_party/lua_dardo/LICENSE
     - third_party/webview_all_linux/LICENSE

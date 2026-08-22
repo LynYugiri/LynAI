@@ -38,6 +38,7 @@ class PluginRepository {
     'status-dashboard',
     'weather-query',
     'mobile-agent-skills',
+    'plugin-authoring',
   ];
   static const builtInPluginFiles = {
     'status-dashboard': [
@@ -70,6 +71,13 @@ class PluginRepository {
       'defaults/skills/note_taking.md',
       'defaults/skills/note_capture_to_kb.md',
       'defaults/skills/memory_card_generation.md',
+    ],
+    'plugin-authoring': [
+      'plugin.json',
+      'main.lua',
+      'defaults/skills/plugin_authoring.md',
+      'defaults/skills/web_design.md',
+      'defaults/skills/motion_design.md',
     ],
   };
 

@@ -77,6 +77,82 @@ void main() {
     );
   });
 
+  test('built-in plugin-authoring plugin is declared', () {
+    expect(PluginRepository.builtInPluginIds, contains('plugin-authoring'));
+    expect(
+      PluginRepository.builtInPluginFiles['plugin-authoring'],
+      containsAll([
+        'plugin.json',
+        'main.lua',
+        'defaults/skills/plugin_authoring.md',
+        'defaults/skills/web_design.md',
+        'defaults/skills/motion_design.md',
+      ]),
+    );
+  });
+
+  test(
+    'plugin-authoring manifest lists 3 skills with matching files',
+    () async {
+      const pluginId = 'plugin-authoring';
+      const manifestPath = 'assets/plugins/$pluginId/plugin.json';
+      final manifestRaw = await File(manifestPath).readAsString();
+      final manifest = jsonDecode(manifestRaw) as Map<String, dynamic>;
+      final skills = (manifest['skills'] as List).cast<Map<String, dynamic>>();
+      final editables = (manifest['editableFiles'] as List)
+          .cast<Map<String, dynamic>>();
+
+      expect(skills.length, 3, reason: 'plugin-authoring 应有 3 个 skill');
+      expect(
+        skills.map((s) => s['name'] as String),
+        ['plugin_authoring', 'web_design', 'motion_design'],
+      );
+      expect(editables.length, 3, reason: 'editableFiles 应与 skills 数量一致');
+
+      final pathPattern = RegExp(r'^skills/([A-Za-z0-9_-]{1,64})\.md$');
+      final savedFiles = PluginRepository.builtInPluginFiles[pluginId]!
+          .where((f) => f.startsWith('defaults/skills/'))
+          .toSet();
+      for (final skill in skills) {
+        final name = skill['name'] as String;
+        final defaultRel = 'defaults/skills/$name.md';
+        expect(
+          savedFiles,
+          contains(defaultRel),
+          reason: 'builtInPluginFiles 缺少 $defaultRel',
+        );
+        final assetFile = File('assets/plugins/$pluginId/$defaultRel');
+        expect(
+          await assetFile.exists(),
+          isTrue,
+          reason: 'skill 资源文件不存在: ${assetFile.path}',
+        );
+        final content = await assetFile.readAsString();
+        expect(content.trim(), isNotEmpty, reason: 'skill 文件为空: $name');
+        final editable = editables.firstWhere(
+          (e) => e['path'] == 'skills/$name.md',
+          orElse: () => fail('editableFiles 缺少 skills/$name.md'),
+        );
+        expect(editable['defaultPath'], defaultRel);
+        expect(editable['type'], 'markdown');
+        expect(pathPattern.hasMatch(editable['path'] as String), isTrue);
+      }
+
+      final version = manifest['version'] as String;
+      expect(version, '1.0.0');
+      expect(
+        manifest['lynai'] as Map<String, dynamic>,
+        containsPair('autoEnable', true),
+        reason: '纯 Skill 内置插件应自动启用',
+      );
+      expect(
+        manifest['permissions'] as List,
+        isEmpty,
+        reason: '纯知识型插件不应声明权限',
+      );
+    },
+  );
+
   test(
     'mobile-agent-skills manifest lists 14 skills with matching files',
     () async {
@@ -2248,6 +2324,47 @@ function same_func(args) return {ok = true} end
       await installedRoot.delete(recursive: true);
     }
   });
+
+  test(
+    'plugin-authoring built-in auto-enables skills with overlay fallback',
+    () async {
+      final installedRoot = await Directory.systemTemp.createTemp(
+        'lynai_plugin_authoring_',
+      );
+      try {
+        final provider = PluginProvider(
+          repository: PluginRepository(rootOverride: installedRoot),
+        );
+
+        await provider.importDirectory('assets/plugins/plugin-authoring');
+        final plugin = await provider.trustInstalledBuiltIn('plugin-authoring');
+
+        expect(plugin.id, 'plugin-authoring');
+        expect(plugin.enabled, isTrue, reason: '纯 Skill 插件应自动启用');
+        expect(plugin.enabledSkills.length, 3);
+        expect(
+          plugin.enabledSkills,
+          containsAll(['plugin_authoring', 'web_design', 'motion_design']),
+        );
+
+        // 首次安装没有 skills/ 可编辑副本，读取应回退到 defaults/ 出厂模板。
+        expect(
+          await provider.readFile('plugin-authoring', 'skills/plugin_authoring.md'),
+          contains('# 插件创作工作流'),
+        );
+        expect(
+          await provider.readFile('plugin-authoring', 'skills/web_design.md'),
+          contains('# 前端设计'),
+        );
+        expect(
+          await provider.readFile('plugin-authoring', 'skills/motion_design.md'),
+          contains('# 动效设计'),
+        );
+      } finally {
+        await installedRoot.delete(recursive: true);
+      }
+    },
+  );
 
   test('Built-in plugin file lists skip source-only files', () {
     for (final files in PluginRepository.builtInPluginFiles.values) {

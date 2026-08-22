@@ -214,7 +214,7 @@ Android 悬浮助手由原生 `WindowManager` 渲染系统级气泡和上下文�
 
 `run_subagent` 是 Agent 专用工具。它使用当前对话模型和权限创建独立短上下文，允许子任务多轮调用 `execute_lua`、Skill、OCR/识图等工具，但不会把中间屏幕信息写入主对话上下文。Subagent 会接收当前 Agent 工作记忆和计划摘要，完成后会把最终摘要或 `memoryUpdates` 合并回工作记忆。Subagent 禁止递归启动 Subagent，并受共享工具轮数上限约束，最终必须返回 `{ok:true,result:{...}}` 或 `{ok:false,error:{...}}`。
 
-Agent 可通过 `list_plugin_skills` 查看启用 Skill 摘要、`load_plugin_skill` 读取 Markdown 正文，并可在用户要求沉淀或修正流程且已授权 `plugins.skills.files:write` 时调用 `save_plugin_skill` 写回可编辑 Skill。Skill 正文默认路径为 `skills/<name>.md`；`PluginSkillDefinition.editable` 默认 true，若清单显式设为 false 则模型写入会被拒绝。内置 Skill 的出厂正文放在 `defaults/skills/*.md`，用户或模型写入的 `skills/*.md` 作为 overlay 保留，不会被内置插件同步覆盖。
+Agent 可通过 `list_plugin_skills` 查看启用 Skill 摘要、`load_plugin_skill` 读取 Markdown 正文，并可在用户要求沉淀或修正流程且已授权 `plugins.skills.files:write` 时调用 `save_plugin_skill` 写回可编辑 Skill。Skill 正文默认路径为 `skills/<name>.md`；`PluginSkillDefinition.editable` 默认 true，若清单显式设为 false 则模型写入会被拒绝。内置 Skill 的出厂正文放在 `defaults/skills/*.md`，用户或模型写入的 `skills/*.md` 作为 overlay 保留，不会被内置插件同步覆盖。内置 `plugin-authoring` 插件承载插件创作 Skill 集（`plugin_authoring`/`web_design`/`motion_design`），Agent 系统提示词在创建或修改插件前指引先加载对应 Skill 正文。
 
 Subagent 适合 QQ/消息应用这类流程：主 Agent 只描述目标，Subagent 负责打开应用、查询屏幕、滚动、OCR 和读取上下文，最后把联系人、最近消息、置信度和摘要返回主 Agent。
 

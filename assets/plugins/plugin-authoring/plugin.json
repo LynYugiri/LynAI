@@ -1,0 +1,55 @@
+{
+  "id": "plugin-authoring",
+  "name": "插件创作",
+  "version": "1.0.0",
+  "author": "LynAI",
+  "description": "插件创作 Skill 集：插件创作工作流（create_plugin、plugin.json 清单、文件与权限）、Web 产物前端设计规范、动效设计决策，覆盖功能页 HTML/CSS/JS、独立网页、落地页、dashboard 与原型。",
+  "entry": "main.lua",
+  "permissions": [],
+  "skills": [
+    {
+      "name": "plugin_authoring",
+      "title": "插件创作工作流",
+      "description": "从零创建 LynAI 插件：plugin.json 清单（tools/functions/commands/skills/featurePages/permissions/dependencies/editableFiles）、main.lua 入口、功能页 HTML/CSS/JS、defaults 出厂模板与校验、用户审查启用流程。",
+      "whenToUse": "做插件、生成插件、create_plugin、plugin.json、插件清单、插件权限、插件功能页、插件 Skill、插件工具、修改插件、插件工坊",
+      "tags": ["plugin", "authoring", "manifest", "create-plugin", "feature-page"]
+    },
+    {
+      "name": "web_design",
+      "title": "前端设计",
+      "description": "为 HTML/CSS/JS Web 产物（插件功能页、独立网页、落地页、dashboard、原型、slide deck、数据可视化）做高质量视觉设计：需求与设计上下文收集、五刻度设计校准、设计系统声明、v0 先行、反 AI 套模板清单、风格方向与锚定风格配方、CSS 最佳实践与验证。",
+      "whenToUse": "设计网页、前端设计、功能页 UI、落地页、网页美化、页面风格、UI 设计、dashboard、网页原型、做得好看的页面、设计系统",
+      "tags": ["web", "design", "ui", "css", "html", "feature-page", "style"]
+    },
+    {
+      "name": "motion_design",
+      "title": "动效设计",
+      "description": "Web 动效决策框架：该不该动、动效目的、缓动曲线选择、时长、spring 参数、中断与退出；按钮/弹层/提示/遮罩动效原则；transform 与 clip-path 技巧；手势与滚动交互；reduced-motion 尊重。",
+      "whenToUse": "动画、动效、过渡、缓动、spring、微交互、页面动效、hover 效果、入场动画、手势交互、滚动动画",
+      "tags": ["motion", "animation", "css", "transition", "spring", "interaction"]
+    }
+  ],
+  "editableFiles": [
+    {
+      "path": "skills/plugin_authoring.md",
+      "title": "插件创作工作流 Skill",
+      "type": "markdown",
+      "defaultPath": "defaults/skills/plugin_authoring.md"
+    },
+    {
+      "path": "skills/web_design.md",
+      "title": "前端设计 Skill",
+      "type": "markdown",
+      "defaultPath": "defaults/skills/web_design.md"
+    },
+    {
+      "path": "skills/motion_design.md",
+      "title": "动效设计 Skill",
+      "type": "markdown",
+      "defaultPath": "defaults/skills/motion_design.md"
+    }
+  ],
+  "lynai": {
+    "autoEnable": true
+  }
+}
