@@ -53,4 +53,27 @@ void main() {
     expect(find.text('工具 (tools) · 1'), findsOneWidget);
     expect(find.text('hello'), findsOneWidget);
   });
+
+  testWidgets('Studio 顶部提供交给 AI 修改入口', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(1200, 900));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(
+      ChangeNotifierProvider<PluginProvider>.value(
+        value: provider,
+        child: const MaterialApp(
+          home: PluginStudioPage(pluginId: 'studio-plugin'),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    await tester.tap(find.byTooltip('交给 AI 修改'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+
+    expect(find.text('交给 AI 修改「Studio 插件」'), findsOneWidget);
+    expect(find.text('开始修改'), findsOneWidget);
+    expect(find.text('取消'), findsOneWidget);
+  });
 }

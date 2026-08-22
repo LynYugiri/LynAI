@@ -101,6 +101,8 @@ HomePage (NavigationBar, 5 tabs)
 8. Agent 可通过 `read_agent_memory` / `update_agent_memory` 维护对话级工作记忆，并通过 `run_subagent` 把高噪声子任务放入独立上下文，主对话只接收最终结构化结果。
 9. 保存最终正文、思考内容、工具结果或失败状态。
 
+插件创作复用同一条对话链路：`create_plugin` 经 `ToolCallService -> PluginProvider -> PluginScaffoldService` 生成草稿并绑定 `Conversation.pluginWorkspaceId`；ChatPage 把结果记录为 `ConversationPluginArtifact` 并渲染 `PluginDraftCard`。插件工坊的「交给 AI 修改」通过 `openPluginAiConversation` 打开绑定同一插件的对话，不在工坊内另建 Agent 循环。
+
 ```text
 Input + Attachments
   -> ChatPage

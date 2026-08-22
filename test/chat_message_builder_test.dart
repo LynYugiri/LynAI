@@ -8,6 +8,7 @@ Conversation _conv({
   List<Message>? messages,
   String systemPrompt = '',
   bool agentEnabled = false,
+  String? pluginWorkspaceId,
 }) {
   return Conversation(
     id: 'c1',
@@ -19,6 +20,7 @@ Conversation _conv({
       systemPrompt: systemPrompt,
       agentEnabled: agentEnabled,
     ),
+    pluginWorkspaceId: pluginWorkspaceId,
     createdAt: DateTime(2026, 1, 1),
     updatedAt: DateTime(2026, 1, 1),
   );
@@ -170,5 +172,29 @@ void main() {
       enableTools: true,
     );
     expect(messages.first['content'], isNotEmpty);
+  });
+
+  test('plugin workspace prompt is injected when bound', () {
+    final messages = buildApiMessages(
+      _conv(
+        messages: [_msg('u1', 'user', '继续改插件')],
+        agentEnabled: true,
+        pluginWorkspaceId: 'gen-plugin',
+      ),
+      const <InstalledPlugin>[],
+      enableTools: true,
+    );
+    final system = messages.first['content'] as String;
+    expect(system, contains('当前对话正在创作插件：gen-plugin'));
+    expect(system, contains('plugin_file_* / plugin_manifest_*'));
+  });
+
+  test('plugin workspace prompt is omitted when unbound', () {
+    final messages = buildApiMessages(
+      _conv(messages: [_msg('u1', 'user', 'hi')], agentEnabled: true),
+      const <InstalledPlugin>[],
+      enableTools: true,
+    );
+    expect(messages.first['content'], isNot(contains('当前对话正在创作插件')));
   });
 }

@@ -1,6 +1,7 @@
 import 'agent_defaults.dart';
 import 'agent_plan.dart';
 import 'agent_working_memory.dart';
+import 'conversation_plugin_artifact.dart';
 import 'message.dart';
 import 'package:flutter/foundation.dart';
 
@@ -152,9 +153,10 @@ class ConversationSettings {
       imageGenerationModelId: json['imageGenerationModelId'] as String?,
       imageGenerationEnabled: json['imageGenerationEnabled'] as bool? ?? false,
       agentEnabled: json['agentEnabled'] as bool? ?? false,
-      maxToolRounds: ((json['maxToolRounds'] as num?)?.toInt() ??
-              defaultAgentMaxToolRounds)
-          .clamp(minAgentMaxToolRounds, maxAgentMaxToolRounds),
+      maxToolRounds:
+          ((json['maxToolRounds'] as num?)?.toInt() ??
+                  defaultAgentMaxToolRounds)
+              .clamp(minAgentMaxToolRounds, maxAgentMaxToolRounds),
     );
   }
 
@@ -223,6 +225,15 @@ class Conversation {
   /// 对话所属角色 ID，用于历史页按角色分组。
   final String roleId;
 
+  /// 当前对话正在创作的插件 ID。
+  ///
+  /// 非空时，Agent 的插件文件工具缺省操作该插件，系统提示词也会注入插件
+  /// 摘要；由 `create_plugin` 成功或插件工坊的“交给 AI”入口绑定。
+  final String? pluginWorkspaceId;
+
+  /// 当前对话创建过的插件草稿产物，用于在消息流中渲染插件卡片。
+  final List<ConversationPluginArtifact> pluginArtifacts;
+
   /// 对话创建时间。
   final DateTime createdAt;
 
@@ -239,6 +250,8 @@ class Conversation {
     this.agentPlan,
     this.agentWorkingMemory,
     this.roleId = 'default',
+    this.pluginWorkspaceId,
+    this.pluginArtifacts = const [],
     required this.createdAt,
     required this.updatedAt,
   }) : settings = settings ?? ConversationSettings(modelId: modelId);
@@ -311,6 +324,19 @@ class Conversation {
         debugPrint('跳过损坏的 Agent 工作记忆: $e');
       }
     }
+    final pluginArtifacts = <ConversationPluginArtifact>[];
+    for (final item in json['pluginArtifacts'] as List<dynamic>? ?? const []) {
+      if (item is! Map) continue;
+      try {
+        final artifact = ConversationPluginArtifact.fromJson(
+          Map<String, dynamic>.from(item),
+        );
+        if (artifact.pluginId.isNotEmpty) pluginArtifacts.add(artifact);
+      } catch (e) {
+        debugPrint('跳过损坏的插件草稿产物: $e');
+      }
+    }
+    final rawWorkspaceId = json['pluginWorkspaceId'];
     return Conversation(
       id: id,
       title: title,
@@ -325,6 +351,10 @@ class Conversation {
       agentPlan: agentPlan,
       agentWorkingMemory: agentWorkingMemory,
       roleId: json['roleId'] as String? ?? 'default',
+      pluginWorkspaceId: rawWorkspaceId is String && rawWorkspaceId.isNotEmpty
+          ? rawWorkspaceId
+          : null,
+      pluginArtifacts: pluginArtifacts,
       createdAt: createdAt,
       updatedAt: updatedAt,
     );
@@ -342,6 +372,12 @@ class Conversation {
       if (agentWorkingMemory != null && !agentWorkingMemory!.isEmpty)
         'agentWorkingMemory': agentWorkingMemory!.toJson(),
       'roleId': roleId,
+      if (pluginWorkspaceId != null && pluginWorkspaceId!.isNotEmpty)
+        'pluginWorkspaceId': pluginWorkspaceId,
+      if (pluginArtifacts.isNotEmpty)
+        'pluginArtifacts': pluginArtifacts
+            .map((item) => item.toJson())
+            .toList(),
       'createdAt': createdAt.toIso8601String(),
       'updatedAt': updatedAt.toIso8601String(),
     };
@@ -357,6 +393,8 @@ class Conversation {
     Object? agentPlan = _sentinel,
     Object? agentWorkingMemory = _sentinel,
     String? roleId,
+    Object? pluginWorkspaceId = _sentinel,
+    Object? pluginArtifacts = _sentinel,
     DateTime? createdAt,
     DateTime? updatedAt,
   }) {
@@ -373,6 +411,12 @@ class Conversation {
           ? this.agentWorkingMemory
           : agentWorkingMemory as AgentWorkingMemory?,
       roleId: roleId ?? this.roleId,
+      pluginWorkspaceId: identical(pluginWorkspaceId, _sentinel)
+          ? this.pluginWorkspaceId
+          : pluginWorkspaceId as String?,
+      pluginArtifacts: identical(pluginArtifacts, _sentinel)
+          ? this.pluginArtifacts
+          : pluginArtifacts as List<ConversationPluginArtifact>,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
     );

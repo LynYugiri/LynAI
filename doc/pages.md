@@ -73,6 +73,8 @@ HomePage
 
 `ChatPage` 协调模型选择、附件、语音、文件识别、OCR、工具调用、Agent/Subagent、Agent 工作记忆、流式响应、失败恢复和分享。模型 turn 与工具 continuation 统一交给 `AgentLoopRuntime`，页面只订阅 run event 更新草稿并在停止、重试或销毁时取消 handle。停止会等待 runtime 的 bounded terminal result，把跨 turn 聚合的 partial content 与 reasoning 保存到最后一条 assistant 消息；失败提示也保留该聚合内容，而不是只使用当前 turn 的 UI buffer。悬浮聊天采用相同语义。
 
+`create_plugin` 成功后，ChatPage 把结果记录为 `ConversationPluginArtifact`，在对应 assistant 消息后渲染 `PluginDraftCard`；卡片实时读取 `PluginProvider`，提供“打开插件工坊”“继续完善”“从对话移除”动作。`Conversation.pluginWorkspaceId` 绑定当前正在创作的插件后，`plugin_file_*`/`plugin_manifest_*` 工具可省略 `pluginId`，系统提示词也会注入工作区摘要。
+
 对话相关组件是独立库而非 `part`：`lib/pages/chat/` 下的 `history_drawer.dart`（历史抽屉）、`dialog_settings_content.dart`（对话设置弹窗）、`prompt_role_dialogs.dart`（系统提示词编辑）、`share_conversation_image.dart`（分享长图渲染）、`command_palette.dart`（命令面板）。长图导出流程在 `chat_image_exporter.dart` 的 `ChatImageExporter` 中（分页、捕获、剪贴板/分享/图库保存），页面只负责选择状态与结果反馈。发送给模型的 API 消息统一由 `lib/services/api_message_builder.dart` 的 `buildApiMessages` 组装，主聊天与悬浮聊天共用，避免两处 wire 语义漂移。
 
 输入区的 Agent 按钮是当前对话或未发送草稿切换 Agent 模式的唯一入口。新草稿从全局“对话权限”读取默认状态，按钮修改后由草稿覆盖该初值；已有对话始终使用自己的 `ConversationSettings.agentEnabled`。当前模型不支持工具调用时 Agent 按钮禁用并提示原因，避免“开了 Agent 但实际不生效”。对话设置弹窗中的“对话权限”直接编辑全局 `AppSettings.agentGrantedPermissions`，与设置页“权限管理”指向同一份数据，修改即时作用于所有对话，不再有“跟随全局/自定义本对话”两态。
@@ -220,11 +222,12 @@ Agent 工具轮数上限保存为 `ConversationSettings.maxToolRounds`（新建�
 
 文件：`lib/pages/plugin_studio_page.dart`（能力编辑器与就地运行/预览见 `lib/pages/plugin_studio_capability_editors.dart`）
 
-插件工坊是插件创作的集中入口，宽屏为两栏布局（文件树 / 属性检查器），窄屏退化为卡片列表。点击文件进入全屏 `PluginFileEditorPage` 编辑，工坊内不再保留常驻内嵌编辑器。
+插件工坊是插件创作的集中入口，宽屏为两栏布局（文件树 / 属性检查器），窄屏退化为卡片列表。点击文件进入全屏 `PluginFileEditorPage` 编辑，工坊内不再保留常驻内嵌编辑器。顶部「交给 AI 修改」会先创建“AI 协作前”恢复点，再打开或复用绑定当前插件的 Agent 对话；返回工坊后文件树与恢复点列表自动刷新。
 
 | 行为 | 说明 |
 |------|------|
 | 文件树 | 使用 `PluginProvider.listDeveloperFiles`，支持新建文件、上传、重命名、删除、恢复默认；点击文件进入全屏编辑器。 |
+| 交给 AI 修改 | 输入修改指令后，经 `openPluginAiConversation` 打开绑定该插件的对话并自动发送；工坊监听插件 renderVersion 自动刷新文件树。 |
 | 属性检查器 | 汇总开发状态、能力速览、元数据、依赖、权限、恢复点，以及 tools/functions/commands/skills/featurePages/settings 的能力编辑器。 |
 | 能力编辑 | 通过 `PluginProvider.setManifest*` 可视化增删改各能力清单并写回 `plugin.json`；仍可点 `plugin.json` 手写。 |
 | 就地运行 | 对 tool/function/command 提供「运行」入口，经 `PluginLuaRuntimeService.executeTool/executeFunction/executeCommandHandler` 执行并展示结果 JSON（以插件当前已授权权限为准）。 |

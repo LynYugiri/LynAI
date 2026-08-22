@@ -18,6 +18,7 @@ import '../models/agent_runtime.dart';
 import '../models/agent_user_interaction.dart';
 import '../models/agent_trace.dart';
 import '../models/conversation.dart';
+import '../models/conversation_plugin_artifact.dart';
 import '../models/chat_role.dart';
 import '../models/composer_reference.dart';
 import '../models/message.dart';
@@ -63,7 +64,9 @@ import '../widgets/latex_renderer.dart';
 import '../widgets/ai_explain_selection_area.dart';
 import '../widgets/chat_composer_keyboard.dart';
 import '../widgets/knowledge_explanation_dialog.dart';
+import '../widgets/plugin_draft_card.dart';
 import '../widgets/reference_composer.dart';
+import 'plugin_studio_page.dart';
 import 'chat/agent_plan_panel.dart';
 import 'chat/chat_image_exporter.dart';
 import 'chat/command_palette.dart';
@@ -271,6 +274,12 @@ class ChatPage extends StatefulWidget {
   final String? conversationId;
   final ApiService? api;
   final bool active;
+
+  /// 进入页面后预填到输入框的初始内容；通常由插件工坊 AI 协作入口传入。
+  final String? initialPrompt;
+
+  /// 是否在首次加载后自动发送 [initialPrompt]。
+  final bool autoSendInitialPrompt;
   final VoidCallback? onConversationLoaded;
   final void Function(bool Function() handler)? onBackHandlerChanged;
   final ValueChanged<bool>? onBackAvailabilityChanged;
@@ -280,6 +289,8 @@ class ChatPage extends StatefulWidget {
     this.conversationId,
     this.api,
     this.active = true,
+    this.initialPrompt,
+    this.autoSendInitialPrompt = false,
     this.onConversationLoaded,
     this.onBackHandlerChanged,
     this.onBackAvailabilityChanged,
@@ -288,6 +299,23 @@ class ChatPage extends StatefulWidget {
 
   @override
   State<ChatPage> createState() => _ChatPageState();
+}
+
+/// 对话时间线条目：普通消息或插件草稿卡片。
+sealed class _ChatTimelineEntry {
+  const _ChatTimelineEntry();
+}
+
+class _ChatMessageEntry extends _ChatTimelineEntry {
+  const _ChatMessageEntry(this.message);
+
+  final Message message;
+}
+
+class _ChatPluginArtifactEntry extends _ChatTimelineEntry {
+  const _ChatPluginArtifactEntry(this.artifact);
+
+  final ConversationPluginArtifact artifact;
 }
 
 /// 对话页状态管理。
@@ -393,6 +421,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
   String? _recordPath;
   int _recordingRequestGen = 0;
   bool _recordingStartCancelled = false;
+  bool _autoSendInitialPromptConsumed = false;
 
   @override
   void initState() {
@@ -440,6 +469,21 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
         }
       });
     }
+    _maybeScheduleInitialPrompt();
+  }
+
+  /// 预填并可选自动发送由调用方（如插件工坊）传入的初始指令。
+  void _maybeScheduleInitialPrompt() {
+    final prompt = widget.initialPrompt?.trim();
+    if (prompt == null || prompt.isEmpty || _autoSendInitialPromptConsumed) {
+      return;
+    }
+    _msgCtrl.text = prompt;
+    if (!widget.autoSendInitialPrompt) return;
+    _autoSendInitialPromptConsumed = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _send();
+    });
   }
 
   @override
@@ -2022,13 +2066,15 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
           toolChoice: request.forceFinalResponse ? null : 'auto',
         ),
       ),
-      executeTools: (calls, identity, cancellationToken) {
-        return toolService.executeCapturedBatch(
+      executeTools: (calls, identity, cancellationToken) async {
+        final results = await toolService.executeCapturedBatch(
           runSnapshot,
           calls,
           identity: identity,
           cancellationToken: cancellationToken,
         );
+        _recordPluginArtifacts(cid, results);
+        return results;
       },
       datasetBarrier: storage.runtimeBarrier,
     );
@@ -3312,13 +3358,21 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
         break;
       }
     }
+    final timeline = _timelineEntries(msgs, conv?.pluginArtifacts ?? const []);
+    var lastMessageTimelineIndex = -1;
+    for (var i = timeline.length - 1; i >= 0; i--) {
+      if (timeline[i] is _ChatMessageEntry) {
+        lastMessageTimelineIndex = i;
+        break;
+      }
+    }
     return Column(
       children: [
         if (_showSearch) _searchBar(),
         Expanded(
           child: Stack(
             children: [
-              msgs.isEmpty
+              timeline.isEmpty
                   ? _empty()
                   : NotificationListener<ScrollNotification>(
                       onNotification: _onScrollNotification,
@@ -3331,17 +3385,39 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
                             horizontal: 12,
                             vertical: 8,
                           ),
-                          itemCount: msgs.length,
+                          itemCount: timeline.length,
                           itemBuilder: (_, i) {
-                            final msg = msgs[i];
-                            return KeyedSubtree(
-                              key: _messageKeyFor(msg.id),
-                              child: _selectableBubble(
-                                msg,
-                                i == msgs.length - 1,
-                                i == lastUserIdx,
+                            final entry = timeline[i];
+                            return switch (entry) {
+                              _ChatMessageEntry(:final message) => KeyedSubtree(
+                                key: _messageKeyFor(message.id),
+                                child: _selectableBubble(
+                                  message,
+                                  i == lastMessageTimelineIndex,
+                                  message.role == 'user' &&
+                                      i ==
+                                          _lastUserTimelineIndex(
+                                            timeline,
+                                            lastUserIdx,
+                                          ),
+                                ),
                               ),
-                            );
+                              _ChatPluginArtifactEntry(:final artifact) =>
+                                KeyedSubtree(
+                                  key: ValueKey(
+                                    'plugin-artifact-${artifact.pluginId}',
+                                  ),
+                                  child: PluginDraftCard(
+                                    artifact: artifact,
+                                    onOpenStudio: () =>
+                                        _openPluginStudio(artifact.pluginId),
+                                    onContinueEdit: () =>
+                                        _continuePluginEdit(artifact.pluginId),
+                                    onDismiss: () =>
+                                        _dismissPluginArtifact(artifact),
+                                  ),
+                                ),
+                            };
                           },
                         ),
                       ),
@@ -3356,6 +3432,107 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
         _inputArea(model, mp),
       ],
     );
+  }
+
+  List<_ChatTimelineEntry> _timelineEntries(
+    List<Message> msgs,
+    List<ConversationPluginArtifact> artifacts,
+  ) {
+    if (_shareSelecting) {
+      return msgs.map((message) => _ChatMessageEntry(message)).toList();
+    }
+    final byMessageId = <String, List<ConversationPluginArtifact>>{};
+    final trailing = <ConversationPluginArtifact>[];
+    for (final artifact in artifacts) {
+      if (artifact.assistantMessageId.isEmpty) {
+        trailing.add(artifact);
+      } else {
+        (byMessageId[artifact.assistantMessageId] ??= []).add(artifact);
+      }
+    }
+    final entries = <_ChatTimelineEntry>[];
+    for (final message in msgs) {
+      entries.add(_ChatMessageEntry(message));
+      final attached = byMessageId[message.id];
+      if (attached == null) continue;
+      for (final artifact in attached) {
+        entries.add(_ChatPluginArtifactEntry(artifact));
+      }
+    }
+    entries.addAll(trailing.map(_ChatPluginArtifactEntry.new));
+    return entries;
+  }
+
+  int _lastUserTimelineIndex(
+    List<_ChatTimelineEntry> timeline,
+    int lastUserMessageIndex,
+  ) {
+    if (lastUserMessageIndex < 0) return -1;
+    for (var i = 0; i < timeline.length; i++) {
+      final entry = timeline[i];
+      if (entry is _ChatMessageEntry && entry.message.role == 'user') {
+        if (lastUserMessageIndex == 0) return i;
+        lastUserMessageIndex--;
+      }
+    }
+    return -1;
+  }
+
+  void _openPluginStudio(String pluginId) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => PluginStudioPage(pluginId: pluginId)),
+    );
+  }
+
+  void _continuePluginEdit(String pluginId) {
+    final cid = _convId;
+    if (cid == null) return;
+    final cp = context.read<ConversationProvider>();
+    final plugins = context.read<PluginProvider>();
+    cp.setPluginWorkspace(cid, pluginId);
+    final plugin = plugins.pluginById(pluginId);
+    _msgCtrl.text = plugin == null
+        ? '继续完善插件 $pluginId：'
+        : '继续完善插件 ${plugin.displayName}：';
+    _focusNode.requestFocus();
+    setState(() => _showCommandPalette = false);
+  }
+
+  void _dismissPluginArtifact(ConversationPluginArtifact artifact) {
+    final cid = _convId;
+    if (cid == null) return;
+    context.read<ConversationProvider>().removePluginArtifact(
+      cid,
+      artifact.pluginId,
+    );
+  }
+
+  void _recordPluginArtifacts(String cid, List<AgentToolResult> results) {
+    if (!mounted) return;
+    for (final result in results) {
+      if (!result.isSuccess || result.toolName != 'create_plugin') continue;
+      final value = result.value;
+      if (value is! Map) continue;
+      final ok = value['ok'] == true;
+      final data = ok && value['result'] is Map ? value['result'] as Map : null;
+      if (data == null) continue;
+      final pluginId = data['pluginId']?.toString().trim();
+      if (pluginId == null || pluginId.isEmpty) continue;
+      final writtenFiles = (data['writtenFiles'] as List? ?? const [])
+          .map((item) => item.toString())
+          .where((item) => item.isNotEmpty)
+          .toList(growable: false);
+      context.read<ConversationProvider>().addPluginArtifact(
+        cid,
+        ConversationPluginArtifact(
+          pluginId: pluginId,
+          assistantMessageId: _agentMessageId ?? '',
+          createdAt: DateTime.now(),
+          writtenFiles: writtenFiles,
+        ),
+      );
+    }
   }
 
   Widget _searchBar() {

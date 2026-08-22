@@ -1609,6 +1609,29 @@ class $ConversationRowsTable extends ConversationRows
         type: DriftSqlType.string,
         requiredDuringInsert: false,
       );
+  static const VerificationMeta _pluginWorkspaceIdMeta = const VerificationMeta(
+    'pluginWorkspaceId',
+  );
+  @override
+  late final GeneratedColumn<String> pluginWorkspaceId =
+      GeneratedColumn<String>(
+        'plugin_workspace_id',
+        aliasedName,
+        true,
+        type: DriftSqlType.string,
+        requiredDuringInsert: false,
+      );
+  static const VerificationMeta _pluginArtifactsJsonMeta =
+      const VerificationMeta('pluginArtifactsJson');
+  @override
+  late final GeneratedColumn<String> pluginArtifactsJson =
+      GeneratedColumn<String>(
+        'plugin_artifacts_json',
+        aliasedName,
+        true,
+        type: DriftSqlType.string,
+        requiredDuringInsert: false,
+      );
   static const VerificationMeta _roleIdMeta = const VerificationMeta('roleId');
   @override
   late final GeneratedColumn<String> roleId = GeneratedColumn<String>(
@@ -1648,6 +1671,8 @@ class $ConversationRowsTable extends ConversationRows
     settingsJson,
     agentPlanJson,
     agentWorkingMemoryJson,
+    pluginWorkspaceId,
+    pluginArtifactsJson,
     roleId,
     createdAt,
     updatedAt,
@@ -1714,6 +1739,24 @@ class $ConversationRowsTable extends ConversationRows
         ),
       );
     }
+    if (data.containsKey('plugin_workspace_id')) {
+      context.handle(
+        _pluginWorkspaceIdMeta,
+        pluginWorkspaceId.isAcceptableOrUnknown(
+          data['plugin_workspace_id']!,
+          _pluginWorkspaceIdMeta,
+        ),
+      );
+    }
+    if (data.containsKey('plugin_artifacts_json')) {
+      context.handle(
+        _pluginArtifactsJsonMeta,
+        pluginArtifactsJson.isAcceptableOrUnknown(
+          data['plugin_artifacts_json']!,
+          _pluginArtifactsJsonMeta,
+        ),
+      );
+    }
     if (data.containsKey('role_id')) {
       context.handle(
         _roleIdMeta,
@@ -1771,6 +1814,14 @@ class $ConversationRowsTable extends ConversationRows
         DriftSqlType.string,
         data['${effectivePrefix}agent_working_memory_json'],
       ),
+      pluginWorkspaceId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}plugin_workspace_id'],
+      ),
+      pluginArtifactsJson: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}plugin_artifacts_json'],
+      ),
       roleId: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}role_id'],
@@ -1799,6 +1850,8 @@ class ConversationRow extends DataClass implements Insertable<ConversationRow> {
   final String settingsJson;
   final String? agentPlanJson;
   final String? agentWorkingMemoryJson;
+  final String? pluginWorkspaceId;
+  final String? pluginArtifactsJson;
   final String roleId;
   final String createdAt;
   final String updatedAt;
@@ -1809,6 +1862,8 @@ class ConversationRow extends DataClass implements Insertable<ConversationRow> {
     required this.settingsJson,
     this.agentPlanJson,
     this.agentWorkingMemoryJson,
+    this.pluginWorkspaceId,
+    this.pluginArtifactsJson,
     required this.roleId,
     required this.createdAt,
     required this.updatedAt,
@@ -1828,6 +1883,12 @@ class ConversationRow extends DataClass implements Insertable<ConversationRow> {
         agentWorkingMemoryJson,
       );
     }
+    if (!nullToAbsent || pluginWorkspaceId != null) {
+      map['plugin_workspace_id'] = Variable<String>(pluginWorkspaceId);
+    }
+    if (!nullToAbsent || pluginArtifactsJson != null) {
+      map['plugin_artifacts_json'] = Variable<String>(pluginArtifactsJson);
+    }
     map['role_id'] = Variable<String>(roleId);
     map['created_at'] = Variable<String>(createdAt);
     map['updated_at'] = Variable<String>(updatedAt);
@@ -1846,6 +1907,12 @@ class ConversationRow extends DataClass implements Insertable<ConversationRow> {
       agentWorkingMemoryJson: agentWorkingMemoryJson == null && nullToAbsent
           ? const Value.absent()
           : Value(agentWorkingMemoryJson),
+      pluginWorkspaceId: pluginWorkspaceId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(pluginWorkspaceId),
+      pluginArtifactsJson: pluginArtifactsJson == null && nullToAbsent
+          ? const Value.absent()
+          : Value(pluginArtifactsJson),
       roleId: Value(roleId),
       createdAt: Value(createdAt),
       updatedAt: Value(updatedAt),
@@ -1866,6 +1933,12 @@ class ConversationRow extends DataClass implements Insertable<ConversationRow> {
       agentWorkingMemoryJson: serializer.fromJson<String?>(
         json['agentWorkingMemoryJson'],
       ),
+      pluginWorkspaceId: serializer.fromJson<String?>(
+        json['pluginWorkspaceId'],
+      ),
+      pluginArtifactsJson: serializer.fromJson<String?>(
+        json['pluginArtifactsJson'],
+      ),
       roleId: serializer.fromJson<String>(json['roleId']),
       createdAt: serializer.fromJson<String>(json['createdAt']),
       updatedAt: serializer.fromJson<String>(json['updatedAt']),
@@ -1883,6 +1956,8 @@ class ConversationRow extends DataClass implements Insertable<ConversationRow> {
       'agentWorkingMemoryJson': serializer.toJson<String?>(
         agentWorkingMemoryJson,
       ),
+      'pluginWorkspaceId': serializer.toJson<String?>(pluginWorkspaceId),
+      'pluginArtifactsJson': serializer.toJson<String?>(pluginArtifactsJson),
       'roleId': serializer.toJson<String>(roleId),
       'createdAt': serializer.toJson<String>(createdAt),
       'updatedAt': serializer.toJson<String>(updatedAt),
@@ -1896,6 +1971,8 @@ class ConversationRow extends DataClass implements Insertable<ConversationRow> {
     String? settingsJson,
     Value<String?> agentPlanJson = const Value.absent(),
     Value<String?> agentWorkingMemoryJson = const Value.absent(),
+    Value<String?> pluginWorkspaceId = const Value.absent(),
+    Value<String?> pluginArtifactsJson = const Value.absent(),
     String? roleId,
     String? createdAt,
     String? updatedAt,
@@ -1910,6 +1987,12 @@ class ConversationRow extends DataClass implements Insertable<ConversationRow> {
     agentWorkingMemoryJson: agentWorkingMemoryJson.present
         ? agentWorkingMemoryJson.value
         : this.agentWorkingMemoryJson,
+    pluginWorkspaceId: pluginWorkspaceId.present
+        ? pluginWorkspaceId.value
+        : this.pluginWorkspaceId,
+    pluginArtifactsJson: pluginArtifactsJson.present
+        ? pluginArtifactsJson.value
+        : this.pluginArtifactsJson,
     roleId: roleId ?? this.roleId,
     createdAt: createdAt ?? this.createdAt,
     updatedAt: updatedAt ?? this.updatedAt,
@@ -1928,6 +2011,12 @@ class ConversationRow extends DataClass implements Insertable<ConversationRow> {
       agentWorkingMemoryJson: data.agentWorkingMemoryJson.present
           ? data.agentWorkingMemoryJson.value
           : this.agentWorkingMemoryJson,
+      pluginWorkspaceId: data.pluginWorkspaceId.present
+          ? data.pluginWorkspaceId.value
+          : this.pluginWorkspaceId,
+      pluginArtifactsJson: data.pluginArtifactsJson.present
+          ? data.pluginArtifactsJson.value
+          : this.pluginArtifactsJson,
       roleId: data.roleId.present ? data.roleId.value : this.roleId,
       createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
       updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
@@ -1943,6 +2032,8 @@ class ConversationRow extends DataClass implements Insertable<ConversationRow> {
           ..write('settingsJson: $settingsJson, ')
           ..write('agentPlanJson: $agentPlanJson, ')
           ..write('agentWorkingMemoryJson: $agentWorkingMemoryJson, ')
+          ..write('pluginWorkspaceId: $pluginWorkspaceId, ')
+          ..write('pluginArtifactsJson: $pluginArtifactsJson, ')
           ..write('roleId: $roleId, ')
           ..write('createdAt: $createdAt, ')
           ..write('updatedAt: $updatedAt')
@@ -1958,6 +2049,8 @@ class ConversationRow extends DataClass implements Insertable<ConversationRow> {
     settingsJson,
     agentPlanJson,
     agentWorkingMemoryJson,
+    pluginWorkspaceId,
+    pluginArtifactsJson,
     roleId,
     createdAt,
     updatedAt,
@@ -1972,6 +2065,8 @@ class ConversationRow extends DataClass implements Insertable<ConversationRow> {
           other.settingsJson == this.settingsJson &&
           other.agentPlanJson == this.agentPlanJson &&
           other.agentWorkingMemoryJson == this.agentWorkingMemoryJson &&
+          other.pluginWorkspaceId == this.pluginWorkspaceId &&
+          other.pluginArtifactsJson == this.pluginArtifactsJson &&
           other.roleId == this.roleId &&
           other.createdAt == this.createdAt &&
           other.updatedAt == this.updatedAt);
@@ -1984,6 +2079,8 @@ class ConversationRowsCompanion extends UpdateCompanion<ConversationRow> {
   final Value<String> settingsJson;
   final Value<String?> agentPlanJson;
   final Value<String?> agentWorkingMemoryJson;
+  final Value<String?> pluginWorkspaceId;
+  final Value<String?> pluginArtifactsJson;
   final Value<String> roleId;
   final Value<String> createdAt;
   final Value<String> updatedAt;
@@ -1995,6 +2092,8 @@ class ConversationRowsCompanion extends UpdateCompanion<ConversationRow> {
     this.settingsJson = const Value.absent(),
     this.agentPlanJson = const Value.absent(),
     this.agentWorkingMemoryJson = const Value.absent(),
+    this.pluginWorkspaceId = const Value.absent(),
+    this.pluginArtifactsJson = const Value.absent(),
     this.roleId = const Value.absent(),
     this.createdAt = const Value.absent(),
     this.updatedAt = const Value.absent(),
@@ -2007,6 +2106,8 @@ class ConversationRowsCompanion extends UpdateCompanion<ConversationRow> {
     required String settingsJson,
     this.agentPlanJson = const Value.absent(),
     this.agentWorkingMemoryJson = const Value.absent(),
+    this.pluginWorkspaceId = const Value.absent(),
+    this.pluginArtifactsJson = const Value.absent(),
     required String roleId,
     required String createdAt,
     required String updatedAt,
@@ -2025,6 +2126,8 @@ class ConversationRowsCompanion extends UpdateCompanion<ConversationRow> {
     Expression<String>? settingsJson,
     Expression<String>? agentPlanJson,
     Expression<String>? agentWorkingMemoryJson,
+    Expression<String>? pluginWorkspaceId,
+    Expression<String>? pluginArtifactsJson,
     Expression<String>? roleId,
     Expression<String>? createdAt,
     Expression<String>? updatedAt,
@@ -2038,6 +2141,9 @@ class ConversationRowsCompanion extends UpdateCompanion<ConversationRow> {
       if (agentPlanJson != null) 'agent_plan_json': agentPlanJson,
       if (agentWorkingMemoryJson != null)
         'agent_working_memory_json': agentWorkingMemoryJson,
+      if (pluginWorkspaceId != null) 'plugin_workspace_id': pluginWorkspaceId,
+      if (pluginArtifactsJson != null)
+        'plugin_artifacts_json': pluginArtifactsJson,
       if (roleId != null) 'role_id': roleId,
       if (createdAt != null) 'created_at': createdAt,
       if (updatedAt != null) 'updated_at': updatedAt,
@@ -2052,6 +2158,8 @@ class ConversationRowsCompanion extends UpdateCompanion<ConversationRow> {
     Value<String>? settingsJson,
     Value<String?>? agentPlanJson,
     Value<String?>? agentWorkingMemoryJson,
+    Value<String?>? pluginWorkspaceId,
+    Value<String?>? pluginArtifactsJson,
     Value<String>? roleId,
     Value<String>? createdAt,
     Value<String>? updatedAt,
@@ -2065,6 +2173,8 @@ class ConversationRowsCompanion extends UpdateCompanion<ConversationRow> {
       agentPlanJson: agentPlanJson ?? this.agentPlanJson,
       agentWorkingMemoryJson:
           agentWorkingMemoryJson ?? this.agentWorkingMemoryJson,
+      pluginWorkspaceId: pluginWorkspaceId ?? this.pluginWorkspaceId,
+      pluginArtifactsJson: pluginArtifactsJson ?? this.pluginArtifactsJson,
       roleId: roleId ?? this.roleId,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
@@ -2095,6 +2205,14 @@ class ConversationRowsCompanion extends UpdateCompanion<ConversationRow> {
         agentWorkingMemoryJson.value,
       );
     }
+    if (pluginWorkspaceId.present) {
+      map['plugin_workspace_id'] = Variable<String>(pluginWorkspaceId.value);
+    }
+    if (pluginArtifactsJson.present) {
+      map['plugin_artifacts_json'] = Variable<String>(
+        pluginArtifactsJson.value,
+      );
+    }
     if (roleId.present) {
       map['role_id'] = Variable<String>(roleId.value);
     }
@@ -2119,6 +2237,8 @@ class ConversationRowsCompanion extends UpdateCompanion<ConversationRow> {
           ..write('settingsJson: $settingsJson, ')
           ..write('agentPlanJson: $agentPlanJson, ')
           ..write('agentWorkingMemoryJson: $agentWorkingMemoryJson, ')
+          ..write('pluginWorkspaceId: $pluginWorkspaceId, ')
+          ..write('pluginArtifactsJson: $pluginArtifactsJson, ')
           ..write('roleId: $roleId, ')
           ..write('createdAt: $createdAt, ')
           ..write('updatedAt: $updatedAt, ')
@@ -28329,6 +28449,8 @@ typedef $$ConversationRowsTableCreateCompanionBuilder =
       required String settingsJson,
       Value<String?> agentPlanJson,
       Value<String?> agentWorkingMemoryJson,
+      Value<String?> pluginWorkspaceId,
+      Value<String?> pluginArtifactsJson,
       required String roleId,
       required String createdAt,
       required String updatedAt,
@@ -28342,6 +28464,8 @@ typedef $$ConversationRowsTableUpdateCompanionBuilder =
       Value<String> settingsJson,
       Value<String?> agentPlanJson,
       Value<String?> agentWorkingMemoryJson,
+      Value<String?> pluginWorkspaceId,
+      Value<String?> pluginArtifactsJson,
       Value<String> roleId,
       Value<String> createdAt,
       Value<String> updatedAt,
@@ -28384,6 +28508,16 @@ class $$ConversationRowsTableFilterComposer
 
   ColumnFilters<String> get agentWorkingMemoryJson => $composableBuilder(
     column: $table.agentWorkingMemoryJson,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get pluginWorkspaceId => $composableBuilder(
+    column: $table.pluginWorkspaceId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get pluginArtifactsJson => $composableBuilder(
+    column: $table.pluginArtifactsJson,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -28442,6 +28576,16 @@ class $$ConversationRowsTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get pluginWorkspaceId => $composableBuilder(
+    column: $table.pluginWorkspaceId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get pluginArtifactsJson => $composableBuilder(
+    column: $table.pluginArtifactsJson,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<String> get roleId => $composableBuilder(
     column: $table.roleId,
     builder: (column) => ColumnOrderings(column),
@@ -28488,6 +28632,16 @@ class $$ConversationRowsTableAnnotationComposer
 
   GeneratedColumn<String> get agentWorkingMemoryJson => $composableBuilder(
     column: $table.agentWorkingMemoryJson,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get pluginWorkspaceId => $composableBuilder(
+    column: $table.pluginWorkspaceId,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get pluginArtifactsJson => $composableBuilder(
+    column: $table.pluginArtifactsJson,
     builder: (column) => column,
   );
 
@@ -28544,6 +28698,8 @@ class $$ConversationRowsTableTableManager
                 Value<String> settingsJson = const Value.absent(),
                 Value<String?> agentPlanJson = const Value.absent(),
                 Value<String?> agentWorkingMemoryJson = const Value.absent(),
+                Value<String?> pluginWorkspaceId = const Value.absent(),
+                Value<String?> pluginArtifactsJson = const Value.absent(),
                 Value<String> roleId = const Value.absent(),
                 Value<String> createdAt = const Value.absent(),
                 Value<String> updatedAt = const Value.absent(),
@@ -28555,6 +28711,8 @@ class $$ConversationRowsTableTableManager
                 settingsJson: settingsJson,
                 agentPlanJson: agentPlanJson,
                 agentWorkingMemoryJson: agentWorkingMemoryJson,
+                pluginWorkspaceId: pluginWorkspaceId,
+                pluginArtifactsJson: pluginArtifactsJson,
                 roleId: roleId,
                 createdAt: createdAt,
                 updatedAt: updatedAt,
@@ -28568,6 +28726,8 @@ class $$ConversationRowsTableTableManager
                 required String settingsJson,
                 Value<String?> agentPlanJson = const Value.absent(),
                 Value<String?> agentWorkingMemoryJson = const Value.absent(),
+                Value<String?> pluginWorkspaceId = const Value.absent(),
+                Value<String?> pluginArtifactsJson = const Value.absent(),
                 required String roleId,
                 required String createdAt,
                 required String updatedAt,
@@ -28579,6 +28739,8 @@ class $$ConversationRowsTableTableManager
                 settingsJson: settingsJson,
                 agentPlanJson: agentPlanJson,
                 agentWorkingMemoryJson: agentWorkingMemoryJson,
+                pluginWorkspaceId: pluginWorkspaceId,
+                pluginArtifactsJson: pluginArtifactsJson,
                 roleId: roleId,
                 createdAt: createdAt,
                 updatedAt: updatedAt,

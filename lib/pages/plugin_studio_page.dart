@@ -7,6 +7,8 @@ import '../repositories/plugin_repository.dart';
 import '../utils/file_picker_io_utils.dart';
 import '../utils/snackbar_utils.dart';
 import '../widgets/text_editing_controller_host.dart';
+import 'chat/plugin_ai_workspace.dart';
+import 'plugin_ai_prompt_dialog.dart';
 import 'plugin_file_editor_page.dart';
 import 'plugin_studio_capability_editors.dart';
 
@@ -27,16 +29,34 @@ class PluginStudioPage extends StatefulWidget {
 class _PluginStudioPageState extends State<PluginStudioPage> {
   late Future<List<PluginFileEntry>> _filesFuture;
   late Future<List<PluginRecoveryPoint>> _recoveryFuture;
+  late final PluginProvider _pluginProvider;
+  late int _lastRenderVersion;
 
   @override
   void initState() {
     super.initState();
-    _filesFuture = context.read<PluginProvider>().listDeveloperFiles(
-      widget.pluginId,
-    );
-    _recoveryFuture = context.read<PluginProvider>().listRecoveryPoints(
-      widget.pluginId,
-    );
+    _pluginProvider = context.read<PluginProvider>();
+    _lastRenderVersion = _pluginProvider.renderVersion(widget.pluginId);
+    _pluginProvider.addListener(_onPluginProviderChanged);
+    _filesFuture = _pluginProvider.listDeveloperFiles(widget.pluginId);
+    _recoveryFuture = _pluginProvider.listRecoveryPoints(widget.pluginId);
+  }
+
+  @override
+  void dispose() {
+    _pluginProvider.removeListener(_onPluginProviderChanged);
+    super.dispose();
+  }
+
+  void _onPluginProviderChanged() {
+    if (!mounted) return;
+    final version = _pluginProvider.renderVersion(widget.pluginId);
+    if (version == _lastRenderVersion) return;
+    _lastRenderVersion = version;
+    _refreshFiles();
+    setState(() {
+      _recoveryFuture = _pluginProvider.listRecoveryPoints(widget.pluginId);
+    });
   }
 
   void _refreshFiles() {
@@ -71,6 +91,36 @@ class _PluginStudioPageState extends State<PluginStudioPage> {
     }
   }
 
+  Future<void> _openAiCollaboration(InstalledPlugin plugin) async {
+    final prompt = await showPluginAiPromptDialog(context, plugin: plugin);
+    if (prompt == null || prompt.trim().isEmpty || !mounted) return;
+
+    final pluginProvider = context.read<PluginProvider>();
+    try {
+      await pluginProvider.createRecoveryPoint(plugin.id, reason: 'AI 协作前');
+    } catch (e) {
+      if (mounted) {
+        showErrorSnackBar(context, '无法创建 AI 协作前恢复点', details: e.toString());
+      }
+      return;
+    }
+    if (!mounted) return;
+
+    final opened = await openPluginAiConversation(
+      context,
+      pluginId: plugin.id,
+      pluginName: plugin.displayName,
+      prompt: prompt,
+    );
+    if (!mounted) return;
+    if (opened) {
+      _refreshFiles();
+      setState(() {
+        _recoveryFuture = pluginProvider.listRecoveryPoints(plugin.id);
+      });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final provider = context.watch<PluginProvider>();
@@ -82,6 +132,11 @@ class _PluginStudioPageState extends State<PluginStudioPage> {
       appBar: AppBar(
         title: Text('${plugin.displayName} · 插件工坊'),
         actions: [
+          IconButton(
+            tooltip: '交给 AI 修改',
+            onPressed: () => _openAiCollaboration(plugin),
+            icon: const Icon(Icons.smart_toy_outlined),
+          ),
           IconButton(
             tooltip: '保存并重新加载',
             onPressed: _reloadPlugin,
@@ -186,14 +241,9 @@ class _PluginStudioPageState extends State<PluginStudioPage> {
                           ),
                         ),
                         subtitle: file.isDefault
-                            ? const Text(
-                                '出厂版本',
-                                style: TextStyle(fontSize: 11),
-                              )
+                            ? const Text('出厂版本', style: TextStyle(fontSize: 11))
                             : null,
-                        onTap: file.isDirectory
-                            ? null
-                            : () => _openFile(file),
+                        onTap: file.isDirectory ? null : () => _openFile(file),
                         onLongPress: file.isDirectory
                             ? null
                             : () => _showFileActions(file),
@@ -212,7 +262,10 @@ class _PluginStudioPageState extends State<PluginStudioPage> {
   Future<void> _openFile(PluginFileEntry file) async {
     try {
       final provider = context.read<PluginProvider>();
-      final content = await provider.readDeveloperFile(widget.pluginId, file.path);
+      final content = await provider.readDeveloperFile(
+        widget.pluginId,
+        file.path,
+      );
       if (!mounted) return;
       await Navigator.push(
         context,
@@ -262,8 +315,7 @@ class _PluginStudioPageState extends State<PluginStudioPage> {
                 child: const Text('取消'),
               ),
               FilledButton(
-                onPressed: () =>
-                    Navigator.pop(context, controller.text.trim()),
+                onPressed: () => Navigator.pop(context, controller.text.trim()),
                 child: const Text('创建'),
               ),
             ],
@@ -468,7 +520,10 @@ class _PluginStudioPageState extends State<PluginStudioPage> {
     );
     if (confirmed != true || !mounted) return;
     try {
-      await context.read<PluginProvider>().deleteFile(widget.pluginId, file.path);
+      await context.read<PluginProvider>().deleteFile(
+        widget.pluginId,
+        file.path,
+      );
       if (mounted) {
         ScaffoldMessenger.of(
           context,
@@ -506,7 +561,10 @@ class _PluginStudioPageState extends State<PluginStudioPage> {
     );
     if (confirmed != true || !mounted) return;
     try {
-      await context.read<PluginProvider>().deleteFile(widget.pluginId, file.path);
+      await context.read<PluginProvider>().deleteFile(
+        widget.pluginId,
+        file.path,
+      );
       if (mounted) {
         ScaffoldMessenger.of(
           context,
@@ -544,9 +602,8 @@ class _PluginStudioPageState extends State<PluginStudioPage> {
                   ButtonSegment(value: state, label: Text(state.label)),
               ],
               selected: {plugin.devState},
-              onSelectionChanged: PluginRepository.builtInPluginIds.contains(
-                plugin.id,
-              )
+              onSelectionChanged:
+                  PluginRepository.builtInPluginIds.contains(plugin.id)
                   ? null
                   : (selection) {
                       final state = selection.single;

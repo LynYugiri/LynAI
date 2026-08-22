@@ -40,6 +40,7 @@ import 'package:lynai/services/lynai_function_service.dart';
 import 'package:lynai/services/lynai_permission_definitions.dart';
 import 'package:lynai/services/lynai_permission_service.dart';
 import 'package:lynai/services/outbound_network_policy.dart';
+import 'package:lynai/services/plugin_scaffold_service.dart';
 import 'package:lynai/services/storage_v2_service.dart';
 import 'package:lynai/services/storage_v2_upgrade_service.dart';
 import 'package:lynai/services/tool_call_service.dart';
@@ -203,10 +204,13 @@ void main() {
       expect(baseNames, isNot(contains('save_plugin_skill')));
       expect(baseNames, contains('run_subagent'));
       expect(baseNames, isNot(contains('call_plugin_function')));
+      expect(baseNames, isNot(contains('plugin_file_write')));
+      expect(baseNames, isNot(contains('create_plugin')));
 
       final grantedTools = ToolCallService.openAITools(const [], true, const [
         LynAICapabilities.pluginCallFunction,
         LynAIPermissions.pluginSkillFilesWrite,
+        LynAIPermissions.pluginsFilesWrite,
       ]);
       final grantedNames = grantedTools
           .map((tool) => tool['function']?['name'])
@@ -214,8 +218,142 @@ void main() {
           .toSet();
       expect(grantedNames, contains('call_plugin_function'));
       expect(grantedNames, contains('save_plugin_skill'));
+      expect(grantedNames, contains('plugin_file_write'));
+      expect(grantedNames, contains('create_plugin'));
     },
   );
+
+  test('create_plugin 生成禁用草稿插件并可继续写入文件', () async {
+    final root = await Directory.systemTemp.createTemp(
+      'lynai_create_plugin_tool_',
+    );
+    try {
+      final plugins = PluginProvider(
+        repository: PluginRepository(rootOverride: root),
+      );
+      final conversations = memoryConversationProvider();
+      final cid = conversations.createConversation(
+        ConversationSettings(modelId: 'm1', agentEnabled: true),
+      );
+      conversations.addMessage(cid, 'user', '生成一个插件');
+      conversations.addMessage(cid, 'assistant', '', save: false);
+      final service = ToolCallService(
+        FeatureProvider(),
+        plugins: plugins,
+        conversations: conversations,
+        conversationId: cid,
+      );
+
+      final created = await service.execute(
+        const ChatToolCall(
+          id: 'create',
+          name: 'create_plugin',
+          arguments: {
+            'id': 'gen-plugin',
+            'name': '生成的插件',
+            'kind': 'blank',
+            'files': {
+              'plugin.json':
+                  '{"id":"gen-plugin","name":"生成的插件","version":"0.1.0","entry":"main.lua","permissions":[],"tools":[{"name":"hello","description":"打招呼","handler":"hello","parameters":{"type":"object","properties":{}}}]}',
+              'main.lua': 'function hello(args) return { ok = true } end',
+              'skills/demo.md': '# Demo',
+            },
+          },
+        ),
+        const [],
+      );
+      expect(created['ok'], isTrue);
+      final createdResult = created['result'] as Map;
+      expect(createdResult['pluginId'], 'gen-plugin');
+      expect(createdResult['enabled'], isFalse);
+      expect(
+        createdResult['writtenFiles'],
+        containsAll(<String>['plugin.json', 'main.lua', 'skills/demo.md']),
+      );
+      expect(
+        conversations.getConversation(cid)?.pluginWorkspaceId,
+        'gen-plugin',
+      );
+
+      final plugin = plugins.pluginById('gen-plugin');
+      expect(plugin, isNotNull);
+      expect(plugin!.devState, PluginDevState.draft);
+      // files 中写入的完整 plugin.json 应被重载，声明了一个 hello 工具。
+      expect(plugin.manifest.tools.map((tool) => tool.name), contains('hello'));
+
+      // 工作区绑定后，plugin_file_read 可省略 pluginId。
+      final read = await service.execute(
+        const ChatToolCall(
+          id: 'read',
+          name: 'plugin_file_read',
+          arguments: {'path': 'main.lua'},
+        ),
+        const [],
+      );
+      expect(read['ok'], isTrue);
+      expect((read['result'] as Map)['content'], contains('hello'));
+
+      // 重复创建同名插件应失败。
+      final duplicate = await service.execute(
+        const ChatToolCall(
+          id: 'dup',
+          name: 'create_plugin',
+          arguments: {'id': 'gen-plugin', 'name': '重复'},
+        ),
+        const [],
+      );
+      expect(duplicate['ok'], isFalse);
+    } finally {
+      await root.delete(recursive: true);
+    }
+  });
+
+  test('plugin_file_write 使用工作区插件并优先显式 pluginId', () async {
+    final root = await Directory.systemTemp.createTemp(
+      'lynai_plugin_workspace_tool_',
+    );
+    try {
+      final plugins = PluginProvider(
+        repository: PluginRepository(rootOverride: root),
+      );
+      await plugins.createPlugin(
+        id: 'workspace-plugin',
+        name: '工作区插件',
+        version: '0.1.0',
+        author: '',
+        description: '',
+        kind: PluginScaffoldKind.blank,
+      );
+      final conversations = memoryConversationProvider();
+      final cid = conversations.createConversation(
+        ConversationSettings(modelId: 'm1', agentEnabled: true),
+      );
+      conversations.setPluginWorkspace(cid, 'workspace-plugin');
+      final service = ToolCallService(
+        FeatureProvider(),
+        plugins: plugins,
+        conversations: conversations,
+        conversationId: cid,
+      );
+
+      final written = await service.execute(
+        const ChatToolCall(
+          id: 'write',
+          name: 'plugin_file_write',
+          arguments: {'path': 'README.md', 'content': '# 工作区'},
+        ),
+        const [],
+      );
+      expect(written['ok'], isTrue);
+      expect((written['result'] as Map)['pluginId'], 'workspace-plugin');
+      expect(
+        await plugins.readDeveloperFile('workspace-plugin', 'README.md'),
+        contains('工作区'),
+      );
+    } finally {
+      await root.delete(recursive: true);
+    }
+  });
 
   test('web_fetch is exposed as a regular built-in tool', () {
     final tools = ToolCallService.openAITools();

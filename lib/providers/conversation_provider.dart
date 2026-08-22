@@ -6,6 +6,7 @@ import '../models/agent_plan.dart';
 import '../models/agent_trace.dart';
 import '../models/agent_working_memory.dart';
 import '../models/conversation.dart';
+import '../models/conversation_plugin_artifact.dart';
 import '../models/composer_reference.dart';
 import '../models/message.dart';
 import '../models/model_config.dart';
@@ -313,16 +314,9 @@ class ConversationProvider extends ChangeNotifier with SerializedSaveQueue {
         title = _titleFromFirstUser(message);
       }
 
-      _conversations[index] = Conversation(
-        id: _conversations[index].id,
+      _conversations[index] = _conversations[index].copyWith(
         title: title,
         messages: updatedMessages,
-        modelId: _conversations[index].modelId,
-        settings: _conversations[index].settings,
-        agentPlan: _conversations[index].agentPlan,
-        agentWorkingMemory: _conversations[index].agentWorkingMemory,
-        roleId: _conversations[index].roleId,
-        createdAt: _conversations[index].createdAt,
         updatedAt: now,
       );
 
@@ -341,16 +335,8 @@ class ConversationProvider extends ChangeNotifier with SerializedSaveQueue {
   void updateConversationTitle(String conversationId, String title) {
     final index = _conversations.indexWhere((c) => c.id == conversationId);
     if (index == -1) return;
-    _conversations[index] = Conversation(
-      id: _conversations[index].id,
+    _conversations[index] = _conversations[index].copyWith(
       title: title,
-      messages: _conversations[index].messages,
-      modelId: _conversations[index].modelId,
-      settings: _conversations[index].settings,
-      agentPlan: _conversations[index].agentPlan,
-      agentWorkingMemory: _conversations[index].agentWorkingMemory,
-      roleId: _conversations[index].roleId,
-      createdAt: _conversations[index].createdAt,
       updatedAt: DateTime.now(),
     );
     _touchConversation(index);
@@ -362,19 +348,12 @@ class ConversationProvider extends ChangeNotifier with SerializedSaveQueue {
   void updateConversationModelId(String conversationId, String modelId) {
     final index = _conversations.indexWhere((c) => c.id == conversationId);
     if (index == -1) return;
-    _conversations[index] = Conversation(
-      id: _conversations[index].id,
-      title: _conversations[index].title,
-      messages: _conversations[index].messages,
+    _conversations[index] = _conversations[index].copyWith(
       modelId: modelId,
       settings: _conversations[index].settings.copyWith(
         modelId: modelId,
         modelName: null,
       ),
-      agentPlan: _conversations[index].agentPlan,
-      agentWorkingMemory: _conversations[index].agentWorkingMemory,
-      roleId: _conversations[index].roleId,
-      createdAt: _conversations[index].createdAt,
       updatedAt: DateTime.now(),
     );
     _touchConversation(index);
@@ -450,16 +429,8 @@ class ConversationProvider extends ChangeNotifier with SerializedSaveQueue {
         updatedAt: lastMsg.updatedAt,
       );
 
-      _conversations[index] = Conversation(
-        id: _conversations[index].id,
-        title: _conversations[index].title,
+      _conversations[index] = _conversations[index].copyWith(
         messages: messages,
-        modelId: _conversations[index].modelId,
-        settings: _conversations[index].settings,
-        agentPlan: _conversations[index].agentPlan,
-        agentWorkingMemory: _conversations[index].agentWorkingMemory,
-        roleId: _conversations[index].roleId,
-        createdAt: _conversations[index].createdAt,
         updatedAt: DateTime.now(),
       );
 
@@ -507,16 +478,8 @@ class ConversationProvider extends ChangeNotifier with SerializedSaveQueue {
         updatedAt: message.updatedAt,
       );
 
-      _conversations[index] = Conversation(
-        id: _conversations[index].id,
-        title: _conversations[index].title,
+      _conversations[index] = _conversations[index].copyWith(
         messages: messages,
-        modelId: _conversations[index].modelId,
-        settings: _conversations[index].settings,
-        agentPlan: _conversations[index].agentPlan,
-        agentWorkingMemory: _conversations[index].agentWorkingMemory,
-        roleId: _conversations[index].roleId,
-        createdAt: _conversations[index].createdAt,
         updatedAt: DateTime.now(),
       );
       _touchConversation(index);
@@ -558,16 +521,8 @@ class ConversationProvider extends ChangeNotifier with SerializedSaveQueue {
       revision: old.revision,
       updatedAt: old.updatedAt,
     );
-    _conversations[index] = Conversation(
-      id: _conversations[index].id,
-      title: _conversations[index].title,
+    _conversations[index] = _conversations[index].copyWith(
       messages: messages,
-      modelId: _conversations[index].modelId,
-      settings: _conversations[index].settings,
-      agentPlan: _conversations[index].agentPlan,
-      agentWorkingMemory: _conversations[index].agentWorkingMemory,
-      roleId: _conversations[index].roleId,
-      createdAt: _conversations[index].createdAt,
       updatedAt: DateTime.now(),
     );
     _touchConversation(index);
@@ -583,16 +538,8 @@ class ConversationProvider extends ChangeNotifier with SerializedSaveQueue {
     final messages = List<Message>.from(_conversations[index].messages)
       ..removeWhere((m) => m.id == messageId);
 
-    _conversations[index] = Conversation(
-      id: _conversations[index].id,
-      title: _conversations[index].title,
+    _conversations[index] = _conversations[index].copyWith(
       messages: messages,
-      modelId: _conversations[index].modelId,
-      settings: _conversations[index].settings,
-      agentPlan: _conversations[index].agentPlan,
-      agentWorkingMemory: _conversations[index].agentWorkingMemory,
-      roleId: _conversations[index].roleId,
-      createdAt: _conversations[index].createdAt,
       updatedAt: DateTime.now(),
     );
     _touchConversation(index);
@@ -609,16 +556,8 @@ class ConversationProvider extends ChangeNotifier with SerializedSaveQueue {
     if (messageIndex == -1) return;
 
     final updatedMessages = messages.take(messageIndex).toList();
-    _conversations[index] = Conversation(
-      id: _conversations[index].id,
-      title: _conversations[index].title,
+    _conversations[index] = _conversations[index].copyWith(
       messages: updatedMessages,
-      modelId: _conversations[index].modelId,
-      settings: _conversations[index].settings,
-      agentPlan: _conversations[index].agentPlan,
-      agentWorkingMemory: _conversations[index].agentWorkingMemory,
-      roleId: _conversations[index].roleId,
-      createdAt: _conversations[index].createdAt,
       updatedAt: DateTime.now(),
     );
     _touchConversation(index);
@@ -669,16 +608,9 @@ class ConversationProvider extends ChangeNotifier with SerializedSaveQueue {
   ) {
     final index = _conversations.indexWhere((c) => c.id == conversationId);
     if (index == -1) return;
-    _conversations[index] = Conversation(
-      id: _conversations[index].id,
-      title: _conversations[index].title,
-      messages: _conversations[index].messages,
+    _conversations[index] = _conversations[index].copyWith(
       modelId: settings.modelId,
       settings: settings,
-      agentPlan: _conversations[index].agentPlan,
-      agentWorkingMemory: _conversations[index].agentWorkingMemory,
-      roleId: _conversations[index].roleId,
-      createdAt: _conversations[index].createdAt,
       updatedAt: DateTime.now(),
     );
     _touchConversation(index);
@@ -713,6 +645,106 @@ class ConversationProvider extends ChangeNotifier with SerializedSaveQueue {
     notifyListeners();
   }
 
+  /// 绑定或解绑当前对话正在创作的插件工作区。
+  void setPluginWorkspace(String conversationId, String? pluginId) {
+    final index = _conversations.indexWhere((c) => c.id == conversationId);
+    if (index == -1) return;
+    final normalized = pluginId?.trim();
+    final next = normalized == null || normalized.isEmpty ? null : normalized;
+    if (_conversations[index].pluginWorkspaceId == next) return;
+    _conversations[index] = _conversations[index].copyWith(
+      pluginWorkspaceId: next,
+      updatedAt: DateTime.now(),
+    );
+    _touchConversation(index);
+    _queueSaveConversations();
+    notifyListeners();
+  }
+
+  /// 记录一个由 AI 创建的插件草稿产物。
+  void addPluginArtifact(
+    String conversationId,
+    ConversationPluginArtifact artifact,
+  ) {
+    if (artifact.pluginId.trim().isEmpty) return;
+    final index = _conversations.indexWhere((c) => c.id == conversationId);
+    if (index == -1) return;
+    final artifacts = [
+      ..._conversations[index].pluginArtifacts.where(
+        (item) => item.pluginId != artifact.pluginId,
+      ),
+      artifact,
+    ];
+    artifacts.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    _conversations[index] = _conversations[index].copyWith(
+      pluginArtifacts: artifacts,
+      updatedAt: DateTime.now(),
+    );
+    _touchConversation(index);
+    _queueSaveConversations();
+    notifyListeners();
+  }
+
+  /// 移除对话中的插件草稿卡片，不删除插件本身。
+  void removePluginArtifact(String conversationId, String pluginId) {
+    final index = _conversations.indexWhere((c) => c.id == conversationId);
+    if (index == -1) return;
+    final artifacts = _conversations[index].pluginArtifacts
+        .where((item) => item.pluginId != pluginId)
+        .toList(growable: false);
+    if (artifacts.length == _conversations[index].pluginArtifacts.length) {
+      return;
+    }
+    _conversations[index] = _conversations[index].copyWith(
+      pluginArtifacts: artifacts,
+      pluginWorkspaceId: _conversations[index].pluginWorkspaceId == pluginId
+          ? null
+          : _conversations[index].pluginWorkspaceId,
+      updatedAt: DateTime.now(),
+    );
+    _touchConversation(index);
+    _queueSaveConversations();
+    notifyListeners();
+  }
+
+  /// 找到已绑定指定插件的对话 ID。
+  String? findPluginWorkspaceConversationId(String pluginId) {
+    final normalized = pluginId.trim();
+    for (final conversation in _conversations) {
+      if (conversation.pluginWorkspaceId == normalized) {
+        return conversation.id;
+      }
+    }
+    return null;
+  }
+
+  /// 为插件工坊的 AI 协作找到或创建绑定该插件的对话。
+  ///
+  /// 已存在绑定时复用；不存在则创建标题为「插件 · $pluginName」的空对话，
+  /// 并强制启用 Agent 模式。
+  String ensurePluginConversation({
+    required String pluginId,
+    required String pluginName,
+    required ConversationSettings settings,
+  }) {
+    final existing = findPluginWorkspaceConversationId(pluginId);
+    if (existing != null) return existing;
+    final conversationId = createConversation(
+      settings.copyWith(agentEnabled: true),
+    );
+    final index = _conversations.indexWhere((c) => c.id == conversationId);
+    if (index != -1) {
+      _conversations[index] = _conversations[index].copyWith(
+        title:
+            '插件 · ${pluginName.trim().isEmpty ? pluginId : pluginName.trim()}',
+        pluginWorkspaceId: pluginId.trim(),
+      );
+      _queueSaveConversations();
+      notifyListeners();
+    }
+    return conversationId;
+  }
+
   /// 更新指定消息的内容
   void updateMessageContent(
     String conversationId,
@@ -744,16 +776,8 @@ class ConversationProvider extends ChangeNotifier with SerializedSaveQueue {
       revision: old.revision + 1,
       updatedAt: DateTime.now(),
     );
-    _conversations[index] = Conversation(
-      id: _conversations[index].id,
-      title: _conversations[index].title,
+    _conversations[index] = _conversations[index].copyWith(
       messages: messages,
-      modelId: _conversations[index].modelId,
-      settings: _conversations[index].settings,
-      agentPlan: _conversations[index].agentPlan,
-      agentWorkingMemory: _conversations[index].agentWorkingMemory,
-      roleId: _conversations[index].roleId,
-      createdAt: _conversations[index].createdAt,
       updatedAt: DateTime.now(),
     );
     // 将更新的对话移到列表顶部
@@ -786,16 +810,8 @@ class ConversationProvider extends ChangeNotifier with SerializedSaveQueue {
       revision: old.revision + 1,
       updatedAt: DateTime.now(),
     );
-    _conversations[index] = Conversation(
-      id: _conversations[index].id,
-      title: _conversations[index].title,
+    _conversations[index] = _conversations[index].copyWith(
       messages: messages,
-      modelId: _conversations[index].modelId,
-      settings: _conversations[index].settings,
-      agentPlan: _conversations[index].agentPlan,
-      agentWorkingMemory: _conversations[index].agentWorkingMemory,
-      roleId: _conversations[index].roleId,
-      createdAt: _conversations[index].createdAt,
       updatedAt: DateTime.now(),
     );
     _touchConversation(index);

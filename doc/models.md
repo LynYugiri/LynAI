@@ -24,6 +24,12 @@
 
 `AppSettings` 保存全局生效的 `agentEnabledByDefault`、权限列表、网页搜索 route、客户端首选 provider、非秘密 SearXNG endpoint，以及默认关闭的 SearXNG HTTP 精确-origin 明文授权。权限是全局单源：主聊天、悬浮聊天运行时的生效权限快照都实时读取这里，设置页“权限管理”和对话设置弹窗编辑的是同一份数据，修改即时作用于所有对话。Tavily key 和 SearXNG bearer token 不属于 `AppSettings`。
 
+## Conversation 与插件产物
+
+文件：`lib/models/conversation.dart`、`lib/models/conversation_plugin_artifact.dart`
+
+`Conversation.pluginWorkspaceId` 保存当前对话正在创作的插件 ID，供 Agent 插件文件工具缺省使用；`Conversation.pluginArtifacts` 保存 `ConversationPluginArtifact` 列表（插件 ID、创建消息 ID、创建时间和一次写入的文件列表），用于在对话消息流中渲染插件草稿卡。字段缺失时兼容为空，单条损坏产物跳过。两者由 storage_v2 的 `conversations` 表独立列持久化：`plugin_workspace_id` 与 `plugin_artifacts_json`（schema v33）。
+
 ## Message 与附件
 
 文件：`lib/models/message.dart`

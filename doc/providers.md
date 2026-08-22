@@ -79,6 +79,10 @@ Provider 的更新策略是：先改内存并通知 UI，再把持久化操作�
 | `appendImagesToLastAssistantMessage()` | 将生图 tool 生成的图片追加到最后一条 assistant 消息。 |
 | `updateAgentPlan()` | 更新当前对话的 Agent 可视化计划。 |
 | `updateAgentWorkingMemory()` | 更新当前对话持久化 Agent 工作记忆。 |
+| `setPluginWorkspace()` | 绑定/解绑当前对话正在创作的插件 ID。 |
+| `addPluginArtifact()` / `removePluginArtifact()` | 记录或移除对话中的插件草稿产物，不影响插件本身。 |
+| `findPluginWorkspaceConversationId()` | 查找已绑定指定插件的对话。 |
+| `ensurePluginConversation()` | 为插件工坊 AI 协作查找或创建绑定对话，并强制 Agent 开启。 |
 | `updateMessageContent()` | 编辑或重试时替换指定消息正文。 |
 | `updateMessageImages()` | 重试版本切换时替换附件。 |
 | `deleteMessage()` / `deleteConversation()` | 删除消息或对话。 |

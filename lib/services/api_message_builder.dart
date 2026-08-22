@@ -30,9 +30,13 @@ List<Map<String, dynamic>> buildApiMessages(
   final agentContext = conv.settings.agentEnabled
       ? ToolCallService.agentContextPrompt(conv)
       : '';
+  final workspacePrompt = conv.settings.agentEnabled
+      ? ToolCallService.pluginWorkspacePrompt(conv.pluginWorkspaceId, plugins)
+      : '';
   final fullToolPrompt = <String>[
     toolPrompt,
     if (agentContext.isNotEmpty) agentContext,
+    if (workspacePrompt.isNotEmpty) workspacePrompt,
     if (extraSystemPrompt.isNotEmpty) extraSystemPrompt,
   ].join('\n\n');
   final systemParts = <String>[

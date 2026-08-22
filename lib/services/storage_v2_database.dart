@@ -84,6 +84,10 @@ class ConversationRows extends Table {
   TextColumn get agentPlanJson => text().named('agent_plan_json').nullable()();
   TextColumn get agentWorkingMemoryJson =>
       text().named('agent_working_memory_json').nullable()();
+  TextColumn get pluginWorkspaceId =>
+      text().named('plugin_workspace_id').nullable()();
+  TextColumn get pluginArtifactsJson =>
+      text().named('plugin_artifacts_json').nullable()();
   TextColumn get roleId => text().named('role_id')();
   TextColumn get createdAt => text().named('created_at')();
   TextColumn get updatedAt => text().named('updated_at')();
@@ -1133,7 +1137,7 @@ class SyncScopeState {
 class StorageV2DriftDatabase extends _$StorageV2DriftDatabase {
   StorageV2DriftDatabase(File file) : super(_open(file));
 
-  static const currentSchemaVersion = 32;
+  static const currentSchemaVersion = 33;
 
   bool needsTransportHeadBackfill = false;
 
@@ -1416,6 +1420,18 @@ SET captures_local = active
           'jottings',
           'attachments_json',
           "TEXT NOT NULL DEFAULT '[]'",
+        );
+      }
+      if (from < 33) {
+        await _addColumnIfMissing(
+          'conversations',
+          'plugin_workspace_id',
+          'TEXT',
+        );
+        await _addColumnIfMissing(
+          'conversations',
+          'plugin_artifacts_json',
+          'TEXT',
         );
       }
       await _ensureCloudDataColumns();
@@ -2446,6 +2462,12 @@ WHERE id IN (${List.filled(runIds.length, '?').join(', ')})
               json['agentWorkingMemory'] == null
                   ? null
                   : jsonEncode(json['agentWorkingMemory']),
+            ),
+            pluginWorkspaceId: Value(json['pluginWorkspaceId'] as String?),
+            pluginArtifactsJson: Value(
+              json['pluginArtifacts'] == null
+                  ? null
+                  : jsonEncode(json['pluginArtifacts']),
             ),
             roleId: json['roleId'] as String? ?? 'default',
             createdAt: json['createdAt'] as String? ?? '',
@@ -6077,6 +6099,12 @@ CREATE TABLE IF NOT EXISTS cloud_reseed_tasks (
                 'agentPlan': jsonDecode(row.agentPlanJson!),
               if (row.agentWorkingMemoryJson != null)
                 'agentWorkingMemory': jsonDecode(row.agentWorkingMemoryJson!),
+              if (row.pluginWorkspaceId != null &&
+                  row.pluginWorkspaceId!.isNotEmpty)
+                'pluginWorkspaceId': row.pluginWorkspaceId,
+              if (row.pluginArtifactsJson != null &&
+                  row.pluginArtifactsJson!.isNotEmpty)
+                'pluginArtifacts': jsonDecode(row.pluginArtifactsJson!),
               'roleId': row.roleId,
               'createdAt': row.createdAt,
               'updatedAt': row.updatedAt,
@@ -6837,6 +6865,12 @@ CREATE TABLE IF NOT EXISTS cloud_reseed_tasks (
                 json['agentWorkingMemory'] == null
                     ? null
                     : jsonEncode(json['agentWorkingMemory']),
+              ),
+              pluginWorkspaceId: Value(json['pluginWorkspaceId'] as String?),
+              pluginArtifactsJson: Value(
+                json['pluginArtifacts'] == null
+                    ? null
+                    : jsonEncode(json['pluginArtifacts']),
               ),
               roleId: json['roleId'] as String? ?? 'default',
               createdAt: json['createdAt'] as String? ?? '',

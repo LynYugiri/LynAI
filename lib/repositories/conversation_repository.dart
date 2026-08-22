@@ -5,6 +5,7 @@ import '../models/agent_plan.dart';
 import '../models/agent_working_memory.dart';
 import '../models/composer_reference.dart';
 import '../models/conversation.dart';
+import '../models/conversation_plugin_artifact.dart';
 import '../models/message.dart';
 import '../services/storage_v2_service.dart';
 
@@ -135,15 +136,36 @@ class ConversationRepository {
           if (orderB != null) return 1;
           return a.message.timestamp.compareTo(b.message.timestamp);
         });
+        final rawSettings = raw['settings'] is Map
+            ? Map<String, dynamic>.from(raw['settings'] as Map)
+            : <String, dynamic>{};
+        final pluginArtifacts = <ConversationPluginArtifact>[];
+        final rawArtifacts = raw['pluginArtifacts'] is List
+            ? raw['pluginArtifacts'] as List
+            : rawSettings['pluginArtifacts'] as List? ?? const [];
+        for (final item in rawArtifacts) {
+          if (item is! Map) continue;
+          try {
+            final artifact = ConversationPluginArtifact.fromJson(
+              Map<String, dynamic>.from(item),
+            );
+            if (artifact.pluginId.isNotEmpty) pluginArtifacts.add(artifact);
+          } catch (e) {
+            debugPrint('跳过损坏的插件草稿产物: $e');
+          }
+        }
+        final rawWorkspaceId = raw['pluginWorkspaceId'] is String
+            ? raw['pluginWorkspaceId'] as String?
+            : rawSettings['pluginWorkspaceId'];
         conversations.add(
           Conversation(
             id: id,
             title: raw['title'] as String? ?? '',
             messages: messageRows.map((row) => row.message).toList(),
             modelId: raw['modelId'] as String? ?? '',
-            settings: raw['settings'] is Map
+            settings: rawSettings.isNotEmpty
                 ? ConversationSettings.fromJson(
-                    Map<String, dynamic>.from(raw['settings'] as Map),
+                    rawSettings,
                     fallbackModelId: raw['modelId'] as String? ?? '',
                   )
                 : null,
@@ -152,6 +174,11 @@ class ConversationRepository {
               raw['agentWorkingMemory'],
             ),
             roleId: raw['roleId'] as String? ?? 'default',
+            pluginWorkspaceId:
+                rawWorkspaceId is String && rawWorkspaceId.isNotEmpty
+                ? rawWorkspaceId
+                : null,
+            pluginArtifacts: pluginArtifacts,
             createdAt: DateTime.parse(raw['createdAt'] as String),
             updatedAt: DateTime.parse(raw['updatedAt'] as String),
           ),
@@ -179,6 +206,13 @@ class ConversationRepository {
             !conversation.agentWorkingMemory!.isEmpty)
           'agentWorkingMemory': conversation.agentWorkingMemory!.toJson(),
         'roleId': conversation.roleId,
+        if (conversation.pluginWorkspaceId != null &&
+            conversation.pluginWorkspaceId!.isNotEmpty)
+          'pluginWorkspaceId': conversation.pluginWorkspaceId,
+        if (conversation.pluginArtifacts.isNotEmpty)
+          'pluginArtifacts': conversation.pluginArtifacts
+              .map((item) => item.toJson())
+              .toList(),
         'createdAt': conversation.createdAt.toIso8601String(),
         'updatedAt': conversation.updatedAt.toIso8601String(),
       });
@@ -198,7 +232,9 @@ class ConversationRepository {
               message.agentTrace!.events.isNotEmpty)
             'agentTrace': message.agentTrace!.toJson(),
           if (message.composerSegments.isNotEmpty)
-            'composerSegments': encodeComposerSegments(message.composerSegments),
+            'composerSegments': encodeComposerSegments(
+              message.composerSegments,
+            ),
           'timestamp': message.timestamp.toIso8601String(),
           'revision': message.revision,
           'updatedAt': message.updatedAt.toIso8601String(),

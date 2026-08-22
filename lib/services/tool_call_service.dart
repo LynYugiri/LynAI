@@ -56,6 +56,7 @@ import 'lynai_permission_service.dart';
 import 'lynai_permission_definitions.dart';
 import 'model_context_compactor.dart';
 import 'plugin_lua_runtime_service.dart';
+import 'plugin_scaffold_service.dart';
 import 'plugin_tool_importer.dart';
 import 'storage_v2_service.dart';
 import 'web_search_service.dart';
@@ -287,6 +288,7 @@ Plan 创建和更新不需要权限，只用于当前对话的可视化状态。
 如果需要了解可用插件函数，先调用 list_plugin_functions。
 如果需要调用插件函数，先调用 list_plugin_functions 查看可用函数，再用 call_plugin_function。该能力需要 plugins.callFunction 权限。
 如果需要了解可用插件 Skill，先调用 list_plugin_skills；Skill 摘要不是完整说明，执行相关流程前调用 load_plugin_skill 加载正文。加载 Skill 不需要额外权限；需要按用户要求沉淀或修正可编辑 Skill 时，在已授权 plugins.skills.files:write 后调用 save_plugin_skill 保存正文。
+如果用户要求从零生成插件，调用 create_plugin：id 是唯一机器标识、name 是显示名称；可在一次调用内通过 files 参数直接写入完整文件（plugin.json、main.lua、skills/<name>.md、功能页 HTML/CSS/JS 等），或随后用 plugin_file_write 补充。创建成功后当前对话会自动绑定该插件为工作区，后续 plugin_file_* / plugin_manifest_* 不传 pluginId 即操作它。该能力需要 plugins.files:write 权限，生成后需用户审查并启用，不能自行启用插件。
 如需运行 Lua 或手机自动化，调用 execute_lua；沙箱能力、可用函数与设备 API 用法见该工具的说明，确定步骤尽量在一次脚本内线性编排。
 如果手机自动化子任务会产生很多中间屏幕信息，优先调用 run_subagent。Subagent 使用独立上下文执行多轮工具，只把最终结构化结果返回当前对话。需要读取聊天上下文再生成回复时，先让 Subagent 返回 peer、messages、summary、confidence；用户已经明确要求发送且目标明确时，可让 Subagent/Lua 直接发送，不要二次确认。
 Agent 专用工具成功时返回 {ok:true,result:{...}}，失败时返回 {ok:false,error:{code,message,details?}}；读取数据时优先看 result。
@@ -342,6 +344,38 @@ Agent 专用工具成功时返回 {ok:true,result:{...}}，失败时返回 {ok:f
     return '''$prompt
 可用插件 Skills（按需调用 load_plugin_skill 加载正文）：
 ${lines.join('\n')}$more''';
+  }
+
+  /// 生成当前对话插件工作区的系统提示词。
+  ///
+  /// 未绑定工作区时返回空字符串；绑定后让模型知道插件文件工具缺省的
+  /// pluginId 目标，并提示先查看现状再修改。
+  static String pluginWorkspacePrompt(
+    String? pluginWorkspaceId,
+    Iterable<InstalledPlugin> plugins,
+  ) {
+    final workspaceId = pluginWorkspaceId?.trim();
+    if (workspaceId == null || workspaceId.isEmpty) return '';
+    InstalledPlugin? plugin;
+    for (final item in plugins) {
+      if (item.id == workspaceId) {
+        plugin = item;
+        break;
+      }
+    }
+    final summary = plugin == null
+        ? '该插件当前不在本地插件列表中'
+        : '名称 ${plugin.displayName}，版本 ${plugin.manifest.version}，'
+              '开发状态 ${plugin.devState.label}，'
+              '工具 ${plugin.manifest.tools.length} 个，'
+              '函数 ${plugin.manifest.functions.length} 个，'
+              'Skill ${plugin.manifest.skills.length} 个，'
+              '功能页 ${plugin.manifest.featurePages.length} 个'
+              '${plugin.hasError ? '，当前加载错误：${plugin.loadError}' : '，无加载错误'}';
+    return '''
+当前对话正在创作插件：$workspaceId（$summary）。
+plugin_file_* / plugin_manifest_* 工具不传 pluginId 时默认操作该插件；
+开始修改前先用 plugin_file_list、plugin_manifest_get 了解当前状态，写入 plugin.json 时必须保持 id 与当前插件一致。''';
   }
 
   static String agentContextPrompt(Conversation conversation) {
@@ -1312,21 +1346,26 @@ ${lines.join('\n')}$more''';
         {
           'type': 'object',
           'properties': {
-            'pluginId': {'type': 'string', 'description': '插件 ID'},
+            'pluginId': {
+              'type': 'string',
+              'description': '可选，插件 ID；缺省使用当前对话正在创作的插件',
+            },
           },
-          'required': ['pluginId'],
         },
       );
       add('plugin_file_read', '读取插件文件内容。需要 plugins.files:read 权限。', {
         'type': 'object',
         'properties': {
-          'pluginId': {'type': 'string', 'description': '插件 ID'},
+          'pluginId': {
+            'type': 'string',
+            'description': '可选，插件 ID；缺省使用当前对话正在创作的插件',
+          },
           'path': {
             'type': 'string',
             'description': '相对路径，例如 main.lua、skills/demo.md',
           },
         },
-        'required': ['pluginId', 'path'],
+        'required': ['path'],
       });
       add(
         'plugin_manifest_get',
@@ -1396,13 +1435,45 @@ ${lines.join('\n')}$more''';
         {
           'type': 'object',
           'properties': {
-            'pluginId': {'type': 'string', 'description': '插件 ID'},
+            'pluginId': {
+              'type': 'string',
+              'description': '可选，插件 ID；缺省使用当前对话正在创作的插件',
+            },
             'name': {'type': 'string', 'description': '可选，显示名称'},
             'version': {'type': 'string', 'description': '可选，SemVer 版本'},
             'author': {'type': 'string', 'description': '可选，作者'},
             'description': {'type': 'string', 'description': '可选，描述'},
           },
-          'required': ['pluginId'],
+        },
+      );
+      add(
+        'create_plugin',
+        '创建一个新的本地插件草稿（默认禁用）。可在一次调用内通过 files 直接写入完整文件（plugin.json、main.lua、skills/<name>.md、功能页 HTML/CSS/JS 等），一次完成插件生成。需要 plugins.files:write 权限；生成后需用户在插件工坊或插件管理页审查并启用。',
+        {
+          'type': 'object',
+          'properties': {
+            'id': {
+              'type': 'string',
+              'description': '插件 ID（唯一机器标识，非显示名），只能字母、数字、下划线、点和横线',
+            },
+            'name': {'type': 'string', 'description': '显示名称（用户可见）'},
+            'version': {'type': 'string', 'description': '可选，语义化版本，默认 0.1.0'},
+            'author': {'type': 'string', 'description': '可选，作者'},
+            'description': {'type': 'string', 'description': '可选，描述'},
+            'kind': {
+              'type': 'string',
+              'description':
+                  '脚手架模板：blank 空 Lua、luaTool 工具示例、skill 可编辑 Skill、featurePage WebView 功能页；默认 blank',
+              'enum': ['blank', 'luaTool', 'skill', 'featurePage'],
+            },
+            'files': {
+              'type': 'object',
+              'description':
+                  '可选，一次性写入的完整文件表：相对路径 -> 完整文件内容。可包含 plugin.json、main.lua、skills/<name>.md、index.html、index.css、index.js、README.md 等，会覆盖脚手架生成的同名文件；defaults/ 目录不可写。',
+              'additionalProperties': {'type': 'string'},
+            },
+          },
+          'required': ['id', 'name'],
         },
       );
     }
@@ -1807,7 +1878,8 @@ ${lines.join('\n')}$more''';
       'plugin_file_delete' ||
       'plugin_file_rename' ||
       'plugin_restore_defaults' ||
-      'plugin_manifest_update' => const [LynAIPermissions.pluginsFilesWrite],
+      'plugin_manifest_update' ||
+      'create_plugin' => const [LynAIPermissions.pluginsFilesWrite],
       'get_current_screen' => const [LynAIPermissions.deviceScreenRead],
       'open_app' => const [LynAIPermissions.deviceControl],
       'list_apps' => const [LynAIPermissions.deviceControl],
@@ -2152,6 +2224,7 @@ ${lines.join('\n')}$more''';
       ),
       'plugin_manifest_get' => _pluginManifestGetForAgent(call.arguments),
       'plugin_manifest_update' => _pluginManifestUpdateForAgent(call.arguments),
+      'create_plugin' => _createPlugin(call.arguments),
       'add_agent_note' => _addAgentNote(call.arguments),
       'call_plugin_function' => _callPluginFunction(
         call.arguments,
@@ -2504,6 +2577,8 @@ ${lines.join('\n')}$more''';
           return _pluginManifestGetForAgent(call.arguments);
         case 'plugin_manifest_update':
           return await _pluginManifestUpdateForAgent(call.arguments);
+        case 'create_plugin':
+          return await _createPlugin(call.arguments);
         case 'add_agent_note':
           return _addAgentNote(call.arguments);
         case 'call_plugin_function':
@@ -3903,7 +3978,7 @@ ${ToolCallService.currentTimeContext()}${sharedContext.isEmpty ? '' : '\n\n$shar
     if (plugins == null) {
       return _agentError('plugin_system_unavailable', '插件系统不可用');
     }
-    final pluginId = (args['pluginId'] as String? ?? '').trim();
+    final pluginId = _resolvePluginId(args['pluginId']);
     if (pluginId.isEmpty) {
       return _agentError('invalid_arguments', 'plugin_file_list 缺少 pluginId');
     }
@@ -3942,7 +4017,7 @@ ${ToolCallService.currentTimeContext()}${sharedContext.isEmpty ? '' : '\n\n$shar
     if (plugins == null) {
       return _agentError('plugin_system_unavailable', '插件系统不可用');
     }
-    final pluginId = (args['pluginId'] as String? ?? '').trim();
+    final pluginId = _resolvePluginId(args['pluginId']);
     final path = (args['path'] as String? ?? '').trim();
     if (pluginId.isEmpty || path.isEmpty) {
       return _agentError(
@@ -3971,7 +4046,7 @@ ${ToolCallService.currentTimeContext()}${sharedContext.isEmpty ? '' : '\n\n$shar
     if (plugins == null) {
       return _agentError('plugin_system_unavailable', '插件系统不可用');
     }
-    final pluginId = (args['pluginId'] as String? ?? '').trim();
+    final pluginId = _resolvePluginId(args['pluginId']);
     final path = (args['path'] as String? ?? '').trim();
     final content = (args['content'] as String? ?? '').toString();
     if (pluginId.isEmpty || path.isEmpty) {
@@ -4001,7 +4076,7 @@ ${ToolCallService.currentTimeContext()}${sharedContext.isEmpty ? '' : '\n\n$shar
     if (plugins == null) {
       return _agentError('plugin_system_unavailable', '插件系统不可用');
     }
-    final pluginId = (args['pluginId'] as String? ?? '').trim();
+    final pluginId = _resolvePluginId(args['pluginId']);
     final path = (args['path'] as String? ?? '').trim();
     if (pluginId.isEmpty || path.isEmpty) {
       return _agentError(
@@ -4030,7 +4105,7 @@ ${ToolCallService.currentTimeContext()}${sharedContext.isEmpty ? '' : '\n\n$shar
     if (plugins == null) {
       return _agentError('plugin_system_unavailable', '插件系统不可用');
     }
-    final pluginId = (args['pluginId'] as String? ?? '').trim();
+    final pluginId = _resolvePluginId(args['pluginId']);
     final oldPath = (args['oldPath'] as String? ?? '').trim();
     final newPath = (args['newPath'] as String? ?? '').trim();
     if (pluginId.isEmpty || oldPath.isEmpty || newPath.isEmpty) {
@@ -4064,7 +4139,7 @@ ${ToolCallService.currentTimeContext()}${sharedContext.isEmpty ? '' : '\n\n$shar
     if (plugins == null) {
       return _agentError('plugin_system_unavailable', '插件系统不可用');
     }
-    final pluginId = (args['pluginId'] as String? ?? '').trim();
+    final pluginId = _resolvePluginId(args['pluginId']);
     if (pluginId.isEmpty) {
       return _agentError(
         'invalid_arguments',
@@ -4086,7 +4161,7 @@ ${ToolCallService.currentTimeContext()}${sharedContext.isEmpty ? '' : '\n\n$shar
     if (!_agentEnabled) {
       return _agentError('agent_disabled', '当前对话未启用 Agent 模式');
     }
-    final pluginId = (args['pluginId'] as String? ?? '').trim();
+    final pluginId = _resolvePluginId(args['pluginId']);
     if (pluginId.isEmpty) {
       return _agentError(
         'invalid_arguments',
@@ -4113,7 +4188,7 @@ ${ToolCallService.currentTimeContext()}${sharedContext.isEmpty ? '' : '\n\n$shar
     if (plugins == null) {
       return _agentError('plugin_system_unavailable', '插件系统不可用');
     }
-    final pluginId = (args['pluginId'] as String? ?? '').trim();
+    final pluginId = _resolvePluginId(args['pluginId']);
     if (pluginId.isEmpty) {
       return _agentError(
         'invalid_arguments',
@@ -4144,6 +4219,72 @@ ${ToolCallService.currentTimeContext()}${sharedContext.isEmpty ? '' : '\n\n$shar
       return _agentError('plugin_manifest_update_failed', '$e');
     }
   }
+
+  Future<Map<String, dynamic>> _createPlugin(Map<String, dynamic> args) async {
+    if (!_agentEnabled) {
+      return _agentError('agent_disabled', '当前对话未启用 Agent 模式');
+    }
+    final plugins = _plugins;
+    if (plugins == null) {
+      return _agentError('plugin_system_unavailable', '插件系统不可用');
+    }
+    final id = (args['id'] as String? ?? '').trim();
+    final name = (args['name'] as String? ?? '').trim();
+    if (id.isEmpty || name.isEmpty) {
+      return _agentError('invalid_arguments', 'create_plugin 缺少 id 或 name');
+    }
+    if (!RegExp(r'^[a-zA-Z0-9_.-]+$').hasMatch(id)) {
+      return _agentError('invalid_arguments', '插件 id 只能包含字母、数字、下划线、点和横线');
+    }
+    if (plugins.pluginById(id) != null) {
+      return _agentError('plugin_exists', '插件已存在: $id');
+    }
+    final version = (args['version'] as String? ?? '').trim();
+    try {
+      final plugin = await plugins.createPlugin(
+        id: id,
+        name: name,
+        version: version.isEmpty ? '0.1.0' : version,
+        author: (args['author'] as String? ?? '').trim(),
+        description: (args['description'] as String? ?? '').trim(),
+        kind: _scaffoldKindFromString(args['kind'] as String? ?? ''),
+      );
+      final writtenFiles = <String>[];
+      final files = args['files'];
+      if (files is Map && files.isNotEmpty) {
+        for (final entry in files.entries) {
+          final path = entry.key.toString().trim();
+          final content = entry.value?.toString() ?? '';
+          if (path.isEmpty) continue;
+          await plugins.writeEditableFile(id, path, content);
+          writtenFiles.add(path);
+        }
+      }
+      final cid = _conversationId;
+      if (cid != null && cid.isNotEmpty) {
+        _conversations?.setPluginWorkspace(cid, plugin.id);
+      }
+      return _agentOk({
+        'pluginId': plugin.id,
+        'name': plugin.displayName,
+        'version': plugin.manifest.version,
+        'enabled': plugin.enabled,
+        'devState': plugin.devState.toJson(),
+        'writtenFiles': writtenFiles,
+        'created': true,
+      });
+    } catch (e) {
+      return _agentError('plugin_create_failed', '$e');
+    }
+  }
+
+  PluginScaffoldKind _scaffoldKindFromString(String raw) => switch (raw
+      .trim()) {
+    'luaTool' || 'lua_tool' || 'tool' => PluginScaffoldKind.luaTool,
+    'skill' => PluginScaffoldKind.skill,
+    'featurePage' || 'feature_page' || 'page' => PluginScaffoldKind.featurePage,
+    _ => PluginScaffoldKind.blank,
+  };
 
   Future<Map<String, dynamic>> _loadPluginSkill(
     Map<String, dynamic> args,
@@ -4343,6 +4484,24 @@ ${ToolCallService.currentTimeContext()}${sharedContext.isEmpty ? '' : '\n\n$shar
     final conversations = _conversations;
     if (cid == null || conversations == null) return false;
     return conversations.getConversation(cid)?.settings.agentEnabled == true;
+  }
+
+  /// 当前对话正在创作的插件 ID，供插件文件工具缺省使用。
+  String? get _workspacePluginId {
+    final cid = _conversationId;
+    final conversations = _conversations;
+    if (cid == null || conversations == null) return null;
+    final workspace = conversations.getConversation(cid)?.pluginWorkspaceId;
+    return workspace == null || workspace.trim().isEmpty
+        ? null
+        : workspace.trim();
+  }
+
+  /// 解析插件文件工具的参数：显式 pluginId 优先，否则使用对话工作区。
+  String _resolvePluginId(Object? raw) {
+    final explicit = (raw as String? ?? '').trim();
+    if (explicit.isNotEmpty) return explicit;
+    return _workspacePluginId ?? '';
   }
 
   /// 当前 run 开始时固定的 Agent 开关，取不到 run 快照时回退实时值。
