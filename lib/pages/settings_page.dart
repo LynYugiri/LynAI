@@ -90,6 +90,19 @@ class _SettingsPageState extends State<SettingsPage> {
           ),
           _buildItem(
             context,
+            Icons.explore_outlined,
+            '功能引导',
+            '重新看一遍底部导航、快捷盘和角色/Agent 入口',
+            Colors.teal,
+            () {
+              final provider = context.read<SettingsProvider>();
+              provider.replaceSettings(
+                provider.settings.copyWith(hasCompletedGuidedTour: false),
+              );
+            },
+          ),
+          _buildItem(
+            context,
             Icons.wallpaper,
             '背景',
             settings.backgroundImagePath != null ? '已设置背景图片' : '自定义背景图片',

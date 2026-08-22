@@ -58,12 +58,15 @@ class _OnboardingPageState extends State<OnboardingPage> {
   final TextEditingController _occupationCustomController =
       TextEditingController();
   final TextEditingController _freeTextController = TextEditingController();
+  final TextEditingController _welcomeController = TextEditingController();
   final PageController _questionPageController = PageController();
 
   late Set<String> _selectedPurposes;
   late String _occupation;
   int _questionIndex = 0;
   OnboardingService? _service;
+  bool _welcomeVisible = false;
+  bool _welcomeRegenerating = false;
 
   @override
   void initState() {
@@ -81,6 +84,7 @@ class _OnboardingPageState extends State<OnboardingPage> {
     _controller.dispose();
     _occupationCustomController.dispose();
     _freeTextController.dispose();
+    _welcomeController.dispose();
     _questionPageController.dispose();
     super.dispose();
   }
@@ -99,12 +103,18 @@ class _OnboardingPageState extends State<OnboardingPage> {
         title: const Text('欢迎使用 LynAI'),
         centerTitle: true,
         automaticallyImplyLeading: false,
-        actions: [TextButton(onPressed: _skip, child: const Text('跳过'))],
+        actions: [
+          if (!_welcomeVisible)
+            TextButton(onPressed: _skip, child: const Text('跳过')),
+        ],
       ),
       body: SafeArea(
         child: AnimatedBuilder(
           animation: _controller,
           builder: (context, _) {
+            if (_welcomeVisible) {
+              return _buildWelcome();
+            }
             if (_controller.applying || _controller.applyResult != null) {
               return _buildSummary();
             }
@@ -126,10 +136,11 @@ class _OnboardingPageState extends State<OnboardingPage> {
     await _finish(skipped: true);
   }
 
-  Future<void> _finish({bool skipped = false}) async {
+  Future<void> _finish({bool skipped = false, bool showGuidedTour = true}) async {
     await _controller.finish(
       context.read<SettingsProvider>(),
       skipped: skipped,
+      showGuidedTour: showGuidedTour,
     );
     if (!mounted) return;
     final navigator = Navigator.of(context);
@@ -830,12 +841,118 @@ class _OnboardingPageState extends State<OnboardingPage> {
             if (result.skill != null) _summaryLine(result.skill!),
           ],
           const Spacer(),
-          FilledButton(
-            onPressed: () => _finish(),
-            child: const Text('进入 LynAI'),
+          FilledButton.icon(
+            onPressed: _showWelcome,
+            icon: const Icon(Icons.waving_hand_outlined),
+            label: const Text('看看我的欢迎语'),
           ),
         ],
       ),
+    );
+  }
+
+  // ─── 欢迎页 ────────────────────────────────────────────────
+
+  void _showWelcome() {
+    final draft = _controller.draft;
+    if (draft == null) return;
+    if (_welcomeController.text.trim().isEmpty) {
+      _welcomeController.text = draft.welcomeMessage;
+    }
+    setState(() => _welcomeVisible = true);
+  }
+
+  Future<void> _regenerateWelcome() async {
+    final draft = _controller.draft;
+    if (draft == null || _welcomeRegenerating) return;
+    _saveWelcomeToDraft();
+    setState(() => _welcomeRegenerating = true);
+    final text = await _ensureService().generateWelcome(
+      input: _controller.input,
+      draft: _controller.draft!,
+    );
+    if (!mounted) return;
+    _welcomeController.text = text;
+    _controller.updateDraft(_controller.draft!.copyWith(welcomeMessage: text));
+    setState(() => _welcomeRegenerating = false);
+  }
+
+  void _saveWelcomeToDraft() {
+    final draft = _controller.draft;
+    if (draft == null) return;
+    final text = _welcomeController.text.trim();
+    if (text.isEmpty || text == draft.welcomeMessage) return;
+    _controller.updateDraft(draft.copyWith(welcomeMessage: text));
+  }
+
+  Widget _buildWelcome() {
+    final roleName = _controller.draft?.role.name ?? '我的助手';
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        Center(
+          child: CircleAvatar(
+            radius: 36,
+            child: Text(
+              roleName.isEmpty ? 'L' : roleName.characters.first,
+              style: Theme.of(context).textTheme.headlineMedium,
+            ),
+          ),
+        ),
+        const SizedBox(height: 16),
+        Center(
+          child: Text(
+            '你好，我是$roleName',
+            style: Theme.of(context).textTheme.titleLarge,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Center(
+          child: Text(
+            '这是你的专属欢迎语，可以直接修改或换一句',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+        ),
+        const SizedBox(height: 16),
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: TextField(
+              controller: _welcomeController,
+              minLines: 6,
+              maxLines: 12,
+              decoration: const InputDecoration(
+                border: InputBorder.none,
+                hintText: '写一句欢迎语…',
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(height: 12),
+        OutlinedButton.icon(
+          onPressed: _welcomeRegenerating ? null : _regenerateWelcome,
+          icon: _welcomeRegenerating
+              ? const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Icon(Icons.refresh),
+          label: const Text('换一句'),
+        ),
+        const SizedBox(height: 12),
+        FilledButton.icon(
+          onPressed: () => _finish(showGuidedTour: false),
+          icon: const Icon(Icons.arrow_forward),
+          label: const Text('开始使用'),
+        ),
+        const SizedBox(height: 8),
+        FilledButton.tonalIcon(
+          onPressed: () => _finish(showGuidedTour: true),
+          icon: const Icon(Icons.explore_outlined),
+          label: const Text('带我逛逛'),
+        ),
+      ],
     );
   }
 

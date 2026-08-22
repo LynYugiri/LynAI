@@ -57,6 +57,9 @@ void main() {
     expect(draft.memoryDecks, isNotEmpty);
     expect(draft.taskLists, isNotEmpty);
     expect(draft.agent.enabledByDefault, isTrue);
+    expect(draft.welcomeMessage, contains('学习助手'));
+    expect(draft.welcomeMessage, contains('学习资料库'));
+    expect(draft.welcomeMessage, contains('准备考研'));
   });
 
   test(
@@ -72,6 +75,28 @@ void main() {
       );
       expect(draft.role.name, '创作助手');
       expect(draft.noteFolders, isNotEmpty);
+      expect(draft.welcomeMessage, isNotEmpty);
     },
   );
+
+  test('generateWelcome falls back to local welcome without api', () async {
+    final service = OnboardingService();
+    final draft = service.buildLocalDraft(
+      OnboardingInput(
+        purposes: const ['knowledge'],
+        occupation: 'researcher',
+        updatedAt: DateTime.now(),
+      ),
+    );
+    final welcome = await service.generateWelcome(
+      input: OnboardingInput(
+        purposes: const ['knowledge'],
+        occupation: 'researcher',
+        updatedAt: DateTime.now(),
+      ),
+      draft: draft,
+    );
+    expect(welcome, contains('研究助手'));
+    expect(welcome, contains('我的知识库'));
+  });
 }

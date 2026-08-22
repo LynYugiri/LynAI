@@ -252,6 +252,7 @@ class AppSettings {
   final bool hasConfiguredBackend;
   final bool hasSeenLoginGuide;
   final bool hasCompletedOnboarding;
+  final bool hasCompletedGuidedTour;
   final String? onboardingInputJson;
   final int onboardingVersion;
   final ChatQuickActions chatQuickActions;
@@ -295,6 +296,7 @@ class AppSettings {
     this.hasConfiguredBackend = false,
     this.hasSeenLoginGuide = false,
     this.hasCompletedOnboarding = false,
+    this.hasCompletedGuidedTour = true,
     this.onboardingInputJson,
     this.onboardingVersion = 1,
     this.chatQuickActions = const ChatQuickActions(
@@ -355,6 +357,7 @@ class AppSettings {
     bool? hasConfiguredBackend,
     bool? hasSeenLoginGuide,
     bool? hasCompletedOnboarding,
+    bool? hasCompletedGuidedTour,
     Object? onboardingInputJson = _sentinel,
     int? onboardingVersion,
     ChatQuickActions? chatQuickActions,
@@ -422,6 +425,8 @@ class AppSettings {
       hasSeenLoginGuide: hasSeenLoginGuide ?? this.hasSeenLoginGuide,
       hasCompletedOnboarding:
           hasCompletedOnboarding ?? this.hasCompletedOnboarding,
+      hasCompletedGuidedTour:
+          hasCompletedGuidedTour ?? this.hasCompletedGuidedTour,
       onboardingInputJson: identical(onboardingInputJson, _sentinel)
           ? this.onboardingInputJson
           : onboardingInputJson as String?,
@@ -551,6 +556,7 @@ class AppSettings {
       hasConfiguredBackend: json['hasConfiguredBackend'] as bool? ?? false,
       hasSeenLoginGuide: json['hasSeenLoginGuide'] as bool? ?? false,
       hasCompletedOnboarding: json['hasCompletedOnboarding'] as bool? ?? true,
+      hasCompletedGuidedTour: json['hasCompletedGuidedTour'] as bool? ?? true,
       onboardingInputJson: json['onboardingInputJson'] as String?,
       onboardingVersion: (json['onboardingVersion'] as num?)?.toInt() ?? 1,
       chatQuickActions: ChatQuickActions.fromJson(json['chatQuickActions']),
@@ -598,6 +604,7 @@ class AppSettings {
       'hasConfiguredBackend': hasConfiguredBackend,
       'hasSeenLoginGuide': hasSeenLoginGuide,
       'hasCompletedOnboarding': hasCompletedOnboarding,
+      'hasCompletedGuidedTour': hasCompletedGuidedTour,
       if (onboardingInputJson != null)
         'onboardingInputJson': onboardingInputJson,
       'onboardingVersion': onboardingVersion,

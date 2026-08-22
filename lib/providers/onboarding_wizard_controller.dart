@@ -132,13 +132,18 @@ class OnboardingWizardController extends ChangeNotifier {
   }
 
   /// 标记向导完成并保存本次输入，供下次重新进入时预填。
+  ///
+  /// [showGuidedTour] 为 true 时会把 `hasCompletedGuidedTour` 置为 false，
+  /// HomePage 随后会自动弹出功能引导；为 false 时表示用户暂时跳过引导。
   Future<void> finish(
     SettingsProvider settingsProvider, {
     bool skipped = false,
+    bool showGuidedTour = true,
   }) async {
     final input = skipped ? OnboardingInput.empty() : _input;
     final updated = settingsProvider.settings.copyWith(
       hasCompletedOnboarding: true,
+      hasCompletedGuidedTour: !showGuidedTour,
       onboardingInputJson: input.isEmpty ? null : jsonEncode(input.toJson()),
     );
     await settingsProvider.replaceSettings(updated);

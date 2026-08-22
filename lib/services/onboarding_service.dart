@@ -68,27 +68,60 @@ class OnboardingService {
     return aiDraft ?? buildLocalDraft(input);
   }
 
+  /// 只重新生成欢迎语，不触碰已经应用或编辑过的配置草稿。
+  Future<String> generateWelcome({
+    required OnboardingInput input,
+    required OnboardingDraft draft,
+  }) async {
+    final aiWelcome = await _tryGenerateWelcomeWithAi(input, draft);
+    if (aiWelcome != null && aiWelcome.trim().isNotEmpty) {
+      return aiWelcome.trim();
+    }
+    return _buildLocalWelcome(input, draft);
+  }
+
+  Future<String?> _tryGenerateWelcomeWithAi(
+    OnboardingInput input,
+    OnboardingDraft draft,
+  ) async {
+    final api = apiService;
+    final selected = _selectModel();
+    if (api == null || selected == null) return null;
+
+    try {
+      final response = await api
+          .sendChatRequest(selected, [
+            {
+              'role': 'system',
+              'content':
+                  '你是 LynAI 的欢迎语生成器。根据用户的用途、身份和已生成的配置，'
+                  '写一段 3-5 句的中文欢迎语，包含：打招呼并报出助手名字、'
+                  '说明用户以后可以怎么使唤它、列出已创建的模块、邀请用户花 30 秒'
+                  '了解界面。只输出欢迎语文本本身，不要 Markdown，不要引号，不要标题。',
+            },
+            {
+              'role': 'user',
+              'content': [
+                _buildAiUserPrompt(input, draft),
+                '当前欢迎语：${draft.welcomeMessage.trim().isEmpty ? '无' : draft.welcomeMessage}',
+                '请换一种说法输出新的欢迎语。',
+              ].join('\n'),
+            },
+          ], thinking: false)
+          .timeout(const Duration(seconds: 15));
+      return response.content.trim();
+    } catch (_) {
+      return null;
+    }
+  }
+
   Future<OnboardingDraft?> _tryGenerateWithAi(
     OnboardingInput input,
     OnboardingDraft? currentDraft,
   ) async {
     final api = apiService;
-    final provider = modelConfigProvider;
-    if (api == null || provider == null) return null;
-
-    final chatModels = provider.enabledModelsByCategory(
-      ModelConfig.categoryChat,
-    );
-    if (chatModels.isEmpty) return null;
-
-    ModelConfig? selected;
-    for (final model in chatModels) {
-      if (model.modelName == defaultModelName) {
-        selected = model;
-        break;
-      }
-    }
-    selected ??= chatModels.first;
+    final selected = _selectModel();
+    if (api == null || selected == null) return null;
 
     try {
       final response = await api
@@ -113,10 +146,30 @@ class OnboardingService {
       if (json == null) return null;
       final draft = _draftFromAiJson(json);
       if (draft == null) return null;
+      if (draft.welcomeMessage.trim().isEmpty) {
+        return draft.copyWith(
+          welcomeMessage: _buildLocalWelcome(input, draft),
+        );
+      }
       return draft;
     } catch (_) {
       return null;
     }
+  }
+
+  /// 选择新手向导使用的模型：优先 [defaultModelName]，否则使用第一个可用
+  /// Chat 模型；没有可用模型时返回 null。
+  ModelConfig? _selectModel() {
+    final provider = modelConfigProvider;
+    if (provider == null) return null;
+    final chatModels = provider.enabledModelsByCategory(
+      ModelConfig.categoryChat,
+    );
+    if (chatModels.isEmpty) return null;
+    for (final model in chatModels) {
+      if (model.modelName == defaultModelName) return model;
+    }
+    return chatModels.first;
   }
 
   String _buildAiUserPrompt(OnboardingInput input, OnboardingDraft? current) {
@@ -241,6 +294,7 @@ class OnboardingService {
         taskLists: taskLists,
         noteFolders: noteFolders,
         skill: skill,
+        welcomeMessage: (json['welcome'] as String?)?.trim() ?? '',
       );
     } catch (_) {
       return null;
@@ -451,7 +505,7 @@ class OnboardingService {
       ],
     );
 
-    return OnboardingDraft(
+    final draft = OnboardingDraft(
       role: role,
       roleMemory: memory,
       agent: agent,
@@ -538,6 +592,34 @@ class OnboardingService {
             )
           : null,
     );
+    return draft.copyWith(welcomeMessage: _buildLocalWelcome(input, draft));
+  }
+
+  String _buildLocalWelcome(OnboardingInput input, OnboardingDraft draft) {
+    final buffer = StringBuffer()
+      ..write('我是你的${draft.role.name}。');
+    final goal = input.freeText.trim();
+    if (goal.isNotEmpty) {
+      buffer.write('以后你可以直接告诉我「$goal」，我会在需要时调用笔记、待办和知识库。');
+    } else {
+      buffer.write(
+        '以后有想做的事直接告诉我，比如整理资料、安排日程、写笔记或复习，'
+        '我会在需要时调用对应的工具。',
+      );
+    }
+
+    final modules = <String>[
+      if (draft.knowledgeBases.isNotEmpty) draft.knowledgeBases.first.name,
+      if (draft.memoryDecks.isNotEmpty) draft.memoryDecks.first.name,
+      if (draft.taskLists.isNotEmpty) draft.taskLists.first.title,
+      if (draft.noteFolders.isNotEmpty) draft.noteFolders.first.title,
+      if (draft.skill != null) draft.skill!.title,
+    ];
+    if (modules.isNotEmpty) {
+      buffer.write('我已经为你准备好了：${modules.join('、')}。');
+    }
+    buffer.write('最后，花 30 秒带你认识一下 LynAI 怎么点。');
+    return buffer.toString();
   }
 
   String _roleNameFor(OnboardingInput input) {

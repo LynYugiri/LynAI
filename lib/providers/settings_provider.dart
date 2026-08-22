@@ -40,6 +40,10 @@ class SettingsProvider extends ChangeNotifier with SerializedSaveQueue {
     notifyListeners();
   }
 
+  Future<void> completeGuidedTour() => replaceSettings(
+    _settings.copyWith(hasCompletedGuidedTour: true),
+  );
+
   Future<bool> migrateModelIds(Map<String, String> migrations) async {
     if (migrations.isEmpty) return false;
     String? migrate(String? id) => id == null ? null : migrations[id] ?? id;

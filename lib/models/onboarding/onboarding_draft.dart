@@ -13,6 +13,7 @@ class OnboardingDraft {
   final List<OnboardingTaskListDraft> taskLists;
   final List<OnboardingNoteFolderDraft> noteFolders;
   final OnboardingSkillDraft? skill;
+  final String welcomeMessage;
 
   const OnboardingDraft({
     required this.role,
@@ -23,6 +24,7 @@ class OnboardingDraft {
     this.taskLists = const [],
     this.noteFolders = const [],
     this.skill,
+    this.welcomeMessage = '',
   });
 
   factory OnboardingDraft.empty() {
@@ -100,6 +102,7 @@ class OnboardingDraft {
               Map<String, dynamic>.from(json['skill']),
             )
           : null,
+      welcomeMessage: (json['welcome'] as String?)?.trim() ?? '',
     );
   }
 
@@ -112,6 +115,7 @@ class OnboardingDraft {
     'taskLists': taskLists.map((e) => e.toJson()).toList(),
     'noteFolders': noteFolders.map((e) => e.toJson()).toList(),
     if (skill != null) 'skill': skill!.toJson(),
+    if (welcomeMessage.isNotEmpty) 'welcome': welcomeMessage,
   };
 
   OnboardingDraft copyWith({
@@ -123,6 +127,7 @@ class OnboardingDraft {
     List<OnboardingTaskListDraft>? taskLists,
     List<OnboardingNoteFolderDraft>? noteFolders,
     Object? skill = _unset,
+    String? welcomeMessage,
   }) {
     return OnboardingDraft(
       role: role ?? this.role,
@@ -135,6 +140,7 @@ class OnboardingDraft {
       skill: identical(skill, _unset)
           ? this.skill
           : skill as OnboardingSkillDraft?,
+      welcomeMessage: welcomeMessage ?? this.welcomeMessage,
     );
   }
 

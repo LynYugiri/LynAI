@@ -181,7 +181,9 @@ Provider 的更新策略是：先改内存并通知 UI，再把持久化操作�
 
 文件：`lib/providers/onboarding_wizard_controller.dart`
 
-新手向导的内存状态控制器，不注册为全局 Provider。保存当前 `OnboardingInput`、生成中的 `OnboardingDraft`、生成/应用状态与结果；`loadLastInput()` 从 `AppSettings.onboardingInputJson` 恢复预填，`finish()` 写入 `hasCompletedOnboarding` 并保存本次输入。向导页只调用本控制器和 `OnboardingService`，不直接拼装设置。
+新手向导的内存状态控制器，不注册为全局 Provider。保存当前 `OnboardingInput`、生成中的 `OnboardingDraft`、生成/应用状态与结果；`loadLastInput()` 从 `AppSettings.onboardingInputJson` 恢复预填，`finish()` 写入 `hasCompletedOnboarding`、`hasCompletedGuidedTour` 并保存本次输入。`finish(showGuidedTour: false)` 表示用户暂不进入功能引导，`true` 则让 HomePage 随后自动弹出聚光灯引导。向导页只调用本控制器和 `OnboardingService`，不直接拼装设置。
+
+`SettingsProvider.completeGuidedTour()` 将 `hasCompletedGuidedTour` 置回 `true`，由 HomePage 在引导完成或跳过时调用。
 
 ## FeatureProvider
 

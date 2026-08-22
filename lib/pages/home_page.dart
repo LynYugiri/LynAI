@@ -1,14 +1,18 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
+import 'dart:math' as math;
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../models/app_settings.dart';
 import '../models/chat_quick_action.dart';
+import '../models/onboarding/onboarding_input.dart';
 import '../providers/settings_provider.dart';
 import '../widgets/chat_composer_keyboard.dart';
 import '../widgets/chat_quick_action_wheel.dart';
+import '../widgets/coach_mark_overlay.dart';
 import 'community_page.dart';
 import 'feature_page.dart';
 import 'chat_page.dart';
@@ -79,6 +83,13 @@ class _HomePageState extends State<HomePage> {
   static const _quickActionEditDelay = Duration(seconds: 3);
   static const _quickActionDirectionThreshold = 56.0;
 
+  final Map<AppTab, GlobalKey> _navKeys = {
+    for (final tab in AppTab.values) tab: GlobalKey(),
+  };
+  OverlayEntry? _guideOverlay;
+  bool _guideScheduled = false;
+  bool _guideSessionStarted = false;
+
   @override
   void initState() {
     super.initState();
@@ -91,6 +102,7 @@ class _HomePageState extends State<HomePage> {
     _quickActionEditTimer?.cancel();
     _removeQuickActionOverlay();
     _quickActionVisual?.dispose();
+    _removeGuideOverlay();
     super.dispose();
   }
 
@@ -206,26 +218,29 @@ class _HomePageState extends State<HomePage> {
               for (var index = 0; index < AppTab.values.length; index++)
                 Expanded(
                   child: KeyedSubtree(
-                    key: ValueKey(
-                      'nav-${_tabSpecs[AppTab.values[index]]!.label}-'
-                      '${_currentTab == AppTab.values[index] ? 'on' : 'off'}',
+                    key: _navKeys[AppTab.values[index]],
+                    child: KeyedSubtree(
+                      key: ValueKey(
+                        'nav-${_tabSpecs[AppTab.values[index]]!.label}-'
+                        '${_currentTab == AppTab.values[index] ? 'on' : 'off'}',
+                      ),
+                      child: index == AppTab.chat.index
+                          ? _buildChatNavItem(
+                              _tabSpecs[AppTab.chat]!.icon,
+                              _tabSpecs[AppTab.chat]!.selectedIcon,
+                              _tabSpecs[AppTab.chat]!.label,
+                              _currentTab == AppTab.chat,
+                              settings.themeColor,
+                            )
+                          : _buildNavItem(
+                              index,
+                              _tabSpecs[AppTab.values[index]]!.icon,
+                              _tabSpecs[AppTab.values[index]]!.selectedIcon,
+                              _tabSpecs[AppTab.values[index]]!.label,
+                              _currentTab == AppTab.values[index],
+                              settings.themeColor,
+                            ),
                     ),
-                    child: index == AppTab.chat.index
-                        ? _buildChatNavItem(
-                            _tabSpecs[AppTab.chat]!.icon,
-                            _tabSpecs[AppTab.chat]!.selectedIcon,
-                            _tabSpecs[AppTab.chat]!.label,
-                            _currentTab == AppTab.chat,
-                            settings.themeColor,
-                          )
-                        : _buildNavItem(
-                            index,
-                            _tabSpecs[AppTab.values[index]]!.icon,
-                            _tabSpecs[AppTab.values[index]]!.selectedIcon,
-                            _tabSpecs[AppTab.values[index]]!.label,
-                            _currentTab == AppTab.values[index],
-                            settings.themeColor,
-                          ),
                   ),
                 ),
             ],
@@ -497,9 +512,186 @@ class _HomePageState extends State<HomePage> {
     settings.setChatQuickActions(updated);
   }
 
+  // ─── 功能引导 ──────────────────────────────────────────────
+
+  void _scheduleGuidedTourIfNeeded(AppSettings settings) {
+    if (_guideSessionStarted || _guideScheduled) return;
+    if (settings.hasCompletedGuidedTour) return;
+    _guideScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _guideScheduled = false;
+      if (!mounted || _guideSessionStarted) return;
+      if (context.read<SettingsProvider>().settings.hasCompletedGuidedTour) {
+        return;
+      }
+      _startGuidedTour();
+    });
+  }
+
+  void _startGuidedTour() {
+    _guideSessionStarted = true;
+    _removeGuideOverlay();
+    if (_currentTab != AppTab.chat) {
+      setState(() {
+        _currentTab = AppTab.chat;
+        _targetConversationId = null;
+      });
+    }
+    _guideOverlay = OverlayEntry(
+      builder: (_) => CoachMarkOverlay(
+        steps: _buildGuideSteps(),
+        onClose: _completeGuidedTour,
+      ),
+    );
+    Overlay.of(context).insert(_guideOverlay!);
+  }
+
+  void _completeGuidedTour() {
+    _removeGuideOverlay();
+    final provider = context.read<SettingsProvider>();
+    if (!provider.settings.hasCompletedGuidedTour) {
+      provider.completeGuidedTour();
+    }
+  }
+
+  void _removeGuideOverlay() {
+    _guideOverlay?.remove();
+    _guideOverlay = null;
+  }
+
+  Rect? _navRectForTab(AppTab tab) {
+    final renderObject = _navKeys[tab]?.currentContext?.findRenderObject();
+    if (renderObject is RenderBox && renderObject.hasSize) {
+      return renderObject.localToGlobal(Offset.zero) & renderObject.size;
+    }
+    return null;
+  }
+
+  Rect? _navRectForTabs(AppTab first, AppTab second) {
+    final a = _navRectForTab(first);
+    final b = _navRectForTab(second);
+    if (a == null && b == null) return null;
+    if (a == null) return b;
+    if (b == null) return a;
+    return Rect.fromLTRB(
+      math.min(a.left, b.left),
+      math.min(a.top, b.top),
+      math.max(a.right, b.right),
+      math.max(a.bottom, b.bottom),
+    );
+  }
+
+  List<CoachMarkStep> _buildGuideSteps() {
+    final input = _parseOnboardingInput();
+    final purposes = input?.purposes.toSet() ?? <String>{};
+    final occupation = input?.occupation ?? 'other';
+
+    final steps = <CoachMarkStep>[
+      CoachMarkStep(
+        title: '这就是对话页',
+        message: '以后你打开 LynAI 都会停在这里。直接和 AI 说话，它需要时会自己调用笔记、待办和知识库。',
+        icon: Icons.chat_bubble_outline,
+        targetRect: () => _navRectForTab(AppTab.chat),
+      ),
+      CoachMarkStep(
+        title: '双击有快捷动作',
+        message: '双击底部「功能」回到功能总览；双击「对话」新建一个对话。',
+        icon: Icons.touch_app_outlined,
+        targetRect: () => _navRectForTabs(AppTab.feature, AppTab.chat),
+      ),
+      CoachMarkStep(
+        title: '长按呼出快捷盘',
+        message: '长按底部「对话」，滑向 ←↑→ 快速打开功能；按住 3 秒进入编辑模式，可以改方向。',
+        icon: Icons.swipe_up_alt_outlined,
+        targetRect: () => _navRectForTab(AppTab.chat),
+      ),
+    ];
+
+    if (purposes.contains('automation') || occupation == 'developer') {
+      steps.add(
+        CoachMarkStep(
+          title: '去插件市场看看',
+          message: '你选择了自动化方向。向导已经生成一个 SKILL，可以到「插件市场」里管理；开发者还能给 Agent 开更多工具权限。',
+          icon: Icons.store_outlined,
+          targetRect: () => _navRectForTab(AppTab.market),
+        ),
+      );
+    } else if (purposes.contains('knowledge') || purposes.contains('cards')) {
+      steps.add(
+        CoachMarkStep(
+          title: '你创建的模块在这里',
+          message: '向导给你建好了知识库和记忆卡。双击「功能」进入功能总览，就能看到它们。',
+          icon: Icons.widgets_outlined,
+          targetRect: () => _navRectForTab(AppTab.feature),
+        ),
+      );
+    } else if (purposes.contains('todos') || purposes.contains('schedule')) {
+      steps.add(
+        CoachMarkStep(
+          title: '待办和日程',
+          message: '长按「对话」向右滑打开待办，向左滑打开日程表；也可以在「功能」页里找到它们。',
+          icon: Icons.checklist_outlined,
+          targetRect: () => _navRectForTab(AppTab.chat),
+        ),
+      );
+    } else if (purposes.contains('writing') || purposes.contains('notes')) {
+      steps.add(
+        CoachMarkStep(
+          title: '写作与笔记',
+          message: 'AI 写完可以直接落笔记。双击「功能」进入总览，点开「笔记」试试。',
+          icon: Icons.edit_note_outlined,
+          targetRect: () => _navRectForTab(AppTab.feature),
+        ),
+      );
+    } else if (purposes.contains('roleplay')) {
+      steps.add(
+        CoachMarkStep(
+          title: '情景演绎',
+          message: '想和角色对话、推进剧情？双击「功能」，在总览里打开「情景演绎」。',
+          icon: Icons.theater_comedy_outlined,
+          targetRect: () => _navRectForTab(AppTab.feature),
+        ),
+      );
+    } else {
+      steps.add(
+        CoachMarkStep(
+          title: '功能总览',
+          message: '双击「功能」回到总览，这里聚合了对话历史、日程、笔记、待办、知识库等所有模块。',
+          icon: Icons.widgets_outlined,
+          targetRect: () => _navRectForTab(AppTab.feature),
+        ),
+      );
+    }
+
+    steps.add(
+      CoachMarkStep(
+        title: '角色与 Agent',
+        message: '对话页右上角可以切换角色、打开对话设置；「设置」里还有完整的角色管理和 Agent 权限。',
+        icon: Icons.person_pin_circle_outlined,
+        targetRect: () => _navRectForTab(AppTab.settings),
+      ),
+    );
+    return steps;
+  }
+
+  OnboardingInput? _parseOnboardingInput() {
+    final raw = context.read<SettingsProvider>().settings.onboardingInputJson;
+    if (raw == null || raw.trim().isEmpty) return null;
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is Map) {
+        return OnboardingInput.fromJson(Map<String, dynamic>.from(decoded));
+      }
+    } catch (_) {
+      // 输入损坏时按普通用户路径引导。
+    }
+    return null;
+  }
+
   @override
   Widget build(BuildContext context) {
     final settings = context.watch<SettingsProvider>().settings;
+    _scheduleGuidedTourIfNeeded(settings);
     final hasImage =
         settings.backgroundImagePath != null &&
         _checkImageExists(settings.backgroundImagePath!);

@@ -17,20 +17,24 @@ void main() {
   test('AppSettings from legacy JSON does not trigger onboarding', () {
     final legacy = AppSettings.defaults().toJson()
       ..remove('hasCompletedOnboarding')
+      ..remove('hasCompletedGuidedTour')
       ..remove('onboardingInputJson')
       ..remove('onboardingVersion');
     final settings = AppSettings.fromJson(legacy);
     expect(settings.hasCompletedOnboarding, isTrue);
+    expect(settings.hasCompletedGuidedTour, isTrue);
   });
 
   test('AppSettings onboarding fields round-trip', () {
     final settings = AppSettings.defaults().copyWith(
       hasCompletedOnboarding: true,
+      hasCompletedGuidedTour: false,
       onboardingInputJson: '{"version":1,"purposes":["knowledge"]}',
       onboardingVersion: 3,
     );
     final restored = AppSettings.fromJson(settings.toJson());
     expect(restored.hasCompletedOnboarding, isTrue);
+    expect(restored.hasCompletedGuidedTour, isFalse);
     expect(
       restored.onboardingInputJson,
       '{"version":1,"purposes":["knowledge"]}',
@@ -146,6 +150,7 @@ void main() {
         description: 'desc',
         body: 'body',
       ),
+      welcomeMessage: '你好，我是学习助手。',
     );
 
     final restored = OnboardingDraft.fromJson(
@@ -159,5 +164,6 @@ void main() {
     expect(restored.taskLists.single.tasks.single.title, 'task');
     expect(restored.noteFolders.single.notes.single.content, 'content');
     expect(restored.skill?.name, 'my_skill');
+    expect(restored.welcomeMessage, '你好，我是学习助手。');
   });
 }
