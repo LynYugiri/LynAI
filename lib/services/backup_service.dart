@@ -2180,6 +2180,37 @@ class BackupService {
     }
   }
 
+  static void _validateMemoryCards({
+    required List<MemoryCardDeck> decks,
+    required List<MemoryCard> cards,
+    required List<MemoryCardReviewLog> reviewLogs,
+  }) {
+    void requireUnique(String label, Iterable<String> values) {
+      final seen = <String>{};
+      for (final value in values) {
+        if (value.isEmpty || !seen.add(value)) {
+          throw FormatException('$label ID 为空或重复：$value');
+        }
+      }
+    }
+
+    requireUnique('记忆卡片牌组', decks.map((item) => item.id));
+    requireUnique('记忆卡片', cards.map((item) => item.id));
+    requireUnique('记忆卡片复习记录', reviewLogs.map((item) => item.id));
+    final deckIds = decks.map((item) => item.id).toSet();
+    final cardIds = cards.map((item) => item.id).toSet();
+    for (final card in cards) {
+      if (!deckIds.contains(card.deckId)) {
+        throw FormatException('记忆卡片引用不存在的牌组：${card.id}');
+      }
+    }
+    for (final log in reviewLogs) {
+      if (!deckIds.contains(log.deckId) || !cardIds.contains(log.cardId)) {
+        throw FormatException('记忆卡片复习记录引用不存在的牌组或卡片：${log.id}');
+      }
+    }
+  }
+
   static Map<String, dynamic> _calendarPartition(
     List<CalendarEvent> events,
     List<Anniversary> anniversaries,
@@ -3333,6 +3364,11 @@ class BackupService {
     if (incomingDecks == null) {
       return const ImportResult(added: 0, replaced: 0, skipped: 0);
     }
+    _validateMemoryCards(
+      decks: incomingDecks,
+      cards: data.memoryCards ?? const <MemoryCard>[],
+      reviewLogs: data.memoryCardReviewLogs ?? const <MemoryCardReviewLog>[],
+    );
     final incomingDeckIds = incomingDecks.map((item) => item.id).toSet();
     final replacing = plan.mode == ImportMode.replaceSection;
     final decks = provider.decks
@@ -3388,8 +3424,8 @@ class BackupService {
         skipped++;
       }
     }
-    for (final incoming in data.memoryCardReviewLogs ??
-        const <MemoryCardReviewLog>[]) {
+    for (final incoming
+        in data.memoryCardReviewLogs ?? const <MemoryCardReviewLog>[]) {
       if (!acceptedDeckIds.contains(incoming.deckId)) continue;
       final index = reviewLogs.indexWhere((item) => item.id == incoming.id);
       if (index < 0) {
@@ -3398,6 +3434,7 @@ class BackupService {
         reviewLogs[index] = incoming;
       }
     }
+    _validateMemoryCards(decks: decks, cards: cards, reviewLogs: reviewLogs);
     await provider.replaceAll(
       decks: decks,
       cards: cards,
@@ -5096,9 +5133,7 @@ class BackupService {
           ?.where((item) => selection.memoryCardDeckIds.contains(item.deckId))
           .toList(),
       memoryCardReviewLogs: data.memoryCardReviewLogs
-          ?.where(
-            (item) => selection.memoryCardDeckIds.contains(item.deckId),
-          )
+          ?.where((item) => selection.memoryCardDeckIds.contains(item.deckId))
           .toList(),
       calendarEvents: data.calendarEvents
           ?.where((item) => selection.calendarEventIds.contains(item.id))

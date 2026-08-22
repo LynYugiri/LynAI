@@ -21,6 +21,7 @@ void main() {
       easeFactor: 2.5,
       repetitions: 2,
       lapses: 0,
+      remainingSteps: 1,
       reviewCount: 2,
       lastReviewedAt: now,
       enabled: true,
@@ -36,6 +37,7 @@ void main() {
     expect(restored.status, MemoryCardStatus.review);
     expect(restored.intervalDays, 3);
     expect(restored.easeFactor, 2.5);
+    expect(restored.remainingSteps, 1);
     expect(restored.isDueAt(now.add(const Duration(days: 3))), isTrue);
     expect(restored.isDueAt(now.add(const Duration(days: 2))), isFalse);
   });
@@ -73,10 +75,12 @@ void main() {
       intervalDaysAfter: 1,
       easeBefore: 2.5,
       easeAfter: 2.5,
+      cardStateBefore: {'id': 'card-1', 'deckId': 'deck-1'},
     );
     final restored = MemoryCardReviewLog.fromJson(log.toJson());
     expect(restored.rating, MemoryCardRating.good);
     expect(restored.statusBefore, MemoryCardStatus.newCard);
     expect(restored.statusAfter, MemoryCardStatus.review);
+    expect(restored.cardStateBefore?['id'], 'card-1');
   });
 }

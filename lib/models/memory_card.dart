@@ -54,6 +54,7 @@ final class MemoryCard {
     required this.easeFactor,
     required this.repetitions,
     required this.lapses,
+    this.remainingSteps = 0,
     required this.reviewCount,
     this.lastReviewedAt,
     required this.enabled,
@@ -76,6 +77,7 @@ final class MemoryCard {
   final double easeFactor;
   final int repetitions;
   final int lapses;
+  final int remainingSteps;
   final int reviewCount;
   final DateTime? lastReviewedAt;
   final bool enabled;
@@ -100,6 +102,7 @@ final class MemoryCard {
     easeFactor: (json['easeFactor'] as num?)?.toDouble() ?? 2.5,
     repetitions: (json['repetitions'] as num?)?.toInt() ?? 0,
     lapses: (json['lapses'] as num?)?.toInt() ?? 0,
+    remainingSteps: (json['remainingSteps'] as num?)?.toInt() ?? 0,
     reviewCount: (json['reviewCount'] as num?)?.toInt() ?? 0,
     lastReviewedAt: json['lastReviewedAt'] == null
         ? null
@@ -125,6 +128,7 @@ final class MemoryCard {
     'easeFactor': easeFactor,
     'repetitions': repetitions,
     'lapses': lapses,
+    'remainingSteps': remainingSteps,
     'reviewCount': reviewCount,
     if (lastReviewedAt != null)
       'lastReviewedAt': lastReviewedAt!.toUtc().toIso8601String(),
@@ -156,6 +160,7 @@ final class MemoryCard {
     double? easeFactor,
     int? repetitions,
     int? lapses,
+    int? remainingSteps,
     int? reviewCount,
     Object? lastReviewedAt = _memoryCardUnset,
     bool? enabled,
@@ -181,6 +186,7 @@ final class MemoryCard {
     easeFactor: easeFactor ?? this.easeFactor,
     repetitions: repetitions ?? this.repetitions,
     lapses: lapses ?? this.lapses,
+    remainingSteps: remainingSteps ?? this.remainingSteps,
     reviewCount: reviewCount ?? this.reviewCount,
     lastReviewedAt: identical(lastReviewedAt, _memoryCardUnset)
         ? this.lastReviewedAt

@@ -400,7 +400,13 @@ truncation. Dataset metadata repeats and validates this identity to fail closed
 on directory or registry ownership mismatch.
 # 知识库与标注
 
-知识库数据由 `KnowledgeBase`、`KnowledgeCategory`、`KnowledgeEntry`、`KnowledgeSource` 和 `KnowledgeExplanation` 组成。类别使用全局唯一的稳定 `alias`，配置标注规则、解释提示词、颜色、自动标注状态及目标知识库；模型不再包含 `isDefault`，客户端也没有用户可配置的默认知识库或默认类别。固定 ID 的内置“专有名词知识库”和“专有名词”类别使用 `proper_noun` alias，首次加载或完整替换后幂等补齐，已有内置行不覆盖用户修改；alias 冲突时保留内置 alias，并按稳定类别 ID 确定性重命名冲突项。聊天和情景演绎角色回复只使用 `[[category:text]]`，不接受管道分隔的 Wiki 链接语法；未知 alias 仅在该内置类别及其知识库启用且类别开启自动标注时回落。内置行可编辑和停用、不可删除，恢复模板时保留启用状态、排序、创建时间及所有用户条目、来源和解释。用户点击标注后自动解释，成功结果保存为知识条目、来源和解释；普通选区释义由用户决定是否保存。记忆卡片尚无持久化契约，因此知识页面不展示未实现入口。
+知识库数据由 `KnowledgeBase`、`KnowledgeCategory`、`KnowledgeEntry`、`KnowledgeSource` 和 `KnowledgeExplanation` 组成。类别使用全局唯一的稳定 `alias`，配置标注规则、解释提示词、颜色、自动标注状态及目标知识库；模型不再包含 `isDefault`，客户端也没有用户可配置的默认知识库或默认类别。固定 ID 的内置“专有名词知识库”和“专有名词”类别使用 `proper_noun` alias，首次加载或完整替换后幂等补齐，已有内置行不覆盖用户修改；alias 冲突时保留内置 alias，并按稳定类别 ID 确定性重命名冲突项。聊天和情景演绎角色回复只使用 `[[category:text]]`，不接受管道分隔的 Wiki 链接语法；未知 alias 仅在该内置类别及其知识库启用且类别开启自动标注时回落。内置行可编辑和停用、不可删除，恢复模板时保留启用状态、排序、创建时间及所有用户条目、来源和解释。用户点击标注后自动解释，成功结果保存为知识条目、来源和解释；普通选区释义由用户决定是否保存。
+
+## 记忆卡片
+
+文件：`lib/models/memory_card.dart`、`memory_card_deck.dart`、`memory_card_review_log.dart`、`memory_card_study_plan.dart`
+
+`MemoryCard` 保存正反面、来源溯源、`MemoryCardStatus`（new/learning/review/relearning）、`dueAt`、`intervalDays`、ease、repetitions、lapses、`remainingSteps` 和复习计数；旧数据缺少 `remainingSteps` 时按 0 读取。`MemoryCardDeck` 保存每日新卡与复习上限。`MemoryCardReviewLog` 支持四档 `MemoryCardRating`，并通过可选 `cardStateBefore` 保存评分前完整卡片快照用于撤销。`MemoryCardStudyPlan`/`MemoryCardCounts` 表达学习/复习/新卡三队列计划。
 
 ## Jotting 随记
 

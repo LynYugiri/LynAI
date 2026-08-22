@@ -412,6 +412,18 @@ tree-sitter 解析结果会转成 Flutter 的 `TextSpan` 结构，与 fallback �
 
 Roleplay 复用 Chat 模型配置和 `ApiService`，但运行状态由 `RoleplayProvider` 管理。
 
+## MemoryCardGenerationService
+
+文件：`lib/services/memory_card_generation_service.dart`
+
+记忆卡片生成服务只产出预览，不直接持久化。固定规则为**每个输入知识条目生成且只生成 1 张卡片**：`GeneratedMemoryCard` 携带 `sourceEntryId`，解析时只接受属于本批输入条目的来源 ID，并返回 `MemoryCardGenerationResult` 的 `coveredEntryIds`/`missingEntryIds` 覆盖核账。生成按字符上限分批，支持 `onBatchProgress` 进度回调与 `isCancelled` 批间取消；缺少 `sourceEntryId` 或来源不属于本次条目的卡片会被丢弃并写入 warnings。`MemoryCardSkillPrompt` 优先读取插件 Skill，回退到内置资产和最小提示词。
+
+## MemoryCardScheduler
+
+文件：`lib/services/memory_card_scheduler.dart`
+
+`MemoryCardScheduler` 是纯函数简化 SM-2 调度器，评分包含 forget/hard/good/easy 四档。新卡与学习卡按 `learningSteps`（默认 1 分钟、10 分钟）推进，复习卡失败进入 `relearningSteps`（默认 10 分钟）并在 Good 后返回复习队列。复习间隔使用 ease、hard/easy multiplier，支持 fuzz 抖动、最大间隔上限与 leech 阈值；卡片通过 `remainingSteps` 保存当前学习步位置。
+
 ## StorageV2Service
 
 文件：`lib/services/storage_v2_service.dart`、`storage_v2_database.dart`

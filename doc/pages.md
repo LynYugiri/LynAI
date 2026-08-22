@@ -123,7 +123,7 @@ Agent 工具轮数上限保存为 `ConversationSettings.maxToolRounds`（新建�
 
 文件：`lib/pages/feature_page.dart` 和 `lib/pages/features/*.dart`
 
-功能页是一个 shell，当前子功能保存在 `AppSettings.lastFeature`。`features/` 下每个页面都是独立库（`dashboard.dart`、`feature_shell.dart`、`schedule_page.dart`、`notes_page.dart`、`note_detail_page.dart`、`todo_lists_page.dart`、`roleplay_page.dart`、`knowledge_page.dart`），共享的搜索匹配器、空状态、差异统计、导出常量与插件功能页引用集中在 `features/feature_shared.dart`，不在页面之间复制。
+功能页是一个 shell，当前子功能保存在 `AppSettings.lastFeature`。`features/` 下每个页面都是独立库（`dashboard.dart`、`feature_shell.dart`、`schedule_page.dart`、`notes_page.dart`、`note_detail_page.dart`、`todo_lists_page.dart`、`roleplay_page.dart`、`knowledge_page.dart`、`memory_cards_page.dart`），共享的搜索匹配器、空状态、差异统计、导出常量与插件功能页引用集中在 `features/feature_shared.dart`，不在页面之间复制。
 
 | 子功能 | 文件 | 用户能做什么 |
 |--------|------|--------------|
@@ -134,7 +134,14 @@ Agent 工具轮数上限保存为 `ConversationSettings.maxToolRounds`（新建�
 | 任务清单 | `features/todo_lists_page.dart` | 未完成/已完成聚合、可展开自定义清单、任务日期、提醒、排序、Markdown 导入导出和长图分享。 |
 | 情景演绎 | `features/roleplay_page.dart` | 情景模板、多角色线程、导演决策、玩家消息、附件和导出。 |
 | 知识库 | `features/knowledge_page.dart` | 管理知识库、类别、条目、解释和来源；支持搜索、高亮、多种排序、拖拽自定义顺序、Markdown 预览与 AI 重新生成解释。 |
+| 记忆卡片 | `features/memory_cards_page.dart` | 维护牌组与卡片、搜索/新卡/到期过滤、手动编辑、从知识库 AI 生成卡片并开始复习。 |
 | 插件 | `features/feature_shared.dart` | 插件功能页引用解析；实际渲染由 `PluginFeatureWebView` 完成，支持跨插件导航和独立 WebView 上下文。 |
+
+## 记忆卡片
+
+文件：`lib/pages/features/memory_cards_page.dart`、`memory_card_study_page.dart`、`memory_card_generation_dialog.dart`
+
+卡片页左侧（宽屏）或顶部（窄屏）选择牌组，右侧列出卡片并支持搜索、新卡/到期过滤、手动新增/编辑/删除和停用；牌组列表显示新/学/复三色计数，牌组设置可调整每日新卡与复习上限。AI 生成对话框从知识库选择条目，固定按**每个已选条目生成 1 张卡片**执行；生成结果预览可编辑正面、反面和提示，显示已覆盖/缺失条目与解析警告，保存时写入 `sourceEntryId` 溯源。学习页以牌组到期卡为会话队列，支持 Markdown/LaTeX 渲染、翻面显示答案、复习卡四档评分（忘记/困难/良好/简单）、失败卡稍后重现、撤销和快捷键。
 
 ## 对话历史
 

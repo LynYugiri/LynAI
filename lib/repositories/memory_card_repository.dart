@@ -30,16 +30,45 @@ class MemoryCardRepository {
   ///
   /// 缺失或为 null 的顶层集合按空列表处理；存在但不是列表时抛出
   /// [FormatException]。列表内类型错误或无法解析的记录会被跳过。
+  /// 加载时会过滤重复 ID、悬空卡片与悬空复习记录，避免上层拿到
+  /// 引用不完整的快照。
   Future<MemoryCardLoadResult> load() async {
     final data = await _storageV2.loadDataFile(fileName);
-    return MemoryCardLoadResult(
-      decks: _decode(data['decks'], MemoryCardDeck.fromJson, '记忆卡片牌组'),
-      cards: _decode(data['cards'], MemoryCard.fromJson, '记忆卡片'),
-      reviewLogs: _decode(
+    final decks = _uniqueById(
+      _decode(data['decks'], MemoryCardDeck.fromJson, '记忆卡片牌组'),
+      (item) => item.id,
+      '记忆卡片牌组',
+    );
+    final deckIds = {for (final deck in decks) deck.id};
+    final cards = _uniqueById(
+      _decode(data['cards'], MemoryCard.fromJson, '记忆卡片').where((card) {
+        if (deckIds.contains(card.deckId)) return true;
+        debugPrint('跳过悬空记忆卡片 ${card.id}: 牌组 ${card.deckId} 不存在');
+        return false;
+      }),
+      (card) => card.id,
+      '记忆卡片',
+    );
+    final cardIds = {for (final card in cards) card.id};
+    final reviewLogs = _uniqueById(
+      _decode(
         data['reviewLogs'],
         MemoryCardReviewLog.fromJson,
         '记忆卡片复习记录',
-      ),
+      ).where((log) {
+        if (deckIds.contains(log.deckId) && cardIds.contains(log.cardId)) {
+          return true;
+        }
+        debugPrint('跳过悬空记忆卡片复习记录 ${log.id}');
+        return false;
+      }),
+      (log) => log.id,
+      '记忆卡片复习记录',
+    );
+    return MemoryCardLoadResult(
+      decks: decks,
+      cards: cards,
+      reviewLogs: reviewLogs,
     );
   }
 
@@ -121,4 +150,22 @@ List<T> _decode<T>(
     }
   }
   return values;
+}
+
+List<T> _uniqueById<T>(
+  Iterable<T> values,
+  String Function(T) idOf,
+  String label,
+) {
+  final seen = <String>{};
+  final result = <T>[];
+  for (final value in values) {
+    final id = idOf(value);
+    if (id.isEmpty || !seen.add(id)) {
+      debugPrint('跳过重复或空 ID 的$label: $id');
+      continue;
+    }
+    result.add(value);
+  }
+  return result;
 }

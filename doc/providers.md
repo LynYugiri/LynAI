@@ -358,6 +358,12 @@ purge 先由页面请求 preview 并确认，Provider 提交签名写后立即�
 | `file_write` | 写入插件目录和用户授权目录。 |
 | `platform` | 调用受控的平台能力，如通知和剪贴板。 |
 
+## MemoryCardProvider
+
+文件：`lib/providers/memory_card_provider.dart`
+
+`MemoryCardProvider` 持有牌组、卡片和复习记录，使用 `SerializedSaveQueue` 串行持久化。`studyPlan()` 按学习/重学 → 复习 → 新卡顺序出卡，并应用牌组每日新卡与复习上限；`counts()` 返回三队列计数。`review()` 返回 `MemoryCardReviewOutcome`（更新后的卡片、调度结果和复习日志），日志通过 `cardStateBefore` 保存评分前快照；`undoLastReview()` 用快照精确回滚并删除日志。`addCards()` 返回实际写入数量并跳过重复项。
+
 ## 容错加载
 
 | 数据 | 行为 |

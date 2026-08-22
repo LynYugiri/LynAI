@@ -4,6 +4,7 @@ import 'package:uuid/uuid.dart';
 import '../models/memory_card.dart';
 import '../models/memory_card_deck.dart';
 import '../models/memory_card_review_log.dart';
+import '../models/memory_card_study_plan.dart';
 import '../repositories/memory_card_repository.dart';
 import '../services/memory_card_scheduler.dart';
 import '../services/storage_v2_service.dart';
@@ -32,24 +33,21 @@ class MemoryCardProvider extends ChangeNotifier with SerializedSaveQueue {
 
   MemoryCardDeck? deckById(String id) =>
       _first(_decks, (item) => item.id == id);
-  MemoryCard? cardById(String id) =>
-      _first(_cards, (item) => item.id == id);
+  MemoryCard? cardById(String id) => _first(_cards, (item) => item.id == id);
 
-  List<MemoryCard> cardsForDeck(String deckId) => List.unmodifiable(
-    _cards.where((item) => item.deckId == deckId),
-  );
+  List<MemoryCard> cardsForDeck(String deckId) =>
+      List.unmodifiable(_cards.where((item) => item.deckId == deckId));
 
   List<MemoryCardReviewLog> reviewLogsForDeck(String deckId) =>
-      List.unmodifiable(
-        _reviewLogs.where((item) => item.deckId == deckId),
-      );
+      List.unmodifiable(_reviewLogs.where((item) => item.deckId == deckId));
 
   Future<void> load() async {
     final generation = _mutationGeneration;
     await flushPendingSaves();
     final result = await _repository.load();
     if (generation != _mutationGeneration) return;
-    _decks = List.of(result.decks)..sort((a, b) => a.sortOrder.compareTo(b.sortOrder));
+    _decks = List.of(result.decks)
+      ..sort((a, b) => a.sortOrder.compareTo(b.sortOrder));
     final deckIds = _decks.map((deck) => deck.id).toSet();
     _cards = result.cards
         .where((card) => deckIds.contains(card.deckId))
@@ -198,15 +196,17 @@ class MemoryCardProvider extends ChangeNotifier with SerializedSaveQueue {
     return item.id;
   }
 
-  Future<void> addCards(
-    Iterable<MemoryCard> items,
-  ) async {
+  /// 批量新增卡片，返回实际写入数量。
+  ///
+  /// 空正反面、目标牌组不存在以及与现有卡片或批内卡片重复的项会被跳过。
+  Future<int> addCards(Iterable<MemoryCard> items) async {
     final now = DateTime.now();
     final normalized = <MemoryCard>[];
     final seen = <String>{
       for (final card in _cards)
         '${card.deckId}\u0000${card.front.trim()}\u0000${card.back.trim()}',
     };
+    final nextSortOrder = <String, int>{};
     for (final item in items) {
       if (item.front.trim().isEmpty || item.back.trim().isEmpty) continue;
       if (!seen.add(
@@ -216,20 +216,26 @@ class MemoryCardProvider extends ChangeNotifier with SerializedSaveQueue {
       }
       final deck = deckById(item.deckId);
       if (deck == null) continue;
+      final order = nextSortOrder.putIfAbsent(
+        item.deckId,
+        () => cardsForDeck(item.deckId).length,
+      );
+      nextSortOrder[item.deckId] = order + 1;
       normalized.add(
         item.copyWith(
-          sortOrder: cardsForDeck(item.deckId).length + normalized.length,
+          sortOrder: order,
           createdAt: item.createdAt.isBefore(now) ? item.createdAt : now,
           updatedAt: now,
         ),
       );
     }
-    if (normalized.isEmpty) return;
+    if (normalized.isEmpty) return 0;
     _cards.addAll(normalized);
     notifyListeners();
     await _queueSave(
       () => _repository.saveChanges(upsertCards: List.of(normalized)),
     );
+    return normalized.length;
   }
 
   Future<String> ensureDeckByName(String name) async {
@@ -302,69 +308,85 @@ class MemoryCardProvider extends ChangeNotifier with SerializedSaveQueue {
   }
 
   /// 获取牌组当前应复习的卡片，受每日新卡与复习上限约束。
+  ///
+  /// 已由 [studyPlan] 承载完整队列语义，此方法保留为便捷入口。
   List<MemoryCard> dueCards(String deckId, {DateTime? now}) {
+    return studyPlan(deckId, now: now).cards;
+  }
+
+  /// 构建牌组本次学习计划：学习/重学优先，其次到期复习，最后按限额补新卡。
+  MemoryCardStudyPlan studyPlan(String deckId, {DateTime? now}) {
     final deck = deckById(deckId);
-    if (deck == null || !deck.enabled) return const [];
+    if (deck == null || !deck.enabled) {
+      return const MemoryCardStudyPlan(
+        newCards: [],
+        learningCards: [],
+        reviewCards: [],
+        counts: MemoryCardCounts(newCards: 0, learningCards: 0, reviewCards: 0),
+      );
+    }
     final effectiveNow = now ?? DateTime.now();
-    final due = cardsForDeck(deckId).where((card) {
-      if (!card.isDueAt(effectiveNow)) return false;
-      return true;
-    }).toList(growable: false);
+    final due = cardsForDeck(
+      deckId,
+    ).where((card) => card.isDueAt(effectiveNow)).toList(growable: false);
 
-    final newCards = due
-        .where((card) => card.status == MemoryCardStatus.newCard)
-        .toList()
-      ..sort((a, b) {
-        final order = a.sortOrder.compareTo(b.sortOrder);
-        return order != 0 ? order : a.id.compareTo(b.id);
-      });
-    final reviewCards = due
-        .where((card) => card.status != MemoryCardStatus.newCard)
-        .toList()
-      ..sort((a, b) {
-        final aDue = a.dueAt ?? a.updatedAt;
-        final bDue = b.dueAt ?? b.updatedAt;
-        final order = aDue.compareTo(bDue);
-        return order != 0 ? order : a.id.compareTo(b.id);
-      });
+    final newCards =
+        due.where((card) => card.status == MemoryCardStatus.newCard).toList()
+          ..sort(_compareNewCards);
+    final learningCards =
+        due
+            .where(
+              (card) =>
+                  card.status == MemoryCardStatus.learning ||
+                  card.status == MemoryCardStatus.relearning,
+            )
+            .toList()
+          ..sort(_compareDueCards);
+    final reviewCards =
+        due.where((card) => card.status == MemoryCardStatus.review).toList()
+          ..sort(_compareDueCards);
 
-    final availableNew = (deck.newPerDayLimit -
-            newStudiedToday(deckId, now: effectiveNow))
-        .clamp(0, deck.newPerDayLimit)
-        .toInt();
-    final selectedNew = newCards.take(availableNew);
-    final selectedReviews = reviewCards.take(deck.reviewPerDayLimit);
-    return List.unmodifiable([...selectedNew, ...selectedReviews]);
+    final availableNew =
+        (deck.newPerDayLimit - newStudiedToday(deckId, now: effectiveNow))
+            .clamp(0, deck.newPerDayLimit)
+            .toInt();
+    final selectedNew = newCards.take(availableNew).toList(growable: false);
+    final selectedReviews = reviewCards
+        .take(deck.reviewPerDayLimit)
+        .toList(growable: false);
+
+    return MemoryCardStudyPlan(
+      newCards: selectedNew,
+      learningCards: learningCards,
+      reviewCards: selectedReviews,
+      counts: MemoryCardCounts(
+        newCards: selectedNew.length,
+        learningCards: learningCards.length,
+        reviewCards: selectedReviews.length,
+      ),
+    );
+  }
+
+  MemoryCardCounts counts(String deckId, {DateTime? now}) {
+    return studyPlan(deckId, now: now).counts;
   }
 
   int dueCount(String deckId, {DateTime? now}) {
-    final deck = deckById(deckId);
-    if (deck == null || !deck.enabled) return 0;
-    final effectiveNow = now ?? DateTime.now();
-    final newLimit = (deck.newPerDayLimit -
-            newStudiedToday(deckId, now: effectiveNow))
-        .clamp(0, deck.newPerDayLimit)
-        .toInt();
-    final due = cardsForDeck(deckId).where((card) => card.isDueAt(effectiveNow));
-    final newCount = due
-        .where((card) => card.status == MemoryCardStatus.newCard)
-        .length;
-    final reviewCount = due.length - newCount;
-    final reviewLimit = reviewCount > deck.reviewPerDayLimit
-        ? deck.reviewPerDayLimit
-        : reviewCount;
-    return (newCount > newLimit ? newLimit : newCount) + reviewLimit;
+    return counts(deckId, now: now).total;
   }
 
-  Future<void> review(
+  /// 对卡片评分并写入复习记录；卡片不存在或已停用时返回 null。
+  Future<MemoryCardReviewOutcome?> review(
     MemoryCard card,
     MemoryCardRating rating, {
     DateTime? now,
+    MemoryCardSchedulerConfig schedulerConfig =
+        const MemoryCardSchedulerConfig(),
   }) async {
     final index = _cards.indexWhere((item) => item.id == card.id);
-    if (index < 0) return;
+    if (index < 0) return null;
     final current = _cards[index];
-    if (!current.enabled) return;
+    if (!current.enabled) return null;
     final effectiveNow = now ?? DateTime.now();
     final schedule = MemoryCardScheduler.schedule(
       status: current.status,
@@ -374,6 +396,9 @@ class MemoryCardProvider extends ChangeNotifier with SerializedSaveQueue {
       easeFactor: current.easeFactor,
       repetitions: current.repetitions,
       lapses: current.lapses,
+      remainingSteps: current.remainingSteps,
+      fuzzSeed: current.id.hashCode + current.reviewCount,
+      config: schedulerConfig,
     );
     final updated = current.copyWith(
       status: schedule.status,
@@ -382,6 +407,7 @@ class MemoryCardProvider extends ChangeNotifier with SerializedSaveQueue {
       easeFactor: schedule.easeFactor,
       repetitions: schedule.repetitions,
       lapses: schedule.lapses,
+      remainingSteps: schedule.remainingSteps,
       reviewCount: current.reviewCount + 1,
       lastReviewedAt: effectiveNow,
       updatedAt: effectiveNow,
@@ -398,6 +424,7 @@ class MemoryCardProvider extends ChangeNotifier with SerializedSaveQueue {
       intervalDaysAfter: updated.intervalDays,
       easeBefore: current.easeFactor,
       easeAfter: updated.easeFactor,
+      cardStateBefore: current.toJson(),
     );
     _cards[index] = updated;
     _reviewLogs.add(log);
@@ -408,6 +435,61 @@ class MemoryCardProvider extends ChangeNotifier with SerializedSaveQueue {
         upsertReviewLogs: [log],
       ),
     );
+    return MemoryCardReviewOutcome(card: updated, schedule: schedule, log: log);
+  }
+
+  /// 撤销指定牌组的最后一次评分。
+  ///
+  /// 使用复习日志中的完整卡片快照回滚卡片状态并删除该日志。
+  Future<bool> undoLastReview(String deckId) async {
+    final logs = reviewLogsForDeck(deckId);
+    if (logs.isEmpty) return false;
+    var log = logs.first;
+    for (final candidate in logs.skip(1)) {
+      if (candidate.reviewedAt.isAfter(log.reviewedAt)) log = candidate;
+    }
+    final snapshot = log.cardStateBefore;
+    if (snapshot == null) {
+      _reviewLogs.removeWhere((item) => item.id == log.id);
+      notifyListeners();
+      await _queueSave(
+        () => _repository.saveChanges(deleteReviewLogIds: [log.id]),
+      );
+      return true;
+    }
+    try {
+      final restored = MemoryCard.fromJson(snapshot);
+      final index = _cards.indexWhere((item) => item.id == restored.id);
+      if (index >= 0) {
+        _cards[index] = restored;
+      } else {
+        _cards.add(restored);
+      }
+      _reviewLogs.removeWhere((item) => item.id == log.id);
+      notifyListeners();
+      await _queueSave(
+        () => _repository.saveChanges(
+          upsertCards: [restored],
+          deleteReviewLogIds: [log.id],
+        ),
+      );
+      return true;
+    } catch (error) {
+      debugPrint('撤销记忆卡片复习失败: $error');
+      return false;
+    }
+  }
+
+  static int _compareNewCards(MemoryCard a, MemoryCard b) {
+    final order = a.sortOrder.compareTo(b.sortOrder);
+    return order != 0 ? order : a.id.compareTo(b.id);
+  }
+
+  static int _compareDueCards(MemoryCard a, MemoryCard b) {
+    final aDue = a.dueAt ?? a.updatedAt;
+    final bDue = b.dueAt ?? b.updatedAt;
+    final order = aDue.compareTo(bDue);
+    return order != 0 ? order : a.id.compareTo(b.id);
   }
 
   // ─── 内部 ───
@@ -439,6 +521,30 @@ class MemoryCardProvider extends ChangeNotifier with SerializedSaveQueue {
 
   Future<void> _queueSave(Future<void> Function() save) {
     return enqueueSave(save);
+  }
+}
+
+/// 一次复习评分的结果，供学习页决定下一张卡与失败卡重插。
+final class MemoryCardReviewOutcome {
+  const MemoryCardReviewOutcome({
+    required this.card,
+    required this.schedule,
+    required this.log,
+  });
+
+  final MemoryCard card;
+  final MemoryCardSchedule schedule;
+  final MemoryCardReviewLog log;
+
+  /// 失败的学习/重学卡是否应在本次会话稍后重现。
+  bool get shouldReinsertInSession =>
+      card.status == MemoryCardStatus.learning ||
+      card.status == MemoryCardStatus.relearning;
+
+  Duration get reinsertAfter {
+    final delta = card.dueAt?.difference(log.reviewedAt);
+    if (delta == null || delta.isNegative) return Duration.zero;
+    return delta;
   }
 }
 
