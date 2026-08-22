@@ -2030,6 +2030,14 @@ void main() {
       settings.agentGrantedPermissions,
       isNot(contains(LynAIPermissions.modelGenerateImage)),
     );
+    expect(
+      settings.agentGrantedPermissions,
+      contains(LynAIPermissions.pluginsFilesRead),
+    );
+    expect(
+      settings.agentGrantedPermissions,
+      contains(LynAIPermissions.pluginsFilesWrite),
+    );
   });
 
   test(

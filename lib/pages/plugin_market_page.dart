@@ -13,6 +13,7 @@ import '../services/remote_market_service.dart';
 import '../utils/file_picker_io_utils.dart';
 import '../utils/snackbar_utils.dart';
 import '../widgets/plugin_icon.dart';
+import '../widgets/plugin_permission_authorization_dialog.dart';
 import 'plugin_management_page.dart' show PluginDetailPage;
 import 'plugin_market_detail_page.dart';
 import 'plugin_submission_page.dart';
@@ -301,9 +302,16 @@ class _MarketTabState extends State<_MarketTab> {
     );
     if (file == null || !mounted) return;
     try {
-      await context.read<PluginProvider>().importZipBytes(
-        await file.readBytes(),
-      );
+      final provider = context.read<PluginProvider>();
+      final existingIds = provider.plugins.map((plugin) => plugin.id).toSet();
+      final installed = await provider.importZipBytes(await file.readBytes());
+      if (!mounted) return;
+      if (!existingIds.contains(installed.id)) {
+        await showPluginPermissionAuthorizationDialog(
+          context,
+          pluginId: installed.id,
+        );
+      }
       if (!mounted) return;
       showShortSnackBar(context, '插件已导入');
     } catch (e) {

@@ -185,9 +185,9 @@ class PluginProvider extends ChangeNotifier {
   });
 
   /// 从 ZIP 字节内容导入并安装插件。
-  Future<void> importZipBytes(List<int> bytes) =>
+  Future<InstalledPlugin> importZipBytes(List<int> bytes) =>
       _runDatasetMutation((_) async {
-        await _repository.importZipBytes(
+        return _repository.importZipBytes(
           bytes,
           serialize: (pluginId, install) =>
               _serializeMutationOpen(pluginId, () async {

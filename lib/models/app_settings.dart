@@ -628,6 +628,8 @@ class AppSettings {
       ...restored,
       LynAIPermissions.memoryCardsRead,
       LynAIPermissions.memoryCardsWrite,
+      LynAIPermissions.pluginsFilesRead,
+      LynAIPermissions.pluginsFilesWrite,
     };
     return LynAIPermissions.defaultAgent
         .where(migrated.contains)

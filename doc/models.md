@@ -77,7 +77,7 @@
 
 `ConversationSettings` 保存发送对话所需的模型、系统提示词、OCR、文件识别、图片生成、语音和 Agent 模式。`selectedSystemPromptId` 只保留来源标识，`systemPrompt` 保存选择当时的实际正文；发送历史对话时必须直接使用该正文，不能按当前全局模板重新解析。历史对话也不能反向覆盖全局设置。
 
-权限由 `AppSettings.agentGrantedPermissions` 全局单源管理，`ConversationSettings` 不再保存权限字段（旧的 `agentPermissionsOverride`/`agentGrantedPermissions`/`permissionSnapshotVersion` 在 `fromJson` 时被忽略）。运行时生效快照统一实时读取全局设置，对话设置弹窗与设置页“权限管理”编辑的是同一份全局数据。`LynAIPermissionDefinition` 增加 `pluginAutoGrant` 标记区分插件免授权权限（如 `network:public`）与敏感权限（需用户在权限管理里逐项授权）。
+权限由 `AppSettings.agentGrantedPermissions` 全局单源管理，`ConversationSettings` 不再保存权限字段（旧的 `agentPermissionsOverride`/`agentGrantedPermissions`/`permissionSnapshotVersion` 在 `fromJson` 时被忽略）。运行时生效快照统一实时读取全局设置，对话设置弹窗与设置页“权限管理”编辑的是同一份全局数据。`LynAIPermissions.defaultAgent` 默认等于 `agentAssignable`，即新对话默认获得全部可分配权限；从旧设置恢复时会保留用户对旧默认权限的显式移除，仅补齐新版本引入的默认权限。`LynAIPermissionDefinition` 增加 `pluginAutoGrant` 标记区分插件免授权权限（如 `network:public`）与敏感权限（需用户在权限管理里逐项授权）。
 
 反序列化时坏消息、坏 Agent 计划或坏工作记忆会被跳过；如果整条对话结构损坏，则由 Provider 跳过该对话。
 

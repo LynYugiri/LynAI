@@ -62,7 +62,8 @@ class LynAIPermissions {
   static const deviceControl = 'device:control';
   static const deviceOverlay = 'device:overlay';
 
-  static const defaultAgent = [
+  /// 所有可分配给对话/Agent 的权限。
+  static const agentAssignable = [
     luaExecute,
     pluginCallFunction,
     notesRead,
@@ -73,6 +74,8 @@ class LynAIPermissions {
     schedulesRead,
     schedulesWrite,
     pluginSkillFilesWrite,
+    pluginsFilesRead,
+    pluginsFilesWrite,
     storageRead,
     memoryCardsRead,
     memoryCardsWrite,
@@ -88,11 +91,8 @@ class LynAIPermissions {
     deviceOverlay,
   ];
 
-  static const agentAssignable = [
-    ...defaultAgent,
-    pluginsFilesRead,
-    pluginsFilesWrite,
-  ];
+  /// 新对话默认授予全部可分配权限，演示/首次使用时开箱即可调用能力。
+  static const defaultAgent = agentAssignable;
 }
 
 class LynAIPermissionDefinition {

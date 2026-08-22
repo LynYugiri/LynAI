@@ -17,6 +17,7 @@ import '../utils/file_picker_io_utils.dart';
 import '../utils/snackbar_utils.dart';
 import '../widgets/model_config_picker.dart';
 import '../widgets/plugin_icon.dart';
+import '../widgets/plugin_permission_authorization_dialog.dart';
 import '../widgets/text_editing_controller_host.dart';
 
 /// 插件管理页面。
@@ -88,12 +89,23 @@ class PluginManagementPage extends StatelessWidget {
       allowedExtensions: const ['zip'],
     );
     if (file == null || !context.mounted) return;
-    await _runAction(
-      context,
-      () async =>
-          context.read<PluginProvider>().importZipBytes(await file.readBytes()),
-      success: '插件已导入',
-    );
+    final provider = context.read<PluginProvider>();
+    final existingIds = provider.plugins.map((plugin) => plugin.id).toSet();
+    try {
+      final installed = await provider.importZipBytes(await file.readBytes());
+      if (!context.mounted) return;
+      if (!existingIds.contains(installed.id)) {
+        await showPluginPermissionAuthorizationDialog(
+          context,
+          pluginId: installed.id,
+        );
+      }
+      if (!context.mounted) return;
+      showShortSnackBar(context, '插件已导入');
+    } catch (e) {
+      if (!context.mounted) return;
+      showErrorSnackBar(context, '导入失败', details: e.toString());
+    }
   }
 
   /// 打开新建插件向导，创建成功后进入插件详情页继续编辑。

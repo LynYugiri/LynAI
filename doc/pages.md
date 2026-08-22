@@ -185,7 +185,7 @@ Agent 工具轮数上限保存为 `ConversationSettings.maxToolRounds`（新建�
 
 文件：`lib/pages/plugin_market_detail_page.dart`
 
-展示单个 `MarketPluginEntry` 的完整信息：截图、描述、权限清单、SemVer 格式版本、上传者和作者。提供安装按钮；下载受市场响应大小边界保护，安装前校验条目 SHA-256（若提供）、唯一根目录 manifest 和插件 ID，随后才交给 `PluginProvider.importZipBytes` 串行安装。后端未连接时安装按钮禁用并显示提示。
+展示单个 `MarketPluginEntry` 的完整信息：截图、描述、权限清单、SemVer 格式版本、上传者和作者。提供安装按钮；下载受市场响应大小边界保护，安装前校验条目 SHA-256（若提供）、唯一根目录 manifest 和插件 ID，随后才交给 `PluginProvider.importZipBytes` 串行安装。首次安装完成后立即弹出权限授权对话框（`PluginPermissionAuthorizationDialog`），列出敏感权限并默认全选，支持一键「全选」。后端未连接时安装按钮禁用并显示提示。
 
 ## CommunityPage
 
@@ -204,7 +204,7 @@ Agent 工具轮数上限保存为 `ConversationSettings.maxToolRounds`（新建�
 | 浏览插件 | 展示内置和用户安装的插件列表，显示名称、版本、启用状态和权限。 |
 | 新建插件 | 右上角「+」打开 `PluginCreationPage` 向导，填写 ID/名称/版本/作者/描述并选择模板，创建后进入详情页继续编辑。 |
 | 开发状态 | 非内置插件可切换「草稿 / 测试中 / 已定型」：草稿与测试中允许编辑 `plugin.json` 和入口脚本；已定型后核心文件只读。内置插件固定为已定型。 |
-| 导入 ZIP | 从文件选择器加载 `.zip` 插件包（离线导入，与市场页的远端安装互补）。 |
+| 导入 ZIP | 从文件选择器加载 `.zip` 插件包（离线导入，与市场页的远端安装互补）；首次导入完成后弹出权限授权对话框。 |
 | 启用/禁用 | 切换插件启用状态，禁用插件不会触发其工具或函数挂载。 |
 | 权限管理 | 查看和修改插件声明的权限以及调用依赖插件对外函数所需的额外权限，例如网络、文件读写、平台能力。 |
 | 代码编辑器 | 打开插件 Lua 入口脚本进行编辑，支持语法高亮和保存。非内置插件还会显示 `plugin.json` 和入口脚本，保存 manifest 后自动重载清单。 |
@@ -266,7 +266,7 @@ Agent 工具轮数上限保存为 `ConversationSettings.maxToolRounds`（新建�
 | 背景 | `background_page.dart` | 背景图、清除背景、模糊开关和强度。 |
 | API | `api_models_page.dart` | 模型配置分类、编辑、排序和模型拉取。 |
 | 网页搜索 | `web_search_settings_page.dart` | 管理 client/backend/auto 路由、Tavily/SearXNG 首选项和 SearXNG endpoint；Tavily key 与 SearXNG bearer token 只写入 `SecretStore`。SearXNG HTTP 必须显式勾选精确 origin 明文授权，保存 Bearer token 时再次显示明文确认。 |
-| 对话权限 | `agent_defaults_settings_page.dart` | 控制之后创建的主聊天和悬浮聊天是否默认启用 Agent、默认权限以及单次任务最大工具轮数（默认 24）。历史对话不随默认值变化；对话设置弹窗只编辑当前对话权限，Agent 模式由输入区按钮切换。 |
+| 对话权限 | `agent_defaults_settings_page.dart` | 控制之后创建的主聊天和悬浮聊天是否默认启用 Agent、默认权限以及单次任务最大工具轮数（默认 24）。默认权限为全部可分配权限，用户可逐项收回。历史对话不随默认值变化；对话设置弹窗只编辑当前对话权限，Agent 模式由输入区按钮切换。 |
 | 悬浮窗 | `floating_assistant_settings_page.dart` | Android 系统悬浮助手设置。原生面板分为 Chat、Translation、Agent；翻译支持一次翻译和停止滚动后自动翻译，Agent 模式展示运行状态与完整 Plan。 |
 | 翻译历史 | `translation_history_page.dart` | 浏览悬浮窗屏幕翻译历史记录（时间/原文/译文/应用包名），长按复制、一键清空。 |
 | 主题 | `theme_page.dart` | 预设色、HSV 调色板、浅色/深色/跟随系统。 |

@@ -6,6 +6,7 @@ import '../providers/plugin_provider.dart';
 import '../services/market_service.dart';
 import '../services/market_plugin_package.dart';
 import '../utils/snackbar_utils.dart';
+import '../widgets/plugin_permission_authorization_dialog.dart';
 
 /// 插件市场详情页。
 ///
@@ -118,10 +119,19 @@ class _PluginMarketDetailPageState extends State<PluginMarketDetailPage> {
   Future<void> _install() async {
     setState(() => _installing = true);
     try {
+      final provider = context.read<PluginProvider>();
+      final alreadyInstalled = provider.pluginById(widget.entry.id) != null;
       final bytes = await widget.marketService.downloadPlugin(widget.entry.id);
       if (!mounted) return;
       validateMarketPluginPackage(bytes, widget.entry);
-      await context.read<PluginProvider>().importZipBytes(bytes);
+      final installed = await provider.importZipBytes(bytes);
+      if (!mounted) return;
+      if (!alreadyInstalled) {
+        await showPluginPermissionAuthorizationDialog(
+          context,
+          pluginId: installed.id,
+        );
+      }
       if (!mounted) return;
       showShortSnackBar(context, '${widget.entry.name} 已安装');
       Navigator.pop(context);

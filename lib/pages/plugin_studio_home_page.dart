@@ -8,6 +8,7 @@ import '../repositories/plugin_repository.dart';
 import '../utils/file_picker_io_utils.dart';
 import '../utils/snackbar_utils.dart';
 import '../widgets/plugin_icon.dart';
+import '../widgets/plugin_permission_authorization_dialog.dart';
 import 'plugin_creation_page.dart';
 import 'plugin_studio_page.dart';
 
@@ -114,17 +115,22 @@ class PluginStudioHomePage extends StatelessWidget {
       if (!context.mounted) return;
       final provider = context.read<PluginProvider>();
       final existingIds = provider.plugins.map((plugin) => plugin.id).toSet();
-      await provider.importZipBytes(bytes);
+      final imported = await provider.importZipBytes(bytes);
       if (!context.mounted) return;
-      final imported = provider.plugins
-          .where((plugin) => !existingIds.contains(plugin.id))
-          .toList(growable: false);
+      final isNewInstall = !existingIds.contains(imported.id);
+      if (isNewInstall) {
+        await showPluginPermissionAuthorizationDialog(
+          context,
+          pluginId: imported.id,
+        );
+      }
+      if (!context.mounted) return;
       showShortSnackBar(context, '插件已导入');
-      if (imported.length == 1) {
+      if (isNewInstall) {
         await Navigator.push(
           context,
           MaterialPageRoute(
-            builder: (_) => PluginStudioPage(pluginId: imported.single.id),
+            builder: (_) => PluginStudioPage(pluginId: imported.id),
           ),
         );
       }

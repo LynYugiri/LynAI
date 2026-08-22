@@ -103,6 +103,20 @@ void main() {
     );
   });
 
+  test('default conversations grant every assignable permission', () {
+    expect(LynAIPermissions.defaultAgent, LynAIPermissions.agentAssignable);
+    expect(
+      LynAIPermissions.defaultAgent.length,
+      agentAssignablePermissionDefinitions.length,
+    );
+    expect(
+      agentAssignablePermissionDefinitions.every(
+        (definition) => LynAIPermissions.defaultAgent.contains(definition.id),
+      ),
+      isTrue,
+    );
+  });
+
   test('Agent permission UI definitions match assignable permissions', () {
     expect(
       agentAssignablePermissionDefinitions.map((item) => item.id),

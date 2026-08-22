@@ -306,7 +306,7 @@ Subagent 适合 QQ/消息应用这类流程：主 Agent 只描述目标，Subage
 
 `LynAICapabilityRegistry` 是宿主内置能力与插件对外函数的统一目录，取代此前散落在 `_permissionFor` 中的硬编码权限 switch。每个 `CapabilityMethod` 声明 `method`、`permission`（null 表示免授权）、`isRead` 和 `provider`（host/plugin）。宿主能力由 `registerHostCapabilities` 一次性注册；插件能力随插件启用/禁用动态 `registerPlugin`/`removePlugin`。授权查询统一通过 `lookup`，未注册的 `device.*` 按操控屏幕权限处理。`model.list`/`model.current` 提供 `{provider, model, category}` 身份，`model.chat` 等接受 `provider`+`model`（回退旧 `modelId`/`modelName`）。
 
-插件权限分为免授权与敏感两类，敏感度由 `LynAIPermissionDefinition.pluginAutoGrant` 系统定义，插件不能自证降级：`network:public`（仅 GET 公开只读 HTTPS）自动授予；`plugin.storage.*` 与 `plugin.file.list/read` 属插件沙盒免授权；其余（读写宿主数据、`network:access`、`model.*`、`device.*`、`recycleBin.*`、`webview:bridge`、越界 `files:write`）需用户在权限管理里逐项授权。
+插件权限分为免授权与敏感两类，敏感度由 `LynAIPermissionDefinition.pluginAutoGrant` 系统定义，插件不能自证降级：`network:public`（仅 GET 公开只读 HTTPS）自动授予；`plugin.storage.*` 与 `plugin.file.list/read` 属插件沙盒免授权；其余（读写宿主数据、`network:access`、`model.*`、`device.*`、`recycleBin.*`、`webview:bridge`、越界 `files:write`）需用户在权限管理里逐项授权。本地 ZIP 导入、市场安装和插件工坊导入完成后，页面调用 `showPluginPermissionAuthorizationDialog` 展示敏感权限授权弹窗，默认全选并支持一键「全选」。
 
 ## 全局插件文件工具
 
