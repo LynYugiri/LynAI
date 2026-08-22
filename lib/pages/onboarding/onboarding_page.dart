@@ -841,10 +841,9 @@ class _OnboardingPageState extends State<OnboardingPage> {
             if (result.skill != null) _summaryLine(result.skill!),
           ],
           const Spacer(),
-          FilledButton.icon(
+          FilledButton(
             onPressed: _showWelcome,
-            icon: const Icon(Icons.waving_hand_outlined),
-            label: const Text('看看我的欢迎语'),
+            child: const Text('继续'),
           ),
         ],
       ),
