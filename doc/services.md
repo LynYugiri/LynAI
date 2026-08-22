@@ -372,7 +372,7 @@ Subagent 适合 QQ/消息应用这类流程：主 Agent 只描述目标，Subage
 
 详情页安装前先校验市场条目中的 ZIP SHA-256（字段存在时）、唯一根目录 `plugin.json` 以及 manifest ID 与市场 ID 一致，再进入 `PluginProvider` 的串行原子安装。市场版本字段使用插件 manifest 的 SemVer 格式；更新查询发送本地已安装的 ID/版本对，版本判定属于后端市场契约，客户端不使用字符串字典序自行判断新旧。
 
-`MarketPluginEntry` 是市场目录条目模型，字段对齐 `PluginManifest` 中用户可见的元数据，但只承载目录信息，不承载本地启用状态或文件路径——那些属于 `InstalledPlugin` 的运行时视图。
+`MarketPluginEntry` 是市场目录条目模型，字段对齐 `PluginManifest` 中用户可见的元数据，并额外携带后端返回的 `uploaderName`（提交者昵称）；它只承载目录信息，不承载本地启用状态或文件路径——那些属于 `InstalledPlugin` 的运行时视图。
 
 ## CodeSyntaxService
 

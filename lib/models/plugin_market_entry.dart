@@ -13,6 +13,9 @@ class MarketPluginEntry {
   /// 插件作者。
   final String author;
 
+  /// 上传者（提交该插件的用户昵称）。
+  final String uploaderName;
+
   /// 插件简介。
   final String description;
 
@@ -48,6 +51,7 @@ class MarketPluginEntry {
     required this.id,
     required this.name,
     required this.author,
+    this.uploaderName = '',
     required this.description,
     required this.version,
     required this.downloadUrl,
@@ -66,6 +70,7 @@ class MarketPluginEntry {
       id: json['id'] as String? ?? '',
       name: json['name'] as String? ?? json['id'] as String? ?? '',
       author: json['author'] as String? ?? '',
+      uploaderName: json['uploaderName'] as String? ?? '',
       description: json['description'] as String? ?? '',
       version: json['version'] as String? ?? '0.0.0',
       iconUrl: json['iconUrl'] as String?,
@@ -90,6 +95,7 @@ class MarketPluginEntry {
     'id': id,
     'name': name,
     'author': author,
+    if (uploaderName.isNotEmpty) 'uploaderName': uploaderName,
     'description': description,
     'version': version,
     if (iconUrl != null) 'iconUrl': iconUrl,

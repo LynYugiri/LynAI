@@ -257,7 +257,7 @@ storage_v2 下，笔记分页元数据由存储层的 `StorageV2NotePage` 表达
 
 插件系统使用以下模型描述插件能力、状态和配置。
 
-`MarketPluginEntry` 与本地 `InstalledPlugin` 分离，保存市场 ID、展示元数据、SemVer 格式版本、下载信息、可选 ZIP SHA-256、分类和审核状态。`MarketQuery` 保存关键词、分类、从 1 开始的页码和 page size；`MarketQueryResult.hasMore` 是页面继续分页的唯一信号。SHA-256 是 ZIP 整体完整性值，不是插件同步内容清单的 package version；客户端下载后校验 manifest ID，但版本新旧判断由市场后端负责。
+`MarketPluginEntry` 与本地 `InstalledPlugin` 分离，保存市场 ID、展示元数据（含作者与上传者昵称 `uploaderName`）、SemVer 格式版本、下载信息、可选 ZIP SHA-256、分类和审核状态。`MarketQuery` 保存关键词、分类、从 1 开始的页码和 page size；`MarketQueryResult.hasMore` 是页面继续分页的唯一信号。SHA-256 是 ZIP 整体完整性值，不是插件同步内容清单的 package version；客户端下载后校验 manifest ID，但版本新旧判断由市场后端负责。
 
 ### PluginToolDefinition
 

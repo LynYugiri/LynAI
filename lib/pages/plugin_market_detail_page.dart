@@ -75,9 +75,17 @@ class _PluginMarketDetailPageState extends State<PluginMarketDetailPage> {
               contentPadding: EdgeInsets.zero,
               leading: const Icon(Icons.tag, size: 20),
               title: Text('v${entry.version}'),
-              subtitle: entry.author.isNotEmpty
-                  ? Text('作者: ${entry.author}')
-                  : null,
+              subtitle: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    entry.uploaderName.isNotEmpty
+                        ? '上传者: ${entry.uploaderName}'
+                        : '上传者: 未知',
+                  ),
+                  if (entry.author.isNotEmpty) Text('作者: ${entry.author}'),
+                ],
+              ),
             ),
           ),
           const SizedBox(height: 24),
@@ -148,6 +156,11 @@ class _Header extends StatelessWidget {
                   fontSize: 20,
                   fontWeight: FontWeight.w700,
                 ),
+              ),
+              Text(
+                entry.uploaderName.isNotEmpty
+                    ? '上传者: ${entry.uploaderName}'
+                    : '上传者: 未知',
               ),
               if (entry.author.isNotEmpty) Text('作者: ${entry.author}'),
               if (entry.category.isNotEmpty)

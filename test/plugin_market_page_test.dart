@@ -88,6 +88,8 @@ void main() {
     expect(service.pages, [1, 2]);
     expect(find.text('Plugin A'), findsOneWidget);
     expect(find.text('Plugin B'), findsOneWidget);
+    expect(find.text('上传者: Alice'), findsOneWidget);
+    expect(find.text('上传者: Bob'), findsOneWidget);
     expect(find.text('加载更多'), findsNothing);
   });
 
@@ -97,6 +99,7 @@ void main() {
     expect(entry.name, 'Test');
     expect(entry.version, '0.0.0');
     expect(entry.author, '');
+    expect(entry.uploaderName, '');
     expect(entry.permissions, isEmpty);
     expect(entry.screenshots, isEmpty);
   });
@@ -137,6 +140,7 @@ class _PagedMarketService implements MarketService {
     id: id,
     name: name,
     author: '',
+    uploaderName: id == 'a' ? 'Alice' : 'Bob',
     description: '',
     version: '1.0.0',
     downloadUrl: '/download',

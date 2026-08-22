@@ -183,7 +183,7 @@ Agent 工具轮数上限保存为 `ConversationSettings.maxToolRounds`（新建�
 
 文件：`lib/pages/plugin_market_detail_page.dart`
 
-展示单个 `MarketPluginEntry` 的完整信息：截图、描述、权限清单、SemVer 格式版本和作者。提供安装按钮；下载受市场响应大小边界保护，安装前校验条目 SHA-256（若提供）、唯一根目录 manifest 和插件 ID，随后才交给 `PluginProvider.importZipBytes` 串行安装。后端未连接时安装按钮禁用并显示提示。
+展示单个 `MarketPluginEntry` 的完整信息：截图、描述、权限清单、SemVer 格式版本、上传者和作者。提供安装按钮；下载受市场响应大小边界保护，安装前校验条目 SHA-256（若提供）、唯一根目录 manifest 和插件 ID，随后才交给 `PluginProvider.importZipBytes` 串行安装。后端未连接时安装按钮禁用并显示提示。
 
 ## CommunityPage
 

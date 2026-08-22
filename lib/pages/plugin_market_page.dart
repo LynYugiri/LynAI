@@ -382,6 +382,10 @@ class _MarketPluginCard extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              if (entry.uploaderName.isNotEmpty)
+                Text('上传者: ${entry.uploaderName}')
+              else
+                const Text('上传者: 未知'),
               if (entry.author.isNotEmpty)
                 Text('作者: ${entry.author}')
               else
