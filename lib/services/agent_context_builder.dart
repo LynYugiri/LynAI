@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import '../models/agent_defaults.dart';
 import '../models/agent_runtime.dart';
 
 class AgentContextBudget {
@@ -10,7 +11,7 @@ class AgentContextBudget {
   final int charactersPerToken;
 
   const AgentContextBudget({
-    this.modelTokenBudget = 32768,
+    this.modelTokenBudget = defaultAgentContextWindow,
     this.reservedOutputTokens = 4096,
     this.maxToolResultTokens = 2048,
     this.maxCompactionTokens = 2048,

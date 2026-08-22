@@ -76,7 +76,7 @@ Run 同时固定权限快照。后续模型 turn、Agent Lua 同步预检、异�
 
 模型返回 context overflow 时，runtime 最多强制压缩重试一次；第二次 overflow 直接失败。`ApiService` 会把常见上下文超限错误包装为 `AgentContextOverflowException`，主对话、悬浮聊天和 Subagent 都通过类型判断触发这次重试。生产调用方现在注入了 `ModelContextCompactor`：它用当前 Chat 模型（关闭 thinking/tools）把被裁消息压缩为有界 checkpoint；compactor 失败、超时或返回空摘要时回退到现有截断策略，不使 run 失败。
 
-上下文预算按模型生效值 `ModelConfig.effectiveContextWindow` 构造，来源优先级为用户本地覆盖 > 托管 `/relay/config` 下发 > 从模型 endpoint 拉取 > 默认 32768。估算仍是字符数近似，不是精确 tokenizer。
+上下文预算按模型生效值 `ModelConfig.effectiveContextWindow` 构造，来源优先级为用户本地覆盖 > 托管 `/relay/config` 下发 > 从模型 endpoint 拉取 > 默认 262144（`defaultAgentContextWindow`，256k）。估算仍是字符数近似，不是精确 tokenizer。
 
 ## Tool Result Sanitization Foundation
 
