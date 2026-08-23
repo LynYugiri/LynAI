@@ -399,3 +399,9 @@ firewall prompt.
 
 权限不在工作区抽屉表达；Agent 能否读写工作区由「对话设置 → 对话权限」中的
 `workspace:read` / `workspace:write` 决定。
+
+## 记忆管理
+
+文件：`lib/pages/memory_settings_page.dart`、`memory_manage_page.dart`
+
+设置页“记忆管理”入口进入 `MemorySettingsPage`，收纳角色笔记/用户画像开关、两个 target 的字符预算、维护提醒间隔和条目管理。`MemoryManagePage` 按角色查看/添加/替换/删除记忆条目并显示用量。

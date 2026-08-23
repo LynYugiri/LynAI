@@ -13,6 +13,7 @@ import '../providers/jotting_provider.dart';
 import '../providers/memory_card_provider.dart';
 import '../providers/model_config_provider.dart';
 import '../providers/plugin_provider.dart';
+import '../providers/role_memory_provider.dart';
 import '../providers/task_provider.dart';
 import '../models/agent_user_interaction.dart';
 import 'backend_client.dart';
@@ -54,6 +55,7 @@ class FloatingAssistantService with WidgetsBindingObserver {
     required KnowledgeProvider knowledge,
     required MemoryCardProvider memoryCards,
     required JottingProvider jottings,
+    required RoleMemoryProvider roleMemory,
     required TaskProvider tasks,
     required CalendarProvider calendar,
     required PluginProvider plugins,
@@ -77,6 +79,7 @@ class FloatingAssistantService with WidgetsBindingObserver {
       knowledge: knowledge,
       memoryCards: memoryCards,
       jottings: jottings,
+      roleMemory: roleMemory,
       tasks: tasks,
       calendar: calendar,
       plugins: plugins,

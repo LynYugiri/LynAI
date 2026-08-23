@@ -29,6 +29,7 @@ import '../providers/knowledge_provider.dart';
 import '../providers/memory_card_provider.dart';
 import '../providers/model_config_provider.dart';
 import '../providers/plugin_provider.dart';
+import '../providers/role_memory_provider.dart';
 import '../providers/settings_provider.dart';
 import '../providers/task_provider.dart';
 import '../providers/workspace_provider.dart';
@@ -131,6 +132,7 @@ class ToolCallService {
     KnowledgeProvider? knowledge,
     MemoryCardProvider? memoryCards,
     JottingProvider? jottings,
+    RoleMemoryProvider? roleMemory,
     PluginProvider? plugins,
     ModelConfigProvider? modelConfigs,
     SettingsProvider? settings,
@@ -168,6 +170,7 @@ class ToolCallService {
        _knowledge = knowledge,
        _memoryCards = memoryCards,
        _jottings = jottings,
+       _roleMemory = roleMemory,
        _plugins = plugins,
        _modelConfigs = modelConfigs,
        _settings = settings,
@@ -238,6 +241,7 @@ class ToolCallService {
   final KnowledgeProvider? _knowledge;
   final MemoryCardProvider? _memoryCards;
   final JottingProvider? _jottings;
+  final RoleMemoryProvider? _roleMemory;
   final PluginProvider? _plugins;
   final ModelConfigProvider? _modelConfigs;
   final SettingsProvider? _settings;
@@ -1728,6 +1732,7 @@ plugin_file_* / plugin_manifest_* 工具不传 pluginId 时默认操作该插件
     bool knowledgeAvailable,
     bool memoryCardsAvailable,
     bool jottingsAvailable, {
+    bool roleMemoryAvailable = false,
     bool workspaceManageAvailable = false,
     bool workspaceFileAvailable = false,
   }) {
@@ -1893,6 +1898,58 @@ plugin_file_* / plugin_manifest_* 工具不传 pluginId 时默认操作该插件
         },
         'required': ['content'],
       });
+    }
+    if (roleMemoryAvailable) {
+      add(
+        'memory',
+        '保存持久事实到当前角色的记忆，跨会话保留。'
+            '优先使用 operations 数组一次性完成全部修改（每项 {action, content?, old_text?}），'
+            '批量原子提交且只按最终结果检查字符预算。'
+            'target=user 记录用户画像（偏好、风格），target=memory 记录角色自己的笔记（环境、约定、经验）。'
+            '保存用户偏好、纠正、个人细节或稳定环境事实；跳过琐碎信息、任务进度和可轻易重新发现的事实。'
+            '预算满时用同一个 operations 批次删除/精简旧条目并加入新条目。',
+        {
+          'type': 'object',
+          'properties': {
+            'target': {
+              'type': 'string',
+              'enum': ['memory', 'user'],
+              'description': '写入哪个记忆区：memory=角色笔记，user=用户画像。',
+            },
+            'action': {
+              'type': 'string',
+              'enum': ['add', 'replace', 'remove'],
+              'description': '单条操作类型。使用 operations 批量时省略。',
+            },
+            'content': {
+              'type': 'string',
+              'description': '条目内容。add/replace 需要。',
+            },
+            'old_text': {
+              'type': 'string',
+              'description': 'replace/remove 需要：唯一标识现有条目的短子串。',
+            },
+            'operations': {
+              'type': 'array',
+              'maxItems': 50,
+              'description': '批量操作，原子提交。',
+              'items': {
+                'type': 'object',
+                'properties': {
+                  'action': {
+                    'type': 'string',
+                    'enum': ['add', 'replace', 'remove'],
+                  },
+                  'content': {'type': 'string'},
+                  'old_text': {'type': 'string'},
+                },
+                'required': ['action'],
+              },
+            },
+          },
+          'required': ['target'],
+        },
+      );
     }
     if (workspaceManageAvailable) {
       add('list_workspaces', '列出本地工作区（不返回挂载文件夹的绝对路径）。', {
@@ -2074,6 +2131,7 @@ plugin_file_* / plugin_manifest_* 工具不传 pluginId 时默认操作该插件
       'read_knowledge_base' ||
       'read_knowledge_entry' => const [LynAIPermissions.storageRead],
       'create_memory_cards' => const [LynAIPermissions.memoryCardsWrite],
+      'memory' => const [LynAIPermissions.roleMemoryWrite],
       'save_jotting' => const [LynAIPermissions.jottingsWrite],
       _ when jottingsRead.contains(name) => const [
         LynAIPermissions.jottingsRead,
@@ -2252,6 +2310,7 @@ plugin_file_* / plugin_manifest_* 工具不传 pluginId 时默认操作该插件
       _knowledge != null,
       _memoryCards != null,
       _jottings != null,
+      roleMemoryAvailable: _roleMemory != null,
       workspaceManageAvailable: _workspaces != null,
       workspaceFileAvailable: _conversationWorkspace != null,
     );
@@ -2857,6 +2916,8 @@ plugin_file_* / plugin_manifest_* 工具不传 pluginId 时默认操作该插件
           return _readKnowledgeEntry(call);
         case 'create_memory_cards':
           return await _createMemoryCards(call);
+        case 'memory':
+          return _executeRoleMemory(call);
         case 'search_jottings':
           return await _searchJottings(
             call,
@@ -3451,6 +3512,44 @@ plugin_file_* / plugin_manifest_* 工具不传 pluginId 时默认操作该插件
             .toIso8601String(),
       },
     };
+  }
+
+  Map<String, dynamic> _executeRoleMemory(ChatToolCall call) {
+    final roleMemory = _roleMemory;
+    if (roleMemory == null) return _error('角色记忆未提供给当前工具会话');
+    final conversationId = _conversationId;
+    final conversation = _conversations?.getConversation(conversationId ?? '');
+    final roleId = conversation?.roleId;
+    if (roleId == null || roleId.isEmpty) {
+      return _error('当前对话没有绑定角色，无法写入角色记忆');
+    }
+
+    final target = (call.arguments['target'] as String? ?? '').trim();
+    final operations = call.arguments['operations'];
+    if (operations is List && operations.isNotEmpty) {
+      final ops = operations
+          .whereType<Map>()
+          .map((op) => Map<String, dynamic>.from(op))
+          .toList();
+      return roleMemory.applyBatch(roleId, target, ops);
+    }
+
+    final action = (call.arguments['action'] as String? ?? '').trim();
+    final content = (call.arguments['content'] as String? ?? '').trim();
+    final oldText = (call.arguments['old_text'] as String? ?? '').trim();
+    switch (action) {
+      case 'add':
+        return roleMemory.add(roleId, target, content);
+      case 'replace':
+        return roleMemory.replace(roleId, target, oldText, content);
+      case 'remove':
+        return roleMemory.remove(roleId, target, oldText);
+      default:
+        return _error(
+          '未知的 memory 操作 “$action”。请使用 add、replace、remove，'
+          '或使用 operations 批量操作。',
+        );
+    }
   }
 
   Future<Map<String, dynamic>> _createMemoryCards(ChatToolCall call) async {

@@ -27,7 +27,12 @@ class SettingsProvider extends ChangeNotifier with SerializedSaveQueue {
   SettingsProvider({
     StorageV2Service? storageV2,
     SettingsRepository? repository,
+    this.onRoleDeleted,
   }) : _repository = repository ?? SettingsRepository(storageV2: storageV2);
+
+  /// 角色删除回调（由 main 注入 RoleMemoryProvider.removeRole），
+  /// 用于级联删除该角色的记忆。
+  final void Function(String roleId)? onRoleDeleted;
 
   AppSettings get settings => _settings;
   bool get usingStorageV2 => _usingStorageV2;
@@ -36,6 +41,33 @@ class SettingsProvider extends ChangeNotifier with SerializedSaveQueue {
 
   void setChatQuickActions(ChatQuickActions actions) {
     _settings = _settings.copyWith(chatQuickActions: actions);
+    _queueSaveSettings();
+    notifyListeners();
+  }
+
+  void setRoleMemoryEnabled(bool value) {
+    _settings = _settings.copyWith(roleMemoryEnabled: value);
+    _queueSaveSettings();
+    notifyListeners();
+  }
+
+  void setRoleUserProfileEnabled(bool value) {
+    _settings = _settings.copyWith(roleUserProfileEnabled: value);
+    _queueSaveSettings();
+    notifyListeners();
+  }
+
+  void setRoleMemoryLimits({int? memoryCharLimit, int? userCharLimit}) {
+    _settings = _settings.copyWith(
+      roleMemoryCharLimit: memoryCharLimit,
+      roleUserCharLimit: userCharLimit,
+    );
+    _queueSaveSettings();
+    notifyListeners();
+  }
+
+  void setRoleMemoryNudgeInterval(int value) {
+    _settings = _settings.copyWith(roleMemoryNudgeInterval: value);
     _queueSaveSettings();
     notifyListeners();
   }
@@ -329,6 +361,7 @@ class SettingsProvider extends ChangeNotifier with SerializedSaveQueue {
 
   void deleteRole(String id) {
     if (id == ChatRole.defaultId) return;
+    onRoleDeleted?.call(id);
     final roles = _settings.roles.where((role) => role.id != id).toList();
     final now = DateTime.now();
     final groups = _settings.roleGroups.map((group) {

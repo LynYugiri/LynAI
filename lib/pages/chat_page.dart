@@ -32,6 +32,7 @@ import '../providers/memory_card_provider.dart';
 import '../providers/model_config_provider.dart';
 import '../providers/mcp_provider.dart';
 import '../providers/plugin_provider.dart';
+import '../providers/role_memory_provider.dart';
 import '../providers/settings_provider.dart';
 import '../providers/task_provider.dart';
 import '../providers/workspace_provider.dart';
@@ -1770,6 +1771,21 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       cp.addMessage(_convId!, 'assistant', '', save: false);
     }
     final cid = _convId!;
+    final roleMemoryProvider = context.read<RoleMemoryProvider>();
+    final memoryFeatureEnabled =
+        settingsProvider.settings.roleMemoryEnabled ||
+        settingsProvider.settings.roleUserProfileEnabled;
+    final memoryToolAvailable =
+        _supportsNativeTools(model) && memoryFeatureEnabled;
+    roleMemoryProvider.resetConsolidationFailures(roleId);
+    var memoryNudge = '';
+    if (memoryToolAvailable) {
+      roleMemoryProvider.noteUserTurn(roleId);
+      memoryNudge = roleMemoryProvider.takeNudgeIfDue(
+        roleId,
+        nudgeInterval: settingsProvider.settings.roleMemoryNudgeInterval,
+      );
+    }
     _pendingModelId = null;
     _clearRetryState();
     _msgCtrl.clear();
@@ -1792,6 +1808,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
         model,
         lastUserContentOverride: preparedUserContent.apiContent,
         createTitle: isNewConversation,
+        memoryNudge: memoryNudge,
       ),
     );
   }
@@ -1800,6 +1817,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     ModelConfig model, {
     Object? lastUserContentOverride,
     bool createTitle = false,
+    String memoryNudge = '',
   }) async {
     final cid = _convId;
     if (cid == null) {
@@ -1837,6 +1855,16 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       allPlugins: pluginProvider.plugins,
       boundPluginId: conv.pluginWorkspaceId,
     );
+    final appSettings = context.read<SettingsProvider>().settings;
+    final roleMemoryProvider = context.read<RoleMemoryProvider>();
+    final roleMemoryBlock =
+        appSettings.roleMemoryEnabled || appSettings.roleUserProfileEnabled
+        ? roleMemoryProvider.memoryBlockFor(
+            conv.roleId,
+            includeMemory: appSettings.roleMemoryEnabled,
+            includeUser: appSettings.roleUserProfileEnabled,
+          )
+        : '';
     final msgs = buildApiMessages(
       conv,
       visiblePlugins,
@@ -1848,6 +1876,8 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       workspaceWriteAllowed: workspaceWriteAllowed,
       workspaceFileAvailable: workspaceFileAvailable,
       annotationPrompt: annotationPrompt,
+      roleMemoryBlock: roleMemoryBlock,
+      memoryNudge: memoryNudge,
     );
     unawaited(
       _doStream(
@@ -2075,6 +2105,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       knowledge: context.read<KnowledgeProvider>(),
       memoryCards: context.read<MemoryCardProvider>(),
       jottings: context.read<JottingProvider>(),
+      roleMemory: context.read<RoleMemoryProvider>(),
       plugins: context.read<PluginProvider>(),
       modelConfigs: context.read<ModelConfigProvider>(),
       settings: context.read<SettingsProvider>(),

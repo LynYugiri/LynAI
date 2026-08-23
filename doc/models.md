@@ -433,3 +433,9 @@ on directory or registry ownership mismatch.
 属于哪个历史域与哪个工作区的 `workspace_file_*` 根；`workspaceName` 是绑定
 时快照，用于工作区被删除或未同步到设备时的历史分组兜底。二者与既有的
 `pluginWorkspaceId`（插件创作绑定）正交，不互相覆盖。
+
+## 角色记忆
+
+文件：`lib/models/role_memory_entry.dart`
+
+`RoleMemoryEntry` 是一条按角色隔离的长期记忆：`roleId` 决定归属，`target` 区分 `memory`（角色自己的笔记）和 `user`（该角色视角下的用户画像），`entry` 保存纯文本，`sortOrder` 保持条目顺序。角色记忆不进入 Conversation 的 `agentWorkingMemory`，也不参与 run/turn durable graph。

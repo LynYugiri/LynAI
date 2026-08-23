@@ -23,6 +23,8 @@ List<Map<String, dynamic>> buildApiMessages(
   bool workspaceFileAvailable = false,
   String annotationPrompt = '',
   String extraSystemPrompt = '',
+  String roleMemoryBlock = '',
+  String memoryNudge = '',
 }) {
   final msgs = <Map<String, dynamic>>[];
   final promptContent = conv.settings.systemPrompt;
@@ -58,6 +60,8 @@ List<Map<String, dynamic>> buildApiMessages(
     if (enableTools) fullToolPrompt,
     if (enableTools) ToolCallService.currentTimeContext(),
     if (annotationPrompt.isNotEmpty) annotationPrompt,
+    if (roleMemoryBlock.isNotEmpty) roleMemoryBlock,
+    if (enableTools && memoryNudge.isNotEmpty) memoryNudge,
   ];
   if (systemParts.isNotEmpty) {
     msgs.add({'role': 'system', 'content': systemParts.join('\n\n')});

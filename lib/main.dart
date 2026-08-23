@@ -18,6 +18,7 @@ import 'providers/plugin_provider.dart';
 import 'providers/account_provider.dart';
 import 'providers/cloud_data_provider.dart';
 import 'providers/recycle_bin_provider.dart';
+import 'providers/role_memory_provider.dart';
 import 'providers/roleplay_provider.dart';
 import 'providers/settings_provider.dart';
 import 'providers/task_provider.dart';
@@ -222,6 +223,10 @@ Future<void> main() async {
               MemoryCardProvider(storageV2: ctx.read<StorageV2Service>()),
         ),
         ChangeNotifierProvider(
+          create: (ctx) =>
+              RoleMemoryProvider(storageV2: ctx.read<StorageV2Service>()),
+        ),
+        ChangeNotifierProvider(
           create: (ctx) => JottingProvider(
             storageV2: ctx.read<StorageV2Service>(),
             recycleBinRepository: RecycleBinRepository(
@@ -275,8 +280,10 @@ Future<void> main() async {
           dispose: (_, coordinator) => coordinator.dispose(),
         ),
         ChangeNotifierProvider(
-          create: (ctx) =>
-              SettingsProvider(storageV2: ctx.read<StorageV2Service>()),
+          create: (ctx) => SettingsProvider(
+            storageV2: ctx.read<StorageV2Service>(),
+            onRoleDeleted: ctx.read<RoleMemoryProvider>().removeRole,
+          ),
         ),
         ChangeNotifierProvider(create: (_) => ServerCapabilitiesService()),
         ProxyProvider4<
@@ -870,6 +877,7 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
       final taskProvider = context.read<TaskProvider>();
       final knowledgeProvider = context.read<KnowledgeProvider>();
       final memoryCardProvider = context.read<MemoryCardProvider>();
+      final roleMemoryProvider = context.read<RoleMemoryProvider>();
       final jottingProvider = context.read<JottingProvider>();
       final backendClient = context.read<BackendClient>();
       final deviceIdentityService = context.read<DeviceIdentityService>();
@@ -910,10 +918,15 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
         taskProvider.load(),
         knowledgeProvider.load(),
         memoryCardProvider.load(),
+        roleMemoryProvider.load(),
         jottingProvider.load(),
         modelProvider.loadModels(),
         if (mcpProvider != null) mcpProvider.load(),
       ]);
+      roleMemoryProvider.updateLimits(
+        memory: settingsProvider.settings.roleMemoryCharLimit,
+        user: settingsProvider.settings.roleUserCharLimit,
+      );
       await applyPendingManagedModelIdMigrations(
         models: modelProvider,
         settings: settingsProvider,
@@ -945,6 +958,7 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
         knowledge: knowledgeProvider,
         memoryCards: memoryCardProvider,
         jottings: jottingProvider,
+        roleMemory: roleMemoryProvider,
         tasks: taskProvider,
         calendar: calendarProvider,
         plugins: pluginProvider,

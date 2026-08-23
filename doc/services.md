@@ -756,3 +756,9 @@ plugin roots, so it exports and restores only the selected dataset.
 并入目标工作区开发插件列表。已绑定工作区的对话中 `create_plugin` 成功且拥有
 `workspace:write` 时，新插件自动挂入该工作区 `devPluginIds`。系统提示词由
 `ToolCallService.workspaceSystemPrompt` 生成，仅在对应工具本轮会注册时注入。
+
+## 角色记忆工具
+
+文件：`lib/services/tool_call_service.dart`、`lib/services/api_message_builder.dart`
+
+`memory` 工具仅在注入 `RoleMemoryProvider` 且 run snapshot 具有 `roleMemory:write` 权限时注册，操作当前对话 `roleId` 的记忆；工具 schema 不暴露 roleId。`buildApiMessages()` 通过 `roleMemoryBlock` 参数在每次请求注入当前角色最新记忆，`memoryNudge` 参数携带维护提醒。主聊天与悬浮聊天共用该组装路径。

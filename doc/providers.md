@@ -458,3 +458,9 @@ rolls back to the previous dataset and leaves the target user unpublished.
 `ConversationProvider` 增加 `bindConversationToWorkspace`（幂等，已绑定
 其他工作区返回 `already_bound`）、`detachWorkspaceFromConversations` 与
 `searchConversationsInScope`。
+
+## RoleMemoryProvider
+
+文件：`lib/providers/role_memory_provider.dart`
+
+`RoleMemoryProvider` 持有全部角色记忆，按 `roleId + target` 读取和渲染，使用 `SerializedSaveQueue` 全量快照持久化到 `role_memory.json`。`memoryBlockFor()` 渲染注入系统提示词的角色记忆块；`add/replace/remove/applyBatch` 与 Hermes 记忆工具语义一致（字符预算、唯一子串匹配、批量原子、每轮合并失败上限 3 次）。`noteUserTurn()`/`takeNudgeIfDue()` 实现每 N 轮维护提醒，成功写入后重置。删除角色时由 `SettingsProvider.onRoleDeleted` 回调调用 `removeRole()` 级联删除。

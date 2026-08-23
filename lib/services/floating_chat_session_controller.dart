@@ -19,6 +19,7 @@ import '../providers/jotting_provider.dart';
 import '../providers/memory_card_provider.dart';
 import '../providers/model_config_provider.dart';
 import '../providers/plugin_provider.dart';
+import '../providers/role_memory_provider.dart';
 import '../providers/settings_provider.dart';
 import '../providers/task_provider.dart';
 import 'api_service.dart';
@@ -47,6 +48,7 @@ class FloatingChatSessionController extends ChangeNotifier {
     required KnowledgeProvider knowledge,
     MemoryCardProvider? memoryCards,
     JottingProvider? jottings,
+    RoleMemoryProvider? roleMemory,
     required TaskProvider tasks,
     required CalendarProvider calendar,
     required PluginProvider plugins,
@@ -65,6 +67,7 @@ class FloatingChatSessionController extends ChangeNotifier {
        _knowledge = knowledge,
        _memoryCards = memoryCards,
        _jottings = jottings,
+       _roleMemory = roleMemory,
        _tasks = tasks,
        _calendar = calendar,
        _plugins = plugins,
@@ -89,6 +92,7 @@ class FloatingChatSessionController extends ChangeNotifier {
   final KnowledgeProvider _knowledge;
   final MemoryCardProvider? _memoryCards;
   final JottingProvider? _jottings;
+  final RoleMemoryProvider? _roleMemory;
   final TaskProvider _tasks;
   final CalendarProvider _calendar;
   final PluginProvider _plugins;
@@ -253,6 +257,16 @@ class FloatingChatSessionController extends ChangeNotifier {
     final conversation = _conversations.getConversation(_conversationId!);
     if (conversation == null) return;
     final webSearchConfigured = await _isWebSearchConfigured();
+    final appSettings = _settings.settings;
+    final roleMemoryBlock =
+        appSettings.roleMemoryEnabled || appSettings.roleUserProfileEnabled
+        ? (_roleMemory?.memoryBlockFor(
+                conversation.roleId,
+                includeMemory: appSettings.roleMemoryEnabled,
+                includeUser: appSettings.roleUserProfileEnabled,
+              ) ??
+              '')
+        : '';
     final messages = buildApiMessages(
       conversation,
       _plugins.plugins,
@@ -262,6 +276,7 @@ class FloatingChatSessionController extends ChangeNotifier {
       extraSystemPrompt: _screenContextToolAllowed
           ? '悬浮聊天已获得用户授权：当用户问题依赖当前 Android 前台页面时，可以调用 get_current_screen 读取可见文本和节点摘要。不要无故读取。'
           : '',
+      roleMemoryBlock: roleMemoryBlock,
     );
     unawaited(
       _streamTurn(
@@ -509,6 +524,7 @@ class FloatingChatSessionController extends ChangeNotifier {
       knowledge: _knowledge,
       memoryCards: _memoryCards,
       jottings: _jottings,
+      roleMemory: _roleMemory,
       plugins: _plugins,
       modelConfigs: _models,
       settings: _settings,

@@ -51,6 +51,7 @@ class LynAIPermissions {
   static const memoryCardsWrite = 'memoryCards:write';
   static const jottingsRead = 'jottings:read';
   static const jottingsWrite = 'jottings:write';
+  static const roleMemoryWrite = 'roleMemory:write';
   static const recycleBinRead = 'recycleBin:read';
   static const recycleBinWrite = 'recycleBin:write';
   static const recycleBinRestore = 'recycleBin:restore';
@@ -87,6 +88,7 @@ class LynAIPermissions {
     memoryCardsWrite,
     jottingsRead,
     jottingsWrite,
+    roleMemoryWrite,
     networkAccess,
     modelChat,
     modelOcr,
@@ -202,8 +204,7 @@ const lynaiPermissionDefinitions = <LynAIPermissionDefinition>[
   LynAIPermissionDefinition(
     id: LynAIPermissions.workspaceWrite,
     title: '修改工作区',
-    description:
-        '允许 Agent 创建/绑定工作区，并写入工作区文件与开发插件挂载。',
+    description: '允许 Agent 创建/绑定工作区，并写入工作区文件与开发插件挂载。',
     risk: LynAIPermissionRisk.elevated,
   ),
   LynAIPermissionDefinition(
@@ -231,6 +232,12 @@ const lynaiPermissionDefinitions = <LynAIPermissionDefinition>[
     id: LynAIPermissions.jottingsWrite,
     title: '新建随记',
     description: '允许 Agent 为用户新建随记；修改和删除暂不开放给 Agent。',
+    risk: LynAIPermissionRisk.elevated,
+  ),
+  LynAIPermissionDefinition(
+    id: LynAIPermissions.roleMemoryWrite,
+    title: '修改角色记忆',
+    description: '允许 Agent 在当前角色下增删改持久记忆和用户画像。',
     risk: LynAIPermissionRisk.elevated,
   ),
   LynAIPermissionDefinition(

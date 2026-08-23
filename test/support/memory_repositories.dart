@@ -2,15 +2,18 @@ import 'package:lynai/models/app_settings.dart';
 import 'package:lynai/models/conversation.dart';
 import 'package:lynai/models/model_config.dart';
 import 'package:lynai/models/recycle_bin_item.dart';
+import 'package:lynai/models/role_memory_entry.dart';
 import 'package:lynai/models/roleplay.dart';
 import 'package:lynai/providers/conversation_provider.dart';
 import 'package:lynai/providers/model_config_provider.dart';
+import 'package:lynai/providers/role_memory_provider.dart';
 import 'package:lynai/providers/roleplay_provider.dart';
 import 'package:lynai/providers/settings_provider.dart';
 import 'package:lynai/providers/workspace_provider.dart';
 import 'package:lynai/repositories/conversation_repository.dart';
 import 'package:lynai/repositories/model_config_repository.dart';
 import 'package:lynai/repositories/recycle_bin_repository.dart';
+import 'package:lynai/repositories/role_memory_repository.dart';
 import 'package:lynai/repositories/roleplay_repository.dart';
 import 'package:lynai/repositories/settings_repository.dart';
 import 'package:lynai/repositories/workspace_repository.dart';
@@ -177,4 +180,22 @@ RoleplayProvider memoryRoleplayProvider() {
     repository: MemoryRoleplayRepository(),
     recycleBinRepository: MemoryRecycleBinRepository(),
   );
+}
+
+class MemoryRoleMemoryRepository extends RoleMemoryRepository {
+  List<RoleMemoryEntry> entries = const [];
+
+  @override
+  Future<RoleMemoryLoadResult> load() async {
+    return RoleMemoryLoadResult(entries: List<RoleMemoryEntry>.from(entries));
+  }
+
+  @override
+  Future<void> replace(List<RoleMemoryEntry> entries) async {
+    this.entries = List<RoleMemoryEntry>.from(entries);
+  }
+}
+
+RoleMemoryProvider memoryRoleMemoryProvider() {
+  return RoleMemoryProvider(repository: MemoryRoleMemoryRepository());
 }

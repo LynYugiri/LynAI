@@ -13,6 +13,7 @@ import 'floating_assistant_settings_page.dart';
 import 'lan_sync_page.dart';
 import 'local_model_settings_page.dart';
 import 'mcp_settings_page.dart';
+import 'memory_settings_page.dart';
 import 'onboarding/onboarding_page.dart';
 import 'plugin_capability_management_page.dart';
 import 'permission_management_page.dart';
@@ -185,6 +186,17 @@ class _SettingsPageState extends State<SettingsPage> {
             () => Navigator.push(
               context,
               MaterialPageRoute(builder: (_) => const RoleManagementPage()),
+            ),
+          ),
+          _buildItem(
+            context,
+            Icons.psychology_outlined,
+            '记忆管理',
+            '角色记忆开关、容量、维护提醒与条目管理',
+            Colors.deepPurple,
+            () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const MemorySettingsPage()),
             ),
           ),
           _buildItem(

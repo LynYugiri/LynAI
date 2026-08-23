@@ -256,6 +256,11 @@ class AppSettings {
   final String? onboardingInputJson;
   final int onboardingVersion;
   final ChatQuickActions chatQuickActions;
+  final bool roleMemoryEnabled;
+  final bool roleUserProfileEnabled;
+  final int roleMemoryCharLimit;
+  final int roleUserCharLimit;
+  final int roleMemoryNudgeInterval;
 
   AgentPermissionSnapshot get agentPermissionSnapshot =>
       AgentPermissionSnapshot(permissions: agentGrantedPermissions);
@@ -313,6 +318,11 @@ class AppSettings {
         featureId: 'todos',
       ),
     ),
+    this.roleMemoryEnabled = true,
+    this.roleUserProfileEnabled = true,
+    this.roleMemoryCharLimit = 2200,
+    this.roleUserCharLimit = 1375,
+    this.roleMemoryNudgeInterval = 10,
   }) : roles = roles ?? [ChatRole.defaultRole()];
 
   factory AppSettings.defaults() {
@@ -361,6 +371,11 @@ class AppSettings {
     Object? onboardingInputJson = _sentinel,
     int? onboardingVersion,
     ChatQuickActions? chatQuickActions,
+    bool? roleMemoryEnabled,
+    bool? roleUserProfileEnabled,
+    int? roleMemoryCharLimit,
+    int? roleUserCharLimit,
+    int? roleMemoryNudgeInterval,
   }) {
     return AppSettings(
       themeColor: themeColor ?? this.themeColor,
@@ -432,6 +447,13 @@ class AppSettings {
           : onboardingInputJson as String?,
       onboardingVersion: onboardingVersion ?? this.onboardingVersion,
       chatQuickActions: chatQuickActions ?? this.chatQuickActions,
+      roleMemoryEnabled: roleMemoryEnabled ?? this.roleMemoryEnabled,
+      roleUserProfileEnabled:
+          roleUserProfileEnabled ?? this.roleUserProfileEnabled,
+      roleMemoryCharLimit: roleMemoryCharLimit ?? this.roleMemoryCharLimit,
+      roleUserCharLimit: roleUserCharLimit ?? this.roleUserCharLimit,
+      roleMemoryNudgeInterval:
+          roleMemoryNudgeInterval ?? this.roleMemoryNudgeInterval,
     );
   }
 
@@ -560,6 +582,13 @@ class AppSettings {
       onboardingInputJson: json['onboardingInputJson'] as String?,
       onboardingVersion: (json['onboardingVersion'] as num?)?.toInt() ?? 1,
       chatQuickActions: ChatQuickActions.fromJson(json['chatQuickActions']),
+      roleMemoryEnabled: json['roleMemoryEnabled'] as bool? ?? true,
+      roleUserProfileEnabled: json['roleUserProfileEnabled'] as bool? ?? true,
+      roleMemoryCharLimit:
+          (json['roleMemoryCharLimit'] as num?)?.toInt() ?? 2200,
+      roleUserCharLimit: (json['roleUserCharLimit'] as num?)?.toInt() ?? 1375,
+      roleMemoryNudgeInterval:
+          (json['roleMemoryNudgeInterval'] as num?)?.toInt() ?? 10,
     );
   }
 
@@ -609,6 +638,11 @@ class AppSettings {
         'onboardingInputJson': onboardingInputJson,
       'onboardingVersion': onboardingVersion,
       'chatQuickActions': chatQuickActions.toJson(),
+      'roleMemoryEnabled': roleMemoryEnabled,
+      'roleUserProfileEnabled': roleUserProfileEnabled,
+      'roleMemoryCharLimit': roleMemoryCharLimit,
+      'roleUserCharLimit': roleUserCharLimit,
+      'roleMemoryNudgeInterval': roleMemoryNudgeInterval,
     };
   }
 
@@ -630,6 +664,7 @@ class AppSettings {
       LynAIPermissions.memoryCardsWrite,
       LynAIPermissions.pluginsFilesRead,
       LynAIPermissions.pluginsFilesWrite,
+      LynAIPermissions.roleMemoryWrite,
     };
     return LynAIPermissions.defaultAgent
         .where(migrated.contains)

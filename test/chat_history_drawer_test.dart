@@ -211,6 +211,7 @@ Future<void> _pumpChat(
         ChangeNotifierProvider(create: (_) => PluginProvider()),
         ChangeNotifierProvider(create: (_) => KnowledgeProvider()),
         ChangeNotifierProvider(create: (_) => JottingProvider()),
+        ChangeNotifierProvider.value(value: memoryRoleMemoryProvider()),
         ChangeNotifierProvider(create: (_) => BackendClient()),
         Provider.value(value: storage),
       ],
