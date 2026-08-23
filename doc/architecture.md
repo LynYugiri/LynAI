@@ -442,3 +442,7 @@ Physical dataset activation is protected by a shared runtime barrier. It stops a
 - Agent：`list_workspaces` / `create_workspace` / `bind_workspace` 在普通
   对话即可注册；`workspace_file_list/read/write` 仅在会话绑定工作区后注册。
   权限分别为 `workspace:read` 与 `workspace:write`，随对话权限快照过滤。
+
+## 定时任务
+
+定时任务是本机前台自动化，不依赖后端。`ScheduledTaskProvider` 持久化 `scheduled_tasks.json`，`ScheduledTaskScheduler` 负责 `now >= nextRunAt` 的到期检查与补跑，脚本执行复用 `PluginLuaRuntimeService` 的插件沙箱和权限模型，不新建 Agent 循环。任务分区不进入云/LAN 同步。

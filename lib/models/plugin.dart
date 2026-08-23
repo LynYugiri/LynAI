@@ -1,5 +1,7 @@
 import 'package:pub_semver/pub_semver.dart';
 
+import 'local_time.dart';
+
 final _pluginApiNamePattern = RegExp(r'^[a-zA-Z0-9_-]{1,64}$');
 final _luaGlobalFunctionPattern = RegExp(r'^[A-Za-z_][A-Za-z0-9_]*$');
 
@@ -331,6 +333,89 @@ class PluginSkillDefinition {
   }
 }
 
+/// 插件 manifest 声明的定时任务定义。
+class PluginScheduledTaskDefinition {
+  static const repeatDaily = 'daily';
+  static const repeatWeekly = 'weekly';
+
+  /// 任务显示名称。
+  final String name;
+
+  /// 每天触发时间，格式 `HH:mm`（本地时间）。
+  final String time;
+
+  /// 重复规则：`daily` 或 `weekly`。
+  final String repeat;
+
+  /// weekly 规则下触发星期（1=周一，7=周日）。
+  final List<int> days;
+
+  /// 任务脚本在插件包内的相对路径，脚本须定义全局函数 `run`。
+  final String script;
+
+  /// 创建定时任务定义。
+  const PluginScheduledTaskDefinition({
+    required this.name,
+    required this.time,
+    this.repeat = repeatDaily,
+    this.days = const [],
+    required this.script,
+  });
+
+  /// 从 JSON 创建定时任务定义。
+  factory PluginScheduledTaskDefinition.fromJson(Map<String, dynamic> json) {
+    return PluginScheduledTaskDefinition(
+      name: json['name'] as String? ?? '',
+      time: json['time'] as String? ?? '',
+      repeat:
+          json['repeat'] as String? ??
+          json['repeatType'] as String? ??
+          repeatDaily,
+      days:
+          (json['days'] as List<dynamic>? ?? json['daysOfWeek'] as List?)
+              ?.whereType<num>()
+              .map((item) => item.toInt())
+              .toList(growable: false) ??
+          const [],
+      script: json['script'] as String? ?? '',
+    );
+  }
+
+  /// 序列化为 JSON Map。
+  Map<String, dynamic> toJson() => {
+    'name': name,
+    'time': time,
+    if (repeat != repeatDaily) 'repeat': repeat,
+    if (repeat == repeatWeekly && days.isNotEmpty) 'days': days,
+    'script': script,
+  };
+
+  /// 校验定义合法性，返回错误信息或 null。
+  String? validate() {
+    final trimmedName = name.trim();
+    if (trimmedName.isEmpty) return '插件定时任务缺少 name';
+    if (trimmedName.length > 100) {
+      return '插件定时任务 name 不能超过 100 个字符';
+    }
+    if (LocalTime.tryParse(time) == null) {
+      return '插件定时任务 time 必须使用 HH:mm 格式';
+    }
+    if (repeat != repeatDaily && repeat != repeatWeekly) {
+      return '插件定时任务 repeat 只支持 daily/weekly';
+    }
+    if (repeat == repeatWeekly && days.isEmpty) {
+      return '插件每周定时任务必须提供 days';
+    }
+    if (days.any((day) => day < 1 || day > 7)) {
+      return '插件定时任务 days 必须在 1-7 之间';
+    }
+    if (!_isSafeRelativePluginPath(script)) {
+      return '插件定时任务 script 路径不安全: $script';
+    }
+    return null;
+  }
+}
+
 /// WebView 插件功能页定义。
 class PluginFeaturePageDefinition {
   /// 功能页唯一标识符。
@@ -642,6 +727,9 @@ class PluginManifest {
   /// 插件提供的按需加载 Skills。
   final List<PluginSkillDefinition> skills;
 
+  /// 插件声明的定时任务列表。
+  final List<PluginScheduledTaskDefinition> scheduledTasks;
+
   /// 插件提供的功能页列表。
   final List<PluginFeaturePageDefinition> featurePages;
 
@@ -672,6 +760,7 @@ class PluginManifest {
     required this.functions,
     this.commands = const [],
     this.skills = const [],
+    this.scheduledTasks = const [],
     required this.featurePages,
     required this.settings,
     this.config = const PluginConfigDefinition(),
@@ -712,6 +801,15 @@ class PluginManifest {
       skills: (json['skills'] as List<dynamic>? ?? const [])
           .whereType<Map>()
           .map((item) => PluginSkillDefinition.fromJson(Map.from(item)))
+          .where((item) => item.name.isNotEmpty)
+          .toList(growable: false),
+      scheduledTasks: (json['scheduledTasks'] as List<dynamic>? ?? const [])
+          .whereType<Map>()
+          .map(
+            (item) => PluginScheduledTaskDefinition.fromJson(
+              Map<String, dynamic>.from(item),
+            ),
+          )
           .where((item) => item.name.isNotEmpty)
           .toList(growable: false),
       featurePages: (json['featurePages'] as List<dynamic>? ?? const [])
@@ -755,6 +853,8 @@ class PluginManifest {
     if (commands.isNotEmpty)
       'commands': commands.map((e) => e.toJson()).toList(),
     if (skills.isNotEmpty) 'skills': skills.map((e) => e.toJson()).toList(),
+    if (scheduledTasks.isNotEmpty)
+      'scheduledTasks': scheduledTasks.map((e) => e.toJson()).toList(),
     if (featurePages.isNotEmpty)
       'featurePages': featurePages.map((e) => e.toJson()).toList(),
     if (settings.isNotEmpty)
@@ -789,6 +889,7 @@ class PluginManifest {
     List<PluginFunctionDefinition>? functions,
     List<PluginCommandDefinition>? commands,
     List<PluginSkillDefinition>? skills,
+    List<PluginScheduledTaskDefinition>? scheduledTasks,
     List<PluginFeaturePageDefinition>? featurePages,
     List<PluginSettingDefinition>? settings,
     PluginConfigDefinition? config,
@@ -809,6 +910,7 @@ class PluginManifest {
       functions: functions ?? this.functions,
       commands: commands ?? this.commands,
       skills: skills ?? this.skills,
+      scheduledTasks: scheduledTasks ?? this.scheduledTasks,
       featurePages: featurePages ?? this.featurePages,
       settings: settings ?? this.settings,
       config: config ?? this.config,
@@ -875,6 +977,14 @@ class PluginManifest {
     final skillNames = <String>{};
     for (final skill in skills) {
       if (!skillNames.add(skill.name)) return '插件 skill 名称重复: ${skill.name}';
+    }
+    final scheduledTaskNames = <String>{};
+    for (final task in scheduledTasks) {
+      final error = task.validate();
+      if (error != null) return error;
+      if (!scheduledTaskNames.add(task.name)) {
+        return '插件定时任务名称重复: ${task.name}';
+      }
     }
     for (final page in featurePages) {
       final error = page.validate();

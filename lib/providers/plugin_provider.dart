@@ -10,6 +10,7 @@ import '../models/plugin_config_schema.dart';
 import '../repositories/plugin_repository.dart';
 import '../services/plugin_scaffold_service.dart';
 import '../services/plugin_sync_validation.dart';
+import '../services/scheduled_task_plugin_source.dart';
 import '../services/storage_v2_service.dart';
 import '../services/dataset_runtime_barrier.dart';
 import '../services/lynai_permission_definitions.dart';
@@ -20,7 +21,8 @@ import '../utils/plugin_path_utils.dart';
 /// Provider 只保存插件元数据和用户授权，不执行 Lua/WebView 代码。具体运行时
 /// 通过这里查询启用状态和读写插件私有 storage，确保 UI、工具和 WebView Bridge
 /// 共用同一套权限状态。
-class PluginProvider extends ChangeNotifier {
+class PluginProvider extends ChangeNotifier
+    implements ScheduledTaskPluginSource {
   PluginProvider({
     PluginRepository? repository,
     StorageV2Service? storageV2,
@@ -44,6 +46,7 @@ class PluginProvider extends ChangeNotifier {
   bool _loading = false;
 
   /// 返回当前已安装的插件列表（不可修改）。
+  @override
   List<InstalledPlugin> get plugins => List.unmodifiable(_plugins);
 
   /// 插件列表是否正在加载中。
@@ -61,6 +64,7 @@ class PluginProvider extends ChangeNotifier {
   int renderVersion(String pluginId) => _renderVersions[pluginId] ?? 0;
 
   /// 根据插件 ID 查找已安装的插件，未找到则返回 null。
+  @override
   InstalledPlugin? pluginById(String id) {
     for (final plugin in _plugins) {
       if (plugin.id == id) return plugin;
@@ -472,9 +476,8 @@ class PluginProvider extends ChangeNotifier {
     List<PluginToolDefinition> tools,
   ) => _updateManifest(
     pluginId,
-    (manifest) => manifest.copyWith(
-      tools: List<PluginToolDefinition>.from(tools),
-    ),
+    (manifest) =>
+        manifest.copyWith(tools: List<PluginToolDefinition>.from(tools)),
   );
 
   /// 覆盖 manifest 中声明的函数列表，写回 plugin.json 并重载。
@@ -505,9 +508,8 @@ class PluginProvider extends ChangeNotifier {
     List<PluginSkillDefinition> skills,
   ) => _updateManifest(
     pluginId,
-    (manifest) => manifest.copyWith(
-      skills: List<PluginSkillDefinition>.from(skills),
-    ),
+    (manifest) =>
+        manifest.copyWith(skills: List<PluginSkillDefinition>.from(skills)),
   );
 
   /// 覆盖 manifest 中声明的功能页列表，写回 plugin.json 并重载。

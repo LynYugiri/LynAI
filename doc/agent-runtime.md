@@ -182,3 +182,7 @@ All main chat, floating chat and Subagent `AgentLoopRuntime` handles are registe
 
 悬浮聊天不注入 `WorkspaceProvider`：不注册工作区管理/文件工具，`buildApiMessages`
 也不注入工作区提示词，悬浮层创建的会话始终是普通对话（workspaceId == null）。
+
+## 定时任务工具
+
+Agent 模式在 `scheduledTasks:read` / `scheduledTasks:write` 授权下注册 `list_scheduled_tasks`、`create_scheduled_task`、`update_scheduled_task` 和 `run_scheduled_task`。创建任务时只接受 `daily`/`weekly` + 本地时间 + 内联 Lua 脚本，执行环境必须是已启用插件；脚本必须定义 `function run(ctx)`。Agent 不提供删除工具。这些工具按 run snapshot 权限注册，执行仍走 `AgentLoopRuntime` 的常规工具调度。

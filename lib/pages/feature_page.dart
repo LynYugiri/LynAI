@@ -21,6 +21,7 @@ import 'features/note_detail_page.dart';
 import 'features/notes_page.dart';
 import 'features/roleplay_page.dart';
 import 'features/schedule_page.dart';
+import 'features/scheduled_tasks_page.dart';
 import 'features/todo_lists_page.dart';
 
 /// 功能页 shell。
@@ -57,6 +58,7 @@ class _FeaturePageState extends State<FeaturePage> {
     'knowledge',
     'cards',
     'jottings',
+    'scheduledTasks',
   };
 
   final _searchController = TextEditingController();
@@ -198,6 +200,7 @@ class _FeaturePageState extends State<FeaturePage> {
           onSearchChanged: (v) => setState(() => _searchQuery = v),
           onReferenceTap: _openJottingReference,
         ),
+        'scheduledTasks' => const ScheduledTasksPage(),
         _ when pluginFeature != null && widget.active => PluginFeatureWebView(
           plugin: pluginFeature.plugin,
           page: pluginFeature.page,
@@ -227,6 +230,7 @@ class _FeaturePageState extends State<FeaturePage> {
       'knowledge' => '知识库',
       'cards' => '记忆卡片',
       'jottings' => '随记',
+      'scheduledTasks' => '定时任务',
       _ => _pluginFeatureFor(feature, plugins)?.page.title ?? '功能',
     };
   }

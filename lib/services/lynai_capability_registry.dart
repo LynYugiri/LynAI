@@ -169,6 +169,29 @@ void registerHostCapabilities(LynAICapabilityRegistry registry) {
   host('schedules.update', permission: LynAIPermissions.schedulesWrite);
   host('schedules.delete', permission: LynAIPermissions.schedulesWrite);
 
+  // 定时任务
+  host(
+    'scheduledTasks.list',
+    permission: LynAIPermissions.scheduledTasksRead,
+    read: true,
+  );
+  host(
+    'scheduledTasks.create',
+    permission: LynAIPermissions.scheduledTasksWrite,
+  );
+  host(
+    'scheduledTasks.update',
+    permission: LynAIPermissions.scheduledTasksWrite,
+  );
+  host(
+    'scheduledTasks.delete',
+    permission: LynAIPermissions.scheduledTasksWrite,
+  );
+  host(
+    'scheduledTasks.runNow',
+    permission: LynAIPermissions.scheduledTasksWrite,
+  );
+
   // 模型
   host('model.chat', permission: LynAIPermissions.modelChat);
   host('model.ocr', permission: LynAIPermissions.modelOcr);

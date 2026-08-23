@@ -14,6 +14,7 @@ import '../models/local_time.dart';
 import '../models/note.dart';
 import '../models/plugin.dart';
 import '../models/recycle_bin_item.dart';
+import '../models/scheduled_task.dart';
 import '../models/task.dart';
 import '../models/task_list.dart';
 import '../providers/calendar_provider.dart';
@@ -21,6 +22,7 @@ import '../providers/conversation_provider.dart';
 import '../providers/feature_provider.dart';
 import '../providers/model_config_provider.dart';
 import '../providers/plugin_provider.dart';
+import '../providers/scheduled_task_provider.dart';
 import '../providers/settings_provider.dart';
 import '../providers/task_provider.dart';
 import '../repositories/recycle_bin_repository.dart';
@@ -62,6 +64,8 @@ class LynAIFunctionContext {
   final BackendClient? backend;
   final StorageV2Service? storage;
   final InstalledPlugin? plugin;
+  final ScheduledTaskProvider? scheduledTasks;
+  final Future<bool> Function(String taskId)? runScheduledTaskNow;
   final void Function(String message)? showToast;
   final BoundedOutboundHttpClient? outboundHttpClient;
   final bool allowPlaintextHttpFetch;
@@ -80,6 +84,8 @@ class LynAIFunctionContext {
     this.backend,
     this.storage,
     this.plugin,
+    this.scheduledTasks,
+    this.runScheduledTaskNow,
     this.showToast,
     this.outboundHttpClient,
     this.allowPlaintextHttpFetch = false,
@@ -436,6 +442,23 @@ class LynAIFunctionService {
         'schedules.create' => await _createSchedule(context, call.arguments),
         'schedules.update' => await _updateSchedule(context, call.arguments),
         'schedules.delete' => await _deleteSchedule(context, call.arguments),
+        'scheduledTasks.list' => _listScheduledTasks(context, call.arguments),
+        'scheduledTasks.create' => await _createScheduledTask(
+          context,
+          call.arguments,
+        ),
+        'scheduledTasks.update' => await _updateScheduledTask(
+          context,
+          call.arguments,
+        ),
+        'scheduledTasks.delete' => await _deleteScheduledTask(
+          context,
+          call.arguments,
+        ),
+        'scheduledTasks.runNow' => await _runScheduledTaskNow(
+          context,
+          call.arguments,
+        ),
         'model.list' => _modelList(context, call.arguments),
         'model.current' => _modelCurrent(context, call.arguments),
         'model.chat' => await _modelChat(context, call.arguments),
@@ -491,6 +514,7 @@ class LynAIFunctionService {
           call.arguments,
         ),
         'schedules.list' => _listSchedules(context, call.arguments),
+        'scheduledTasks.list' => _listScheduledTasks(context, call.arguments),
         'conversations.count' => _conversationCount(context),
         'system.status' => _systemStatus(context),
         'device.service.status' => DeviceRunController.instance.statusJson(),
@@ -552,6 +576,7 @@ class LynAIFunctionService {
       'taskLists.delete' ||
       'todos.deleteList' ||
       'schedules.delete' ||
+      'scheduledTasks.delete' ||
       'plugin.file.delete' ||
       'recycleBin.deleteForever' ||
       'plugin.restore' => true,
@@ -1621,6 +1646,167 @@ class LynAIFunctionService {
       (a, b) => a['start'].toString().compareTo(b['start'].toString()),
     );
     return {'ok': true, 'schedules': items};
+  }
+
+  Map<String, dynamic> _listScheduledTasks(
+    LynAIFunctionContext context,
+    Map<String, dynamic> args,
+  ) {
+    final provider = _scheduledTasks(context);
+    final plugin = context.plugin;
+    final enabled = _boolArg(args, 'enabled');
+    final query = (args['query'] as String? ?? '').trim().toLowerCase();
+    var items = provider.tasks;
+    if (plugin != null) {
+      items = items.where((task) => task.pluginId == plugin.id).toList();
+    }
+    return {
+      'ok': true,
+      'tasks': items
+          .where((task) => enabled == null || task.enabled == enabled)
+          .where(
+            (task) => query.isEmpty || task.name.toLowerCase().contains(query),
+          )
+          .map((task) => task.toJson())
+          .toList(),
+    };
+  }
+
+  Future<Map<String, dynamic>> _createScheduledTask(
+    LynAIFunctionContext context,
+    Map<String, dynamic> args,
+  ) async {
+    final provider = _scheduledTasks(context);
+    final pluginId = _scheduledTaskPluginId(context, args);
+    if (pluginId.isEmpty) return _error('scheduledTasks.create 缺少 pluginId');
+    final name = (args['name'] as String? ?? '').trim();
+    if (name.isEmpty) return _error('scheduledTasks.create 缺少 name');
+    final time = LocalTime.tryParse((args['time'] as String? ?? '').trim());
+    if (time == null) {
+      return _error('scheduledTasks.create time 必须使用 HH:mm 格式');
+    }
+    final script = (args['script'] as String? ?? '').trim();
+    if (script.isEmpty) {
+      return _error('scheduledTasks.create 缺少 script');
+    }
+    final repeat = switch (args['repeat']?.toString()) {
+      'weekly' => ScheduledTaskRepeat.weekly,
+      _ => ScheduledTaskRepeat.daily,
+    };
+    final days = _intListArg(args, 'days') ?? _intListArg(args, 'daysOfWeek');
+    try {
+      final task = await provider.create(
+        name: name,
+        pluginId: pluginId,
+        repeat: repeat,
+        time: time,
+        daysOfWeek: days ?? const [],
+        scriptKind: ScheduledTaskScriptKind.inline,
+        script: script,
+        source: ScheduledTaskSource.user,
+      );
+      return {'ok': true, 'task': task.toJson()};
+    } catch (error) {
+      return _error(error.toString().replaceFirst('Exception: ', ''));
+    }
+  }
+
+  Future<Map<String, dynamic>> _updateScheduledTask(
+    LynAIFunctionContext context,
+    Map<String, dynamic> args,
+  ) async {
+    final provider = _scheduledTasks(context);
+    final id = (args['id'] as String? ?? '').trim();
+    if (id.isEmpty) return _error('scheduledTasks.update 缺少 id');
+    final current = provider.taskById(id);
+    if (current == null) return _error('定时任务不存在: $id');
+    if (context.plugin != null && current.pluginId != context.plugin!.id) {
+      return _error('插件不能修改其他插件的定时任务');
+    }
+    final time = switch (args['time']) {
+      String value => LocalTime.tryParse(value.trim()),
+      _ => null,
+    };
+    if (args.containsKey('time') && time == null) {
+      return _error('scheduledTasks.update time 必须使用 HH:mm 格式');
+    }
+    final repeat = switch (args['repeat']?.toString()) {
+      'weekly' => ScheduledTaskRepeat.weekly,
+      'daily' => ScheduledTaskRepeat.daily,
+      _ => null,
+    };
+    final days = _intListArg(args, 'days') ?? _intListArg(args, 'daysOfWeek');
+    try {
+      final task = await provider.update(
+        id: id,
+        name: (args['name'] as String?)?.trim(),
+        time: time,
+        repeat: repeat,
+        daysOfWeek: days,
+        script: (args['script'] as String?)?.trim(),
+        enabled: args['enabled'] as bool?,
+      );
+      return {'ok': true, 'task': task.toJson()};
+    } catch (error) {
+      return _error(error.toString().replaceFirst('Exception: ', ''));
+    }
+  }
+
+  Future<Map<String, dynamic>> _deleteScheduledTask(
+    LynAIFunctionContext context,
+    Map<String, dynamic> args,
+  ) async {
+    final provider = _scheduledTasks(context);
+    final id = (args['id'] as String? ?? '').trim();
+    if (id.isEmpty) return _error('scheduledTasks.delete 缺少 id');
+    final current = provider.taskById(id);
+    if (current == null) return _error('定时任务不存在: $id');
+    if (context.plugin != null && current.pluginId != context.plugin!.id) {
+      return _error('插件不能删除其他插件的定时任务');
+    }
+    await provider.delete(id);
+    return {'ok': true, 'deleted': true};
+  }
+
+  Future<Map<String, dynamic>> _runScheduledTaskNow(
+    LynAIFunctionContext context,
+    Map<String, dynamic> args,
+  ) async {
+    final provider = _scheduledTasks(context);
+    final id = (args['id'] as String? ?? '').trim();
+    if (id.isEmpty) return _error('scheduledTasks.runNow 缺少 id');
+    final current = provider.taskById(id);
+    if (current == null) return _error('定时任务不存在: $id');
+    if (context.plugin != null && current.pluginId != context.plugin!.id) {
+      return _error('插件不能运行其他插件的定时任务');
+    }
+    final runner = context.runScheduledTaskNow;
+    if (runner == null) return _error('定时任务调度器未就绪');
+    final ran = await runner(id);
+    return ran ? {'ok': true, 'ran': true} : _error('定时任务当前不可运行: $id');
+  }
+
+  ScheduledTaskProvider _scheduledTasks(LynAIFunctionContext context) {
+    final provider = context.scheduledTasks;
+    if (provider == null) {
+      throw Exception('scheduledTasks 需要定时任务上下文');
+    }
+    return provider;
+  }
+
+  String _scheduledTaskPluginId(
+    LynAIFunctionContext context,
+    Map<String, dynamic> args,
+  ) {
+    final currentPlugin = context.plugin;
+    if (currentPlugin != null) {
+      final requested = (args['pluginId'] as String? ?? '').trim();
+      if (requested.isNotEmpty && requested != currentPlugin.id) {
+        throw Exception('插件只能为自己创建定时任务');
+      }
+      return currentPlugin.id;
+    }
+    return (args['pluginId'] as String? ?? '').trim();
   }
 
   Future<Map<String, dynamic>> _createSchedule(
@@ -3285,6 +3471,12 @@ class LynAIFunctionService {
       if (value == 'false') return false;
     }
     return null;
+  }
+
+  static List<int>? _intListArg(Map<String, dynamic> args, String key) {
+    final raw = args[key];
+    if (raw is! List) return null;
+    return raw.whereType<num>().map((item) => item.toInt()).toList();
   }
 
   static DateTime? _dateArg(Map<String, dynamic> args, String key) {

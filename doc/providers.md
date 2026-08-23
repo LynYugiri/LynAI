@@ -466,3 +466,9 @@ rolls back to the previous dataset and leaves the target user unpublished.
 `RoleMemoryProvider` 持有全部角色记忆，按 `roleId + target` 读取和渲染，使用 `SerializedSaveQueue` 全量快照持久化到 `role_memory.json`。`memoryBlockFor()` 渲染注入系统提示词的角色记忆块；`add/replace/remove/applyBatch` 与 Hermes 记忆工具语义一致（字符预算、唯一子串匹配、批量原子、每轮合并失败上限 3 次）。`noteUserTurn()`/`takeNudgeIfDue()` 实现每 N 轮维护提醒，成功写入后重置。删除角色时由 `SettingsProvider.onRoleDeleted` 回调调用 `removeRole()` 级联删除。
 
 角色记忆 nudge 计数随 `role_memory.json` 持久化，重启后恢复；`replaceAt`/`removeAt` 供管理页按索引精确编辑，模型工具仍使用唯一子串匹配。
+
+## ScheduledTaskProvider
+
+文件：`lib/providers/scheduled_task_provider.dart`
+
+定时任务的唯一内存所有者，使用 `SerializedSaveQueue` 全量快照落盘到 `scheduled_tasks.json`。它提供用户任务的创建/更新/启停/删除与执行结果记录，并通过 `syncManifestTasks()` 幂等同步插件 manifest 任务：新增、字段更新或卸载删除，插件禁用时任务停用但不删除。manifest 任务通过 API 只能改 `enabled`，不能单独编辑或删除；手动 `runNow` 成功不消耗当天 occurrence。`load()` 会为启用但缺少 `nextRunAt` 的历史数据补算下次执行时间。`onSnapshotPersisted` 在每次落盘后触发，供调度器重排定时器。

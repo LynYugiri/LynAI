@@ -439,3 +439,9 @@ on directory or registry ownership mismatch.
 文件：`lib/models/role_memory_entry.dart`
 
 `RoleMemoryEntry` 是一条按角色隔离的长期记忆：`roleId` 决定归属，`target` 区分 `memory`（角色自己的笔记）和 `user`（该角色视角下的用户画像），`entry` 保存纯文本，`sortOrder` 保持条目顺序。角色记忆不进入 Conversation 的 `agentWorkingMemory`，也不参与 run/turn durable graph。
+
+## ScheduledTask（定时任务）
+
+文件：`lib/models/scheduled_task.dart`
+
+`ScheduledTask` 是本机定时任务契约，字段包括执行环境 `pluginId`、`daily`/`weekly` 重复规则、本地时间 `time`、`inline`/`file` 脚本来源、启停与最近执行状态；`runHistory` 以新在前保留最近 20 条执行历史。`nextRunAt` 表示“下一次尚未执行成功的计划 occurrence”：只有成功才推进到下一次，错过的时间（例如 23:00 未执行）在跨零点后仍会补跑一次。失败保留 occurrence，按 `retryMinutes` 退避重试，连续失败达到 `maxConsecutiveFailures` 自动停用。插件 manifest 中的任务由 `PluginScheduledTaskDefinition` 描述，脚本必须是插件包内安全相对路径并定义全局函数 `run(ctx)`。

@@ -766,3 +766,9 @@ plugin roots, so it exports and restores only the selected dataset.
 `RoleMemoryReviewService` 在 nudge 到期后的主回复完成时，用当前 Chat 模型关闭 thinking/tools 做后台 review，只接受 JSON `operations` 并原子写入当前角色。`memory_search` 工具检索当前角色的历史对话，要求 `roleMemory:read` 权限。
 
 备份新增 `roleMemory` 分区：导出 `role_memory.json`（entries + turnsSinceMemoryWrite），恢复时只导入当前仍存在的角色，merge/replaceSection 遵循统一导入语义。
+
+## ScheduledTaskScheduler
+
+文件：`lib/services/scheduled_task_scheduler.dart`
+
+前台定时任务调度器，不做后台保活。App 存活时用单个 `Timer` 指向最早 `nextRunAt`，App 恢复前台时由组合根触发 `tickNow()` 补跑。到期判定为 `now >= nextRunAt`；执行前检查启用、插件可用、退避期与单任务运行中状态，成功后以旧 occurrence 为基准推进，失败保留 occurrence 并按退避重试，连续失败自动停用。任务脚本通过 `PluginLuaRuntimeService.executeScheduledTask()` 在插件 Lua 环境中执行：先加载插件入口使插件全局函数可用，再加载任务脚本并调用 `run(ctx)`，`lynai.*` 权限按插件当前授权判定。`runNow()` 手动运行不消耗计划 occurrence。每次执行结果（成功/失败/跳过/取消）都会写入任务最近 20 条 `runHistory`。

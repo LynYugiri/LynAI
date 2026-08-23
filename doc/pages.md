@@ -407,3 +407,7 @@ firewall prompt.
 设置页“记忆管理”入口进入 `MemorySettingsPage`，收纳角色笔记/用户画像开关、两个 target 的字符预算、维护提醒间隔和条目管理。`MemoryManagePage` 按角色查看/添加/替换/删除记忆条目并显示用量。
 
 记忆管理页的替换/删除改为按索引定位，避免包含关系的子串歧义。
+
+## 定时任务页
+
+`lib/pages/features/scheduled_tasks_page.dart` 从功能总览“定时任务”入口进入（feature value `scheduledTasks`）。页面列出插件 manifest 任务和用户创建任务，显示重复规则、下次执行、最近结果与最近运行历史；用户可创建/编辑启停任务、立即运行或删除用户任务。创建表单包含名称、执行环境插件、时间、每天/每周规则、星期和 Lua 脚本；manifest 任务不可编辑，定义随插件同步。

@@ -5,10 +5,12 @@ import 'dart:io';
 import 'package:lua_dardo/lua.dart';
 
 import '../models/plugin.dart';
+import '../models/scheduled_task.dart';
 import '../providers/feature_provider.dart';
 import '../providers/calendar_provider.dart';
 import '../providers/model_config_provider.dart';
 import '../providers/plugin_provider.dart';
+import '../providers/scheduled_task_provider.dart';
 import '../providers/settings_provider.dart';
 import '../providers/task_provider.dart';
 import '../utils/plugin_path_utils.dart';
@@ -49,6 +51,8 @@ class PluginLuaRuntimeService {
     ModelConfigProvider? modelConfigs,
     PluginProvider? plugins,
     SettingsProvider? settings,
+    ScheduledTaskProvider? scheduledTasks,
+    Future<bool> Function(String taskId)? runScheduledTaskNow,
     AgentCancellationToken? cancellationToken,
     DateTime? deadline,
   }) {
@@ -66,6 +70,8 @@ class PluginLuaRuntimeService {
       modelConfigs: modelConfigs,
       plugins: plugins,
       settings: settings,
+      scheduledTasks: scheduledTasks,
+      runScheduledTaskNow: runScheduledTaskNow,
     );
   }
 
@@ -79,6 +85,8 @@ class PluginLuaRuntimeService {
     ModelConfigProvider? modelConfigs,
     PluginProvider? plugins,
     SettingsProvider? settings,
+    ScheduledTaskProvider? scheduledTasks,
+    Future<bool> Function(String taskId)? runScheduledTaskNow,
     AgentCancellationToken? cancellationToken,
     DateTime? deadline,
   }) {
@@ -96,6 +104,8 @@ class PluginLuaRuntimeService {
       modelConfigs: modelConfigs,
       plugins: plugins,
       settings: settings,
+      scheduledTasks: scheduledTasks,
+      runScheduledTaskNow: runScheduledTaskNow,
     );
   }
 
@@ -123,6 +133,8 @@ class PluginLuaRuntimeService {
     ModelConfigProvider? modelConfigs,
     PluginProvider? plugins,
     SettingsProvider? settings,
+    ScheduledTaskProvider? scheduledTasks,
+    Future<bool> Function(String taskId)? runScheduledTaskNow,
     AgentCancellationToken? cancellationToken,
     DateTime? deadline,
   }) {
@@ -140,6 +152,58 @@ class PluginLuaRuntimeService {
       modelConfigs: modelConfigs,
       plugins: plugins,
       settings: settings,
+      scheduledTasks: scheduledTasks,
+      runScheduledTaskNow: runScheduledTaskNow,
+    );
+  }
+
+  /// 在插件环境中执行定时任务脚本。
+  ///
+  /// 先加载插件入口（使插件定义的全局函数可用），再加载任务脚本本身，
+  /// 最后调用脚本定义的全局函数 `run(taskContext)`。`run` 可以不声明参数；
+  /// Lua 会忽略多余实参。
+  Future<Map<String, dynamic>> executeScheduledTask({
+    required InstalledPlugin plugin,
+    required ScheduledTaskScriptKind scriptKind,
+    required String script,
+    required Map<String, dynamic> taskArguments,
+    FeatureProvider? features,
+    TaskProvider? tasks,
+    CalendarProvider? calendar,
+    ModelConfigProvider? modelConfigs,
+    PluginProvider? plugins,
+    SettingsProvider? settings,
+    ScheduledTaskProvider? scheduledTasks,
+    Future<bool> Function(String taskId)? runScheduledTaskNow,
+    AgentCancellationToken? cancellationToken,
+    DateTime? deadline,
+  }) async {
+    var source = script;
+    if (scriptKind == ScheduledTaskScriptKind.file) {
+      final path = safePluginFilePath(plugin.path, script);
+      if (path == null) return _error('定时任务脚本路径不安全: $script');
+      final file = File(path);
+      if (!await file.exists()) {
+        return _error('定时任务脚本不存在: $script');
+      }
+      source = await file.readAsString();
+    }
+    return _executeHandler(
+      plugin: plugin,
+      handler: 'run',
+      arguments: const <String, dynamic>{},
+      features: features,
+      tasks: tasks,
+      calendar: calendar,
+      modelConfigs: modelConfigs,
+      plugins: plugins,
+      settings: settings,
+      scheduledTasks: scheduledTasks,
+      runScheduledTaskNow: runScheduledTaskNow,
+      cancellationToken: cancellationToken,
+      deadline: deadline,
+      scheduledScript: source,
+      scheduledTaskArguments: taskArguments,
     );
   }
 
@@ -153,8 +217,12 @@ class PluginLuaRuntimeService {
     ModelConfigProvider? modelConfigs,
     PluginProvider? plugins,
     SettingsProvider? settings,
+    ScheduledTaskProvider? scheduledTasks,
+    Future<bool> Function(String taskId)? runScheduledTaskNow,
     AgentCancellationToken? cancellationToken,
     DateTime? deadline,
+    String? scheduledScript,
+    Map<String, dynamic>? scheduledTaskArguments,
   }) async {
     final deadlineSource = deadline == null
         ? null
@@ -215,6 +283,8 @@ class PluginLuaRuntimeService {
         modelConfigs: modelConfigs,
         plugins: plugins,
         settings: settings,
+        scheduledTasks: scheduledTasks,
+        runScheduledTaskNow: runScheduledTaskNow,
         preloadedConfig: preloadedConfig,
         cancellationToken: effectiveCancellationToken,
       );
@@ -230,12 +300,36 @@ class PluginLuaRuntimeService {
             _error('Lua 初始化失败: ${_popError(state, loadStatus)}');
       }
 
-      state.getGlobal(handler);
-      if (!state.isFunction(-1)) {
-        state.pop(1);
-        return _error('Lua handler 不存在: $handler');
+      if (scheduledScript != null) {
+        final scriptLoad = state.loadString(scheduledScript);
+        if (scriptLoad != ThreadStatus.luaOk) {
+          return _error('定时任务脚本加载失败: $scriptLoad');
+        }
+        final scriptStatus = state.pCall(0, 0, 0);
+        if (scriptStatus != ThreadStatus.luaOk) {
+          return _budgetError(
+                state.lastError,
+                cancellationToken: effectiveCancellationToken,
+              ) ??
+              _error('定时任务脚本初始化失败: ${_popError(state, scriptStatus)}');
+        }
+        state.getGlobal(handler);
+        if (!state.isFunction(-1)) {
+          state.pop(1);
+          return _error('定时任务脚本缺少函数: $handler');
+        }
+        _pushJsonValue(
+          state,
+          scheduledTaskArguments ?? const <String, dynamic>{},
+        );
+      } else {
+        state.getGlobal(handler);
+        if (!state.isFunction(-1)) {
+          state.pop(1);
+          return _error('Lua handler 不存在: $handler');
+        }
+        _pushJsonValue(state, arguments);
       }
-      _pushJsonValue(state, arguments);
       final status = state.pCall(1, 1, 0);
       if (status != ThreadStatus.luaOk) {
         return _budgetError(
@@ -258,6 +352,8 @@ class PluginLuaRuntimeService {
         modelConfigs: modelConfigs,
         plugins: plugins,
         settings: settings,
+        scheduledTasks: scheduledTasks,
+        runScheduledTaskNow: runScheduledTaskNow,
         cancellationToken: effectiveCancellationToken,
       );
       if (commandResult != null) return commandResult;
@@ -301,6 +397,8 @@ class PluginLuaRuntimeService {
     required ModelConfigProvider? modelConfigs,
     required PluginProvider? plugins,
     required SettingsProvider? settings,
+    required ScheduledTaskProvider? scheduledTasks,
+    required Future<bool> Function(String taskId)? runScheduledTaskNow,
     required Map<String, dynamic>? preloadedConfig,
     required AgentCancellationToken? cancellationToken,
   }) {
@@ -316,6 +414,8 @@ class PluginLuaRuntimeService {
       settings: settings,
       plugins: plugins,
       plugin: plugin,
+      scheduledTasks: scheduledTasks,
+      runScheduledTaskNow: runScheduledTaskNow,
       cancellationToken: cancellationToken,
     );
     final functions = LynAIFunctionService();
@@ -532,6 +632,53 @@ class PluginLuaRuntimeService {
       },
       'delete': (LuaState ls) {
         _pushFunctionCommand(ls, 'schedules.delete', _readJsonValue(ls, 1));
+        return 1;
+      },
+    });
+    _setTable(state, -1, 'scheduledTasks', {
+      'list': (LuaState ls) {
+        _pushHostResult(
+          ls,
+          functions.executeSync(
+            LynAIFunctionCall(
+              name: 'scheduledTasks.list',
+              arguments: _mapArg(ls, 1),
+            ),
+            context,
+          ),
+        );
+        return 1;
+      },
+      'create': (LuaState ls) {
+        _pushFunctionCommand(
+          ls,
+          'scheduledTasks.create',
+          _readJsonValue(ls, 1),
+        );
+        return 1;
+      },
+      'update': (LuaState ls) {
+        _pushFunctionCommand(
+          ls,
+          'scheduledTasks.update',
+          _readJsonValue(ls, 1),
+        );
+        return 1;
+      },
+      'delete': (LuaState ls) {
+        _pushFunctionCommand(
+          ls,
+          'scheduledTasks.delete',
+          _readJsonValue(ls, 1),
+        );
+        return 1;
+      },
+      'runNow': (LuaState ls) {
+        _pushFunctionCommand(
+          ls,
+          'scheduledTasks.runNow',
+          _readJsonValue(ls, 1),
+        );
         return 1;
       },
     });
@@ -890,6 +1037,8 @@ class PluginLuaRuntimeService {
     required ModelConfigProvider? modelConfigs,
     required PluginProvider? plugins,
     required SettingsProvider? settings,
+    required ScheduledTaskProvider? scheduledTasks,
+    required Future<bool> Function(String taskId)? runScheduledTaskNow,
     required AgentCancellationToken? cancellationToken,
     int depth = 0,
   }) async {
@@ -920,6 +1069,8 @@ class PluginLuaRuntimeService {
         plugins: plugins,
         settings: settings,
         plugin: plugin,
+        scheduledTasks: scheduledTasks,
+        runScheduledTaskNow: runScheduledTaskNow,
         cancellationToken: cancellationToken,
       ),
     );
@@ -959,6 +1110,8 @@ class PluginLuaRuntimeService {
       modelConfigs: modelConfigs,
       plugins: plugins,
       settings: settings,
+      scheduledTasks: scheduledTasks,
+      runScheduledTaskNow: runScheduledTaskNow,
       cancellationToken: cancellationToken,
       depth: depth + 1,
     );

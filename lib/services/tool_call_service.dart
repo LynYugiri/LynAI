@@ -19,8 +19,10 @@ import '../models/knowledge_category.dart';
 import '../models/knowledge_entry.dart';
 import '../models/jotting.dart';
 import '../models/local_date.dart';
+import '../models/local_time.dart';
 import '../models/memory_card.dart';
 import '../models/plugin.dart';
+import '../models/scheduled_task.dart';
 import '../models/workspace.dart';
 import '../providers/feature_provider.dart';
 import '../providers/jotting_provider.dart';
@@ -30,6 +32,7 @@ import '../providers/memory_card_provider.dart';
 import '../providers/model_config_provider.dart';
 import '../providers/plugin_provider.dart';
 import '../providers/role_memory_provider.dart';
+import '../providers/scheduled_task_provider.dart';
 import '../providers/settings_provider.dart';
 import '../providers/task_provider.dart';
 import '../providers/workspace_provider.dart';
@@ -134,6 +137,8 @@ class ToolCallService {
     JottingProvider? jottings,
     RoleMemoryProvider? roleMemory,
     PluginProvider? plugins,
+    ScheduledTaskProvider? scheduledTasks,
+    Future<bool> Function(String taskId)? runScheduledTaskNow,
     ModelConfigProvider? modelConfigs,
     SettingsProvider? settings,
     ConversationProvider? conversations,
@@ -172,6 +177,8 @@ class ToolCallService {
        _jottings = jottings,
        _roleMemory = roleMemory,
        _plugins = plugins,
+       _scheduledTasks = scheduledTasks,
+       _runScheduledTaskNow = runScheduledTaskNow,
        _modelConfigs = modelConfigs,
        _settings = settings,
        _conversations = conversations,
@@ -243,6 +250,8 @@ class ToolCallService {
   final JottingProvider? _jottings;
   final RoleMemoryProvider? _roleMemory;
   final PluginProvider? _plugins;
+  final ScheduledTaskProvider? _scheduledTasks;
+  final Future<bool> Function(String taskId)? _runScheduledTaskNow;
   final ModelConfigProvider? _modelConfigs;
   final SettingsProvider? _settings;
   final ConversationProvider? _conversations;
@@ -299,6 +308,7 @@ Plan 创建和更新不需要权限，只用于当前对话的可视化状态。
 工作记忆是当前对话内持久保存的共享上下文。跨主 Agent、Subagent 和 Lua 协作的目标、关键事实、决策、已加载 Skill、子任务结果应写入工作记忆；不要把长屏幕快照或截图写入记忆。
 如果需要了解可用插件函数，先调用 list_plugin_functions。
 如果需要调用插件函数，先调用 list_plugin_functions 查看可用函数，再用 call_plugin_function。该能力需要 plugins.callFunction 权限。
+如果用户要求设置定时任务，先调用 list_scheduled_tasks 查看现有任务，再用 create_scheduled_task 创建；任务由本机前台调度器执行，创建后不依赖当前对话，App 退出期间错过的时间会在下次打开时补跑。脚本必须定义 function run(ctx)，运行环境是所选插件并按其当前授权执行。
 如果需要了解可用插件 Skill，先调用 list_plugin_skills；Skill 摘要不是完整说明，执行相关流程前调用 load_plugin_skill 加载正文。加载 Skill 不需要额外权限；需要按用户要求沉淀或修正可编辑 Skill 时，在已授权 plugins.skills.files:write 后调用 save_plugin_skill 保存正文。
 如果用户要求从零生成或修改插件，调用 create_plugin / plugin_file_* / plugin_manifest_* 前，先加载 plugin-authoring 插件的 plugin_authoring Skill 了解完整清单与文件规范；涉及网页/功能页视觉设计先加载 web_design，动效先加载 motion_design。创建成功后当前对话会自动绑定该插件为工作区，后续 plugin_file_* / plugin_manifest_* 不传 pluginId 即操作它；写文件需要 plugins.files:write 权限，生成后需用户审查并启用，不能自行启用插件。
 写完插件后先调用 plugin_validate 静态校验 manifest 与文件语法；对 plugin.json 中声明的 tool/function/command 可调用 plugin_run_handler 就地试跑（以插件身份执行，非内置插件试跑自动授予其声明的全部权限），根据报错迭代修改，直到校验与试跑通过。该能力需要 plugins.run 权限。
@@ -733,6 +743,8 @@ plugin_file_* / plugin_manifest_* 工具不传 pluginId 时默认操作该插件
     bool imageGenerationEnabled = false,
     bool screenContextEnabled = false,
     AgentToolSnapshot? externalTools,
+    bool scheduledTasksAvailable = false,
+    bool scheduledTaskRunnerAvailable = false,
   ]) {
     final tools = <Map<String, dynamic>>[
       {
@@ -1150,7 +1162,13 @@ plugin_file_* / plugin_manifest_* 工具不传 pluginId 时默认操作该插件
       _appendScreenContextTool(tools, names);
     }
     if (agentEnabled) {
-      _appendAgentTools(tools, names, agentGrantedPermissions.toSet());
+      _appendAgentTools(
+        tools,
+        names,
+        agentGrantedPermissions.toSet(),
+        scheduledTasksAvailable: scheduledTasksAvailable,
+        scheduledTaskRunnerAvailable: scheduledTaskRunnerAvailable,
+      );
     }
     for (final plugin in plugins) {
       if (!plugin.enabled ||
@@ -1253,8 +1271,10 @@ plugin_file_* / plugin_manifest_* 工具不传 pluginId 时默认操作该插件
   static void _appendAgentTools(
     List<Map<String, dynamic>> tools,
     Set<String> names,
-    Set<String> permissions,
-  ) {
+    Set<String> permissions, {
+    bool scheduledTasksAvailable = false,
+    bool scheduledTaskRunnerAvailable = false,
+  }) {
     void add(String name, String description, Map<String, dynamic> parameters) {
       if (!names.add(name)) return;
       tools.add({
@@ -1593,6 +1613,88 @@ plugin_file_* / plugin_manifest_* 工具不传 pluginId 时默认操作该插件
           'required': ['kind', 'name'],
         },
       );
+    }
+    if (permissions.contains(LynAIPermissions.scheduledTasksRead) &&
+        scheduledTasksAvailable) {
+      add(
+        'list_scheduled_tasks',
+        '列出本机定时任务。任务在 App 前台运行时按时间执行 Lua 脚本，错过时间会在下次回到前台时补跑一次。需要 scheduledTasks:read 权限。',
+        {
+          'type': 'object',
+          'properties': {
+            'pluginId': {'type': 'string', 'description': '可选，按插件 ID 筛选'},
+            'enabled': {'type': 'boolean', 'description': '可选，按启用状态筛选'},
+          },
+        },
+      );
+    }
+    if (permissions.contains(LynAIPermissions.scheduledTasksWrite) &&
+        scheduledTasksAvailable) {
+      add(
+        'create_scheduled_task',
+        '创建一个定时任务：指定插件环境、名称、时间、重复规则和内联 Lua 脚本；脚本必须定义 function run(ctx)。需要 scheduledTasks:write 权限。',
+        {
+          'type': 'object',
+          'properties': {
+            'name': {'type': 'string', 'description': '任务名称'},
+            'pluginId': {'type': 'string', 'description': '提供执行环境的已启用插件 ID'},
+            'time': {'type': 'string', 'description': '本地时间 HH:mm，例如 21:00'},
+            'repeat': {
+              'type': 'string',
+              'description': 'daily 或 weekly，默认 daily',
+              'enum': ['daily', 'weekly'],
+            },
+            'daysOfWeek': {
+              'type': 'array',
+              'description': 'weekly 时触发星期，1=周一...7=周日',
+              'items': {'type': 'integer'},
+            },
+            'script': {
+              'type': 'string',
+              'description': '内联 Lua 脚本，必须定义 function run(ctx) ... end',
+            },
+          },
+          'required': ['name', 'pluginId', 'time', 'script'],
+        },
+      );
+      add(
+        'update_scheduled_task',
+        '更新定时任务字段。修改 time/repeat/daysOfWeek 会重新计算下次执行时间；不影响执行历史。需要 scheduledTasks:write 权限。',
+        {
+          'type': 'object',
+          'properties': {
+            'id': {'type': 'string', 'description': '任务 ID'},
+            'name': {'type': 'string', 'description': '可选，新名称'},
+            'time': {'type': 'string', 'description': '可选，本地时间 HH:mm'},
+            'repeat': {
+              'type': 'string',
+              'description': '可选，daily 或 weekly',
+              'enum': ['daily', 'weekly'],
+            },
+            'daysOfWeek': {
+              'type': 'array',
+              'description': '可选，weekly 时触发星期',
+              'items': {'type': 'integer'},
+            },
+            'script': {'type': 'string', 'description': '可选，新的内联 Lua 脚本'},
+            'enabled': {'type': 'boolean', 'description': '可选，是否启用'},
+          },
+          'required': ['id'],
+        },
+      );
+      if (scheduledTaskRunnerAvailable) {
+        add(
+          'run_scheduled_task',
+          '立即运行一次定时任务。手动运行不消耗当天的计划 occurrence，原定时间仍会正常触发。需要 scheduledTasks:write 权限。',
+          {
+            'type': 'object',
+            'properties': {
+              'id': {'type': 'string', 'description': '任务 ID'},
+            },
+            'required': ['id'],
+          },
+        );
+      }
     }
     add(
       'add_agent_note',
@@ -2122,6 +2224,12 @@ plugin_file_* / plugin_manifest_* 工具不传 pluginId 时默认操作该插件
       'delete_anniversary',
     };
     const jottingsRead = {'search_jottings', 'read_jotting'};
+    const scheduledTasksRead = {'list_scheduled_tasks'};
+    const scheduledTasksWrite = {
+      'create_scheduled_task',
+      'update_scheduled_task',
+      'run_scheduled_task',
+    };
     final permissions = switch (name) {
       'web_fetch' || 'web_search' => const [LynAIPermissions.networkAccess],
       'save_plugin_skill' => const [LynAIPermissions.pluginSkillFilesWrite],
@@ -2158,6 +2266,12 @@ plugin_file_* / plugin_manifest_* 工具不传 pluginId 时默认操作该插件
       'memory' => const [LynAIPermissions.roleMemoryWrite],
       'memory_search' => const [LynAIPermissions.roleMemoryRead],
       'save_jotting' => const [LynAIPermissions.jottingsWrite],
+      _ when scheduledTasksRead.contains(name) => const [
+        LynAIPermissions.scheduledTasksRead,
+      ],
+      _ when scheduledTasksWrite.contains(name) => const [
+        LynAIPermissions.scheduledTasksWrite,
+      ],
       _ when jottingsRead.contains(name) => const [
         LynAIPermissions.jottingsRead,
       ],
@@ -2329,6 +2443,9 @@ plugin_file_* / plugin_manifest_* 工具不传 pluginId 时默认操作该插件
       permissions.permissions,
       imageGenerationEnabled,
       _allowScreenContextTool,
+      null,
+      _scheduledTasks != null,
+      _runScheduledTaskNow != null,
     );
     final appSettings = _settings?.settings;
     final memoryTargets = <String>[
@@ -2484,6 +2601,8 @@ plugin_file_* / plugin_manifest_* 工具不传 pluginId 时默认操作该插件
         modelConfigs: _modelConfigs,
         plugins: _plugins,
         settings: _settings,
+        scheduledTasks: _scheduledTasks,
+        runScheduledTaskNow: _runScheduledTaskNow,
       );
     }
     final identity = LynAICallIdentity(
@@ -2585,6 +2704,14 @@ plugin_file_* / plugin_manifest_* 工具不传 pluginId 时默认操作该插件
       'save_jotting' => _saveJotting(call),
       'read_attachment' => _readAttachment(call),
       'resource' => _resourceTool(call),
+      'list_scheduled_tasks' => _listScheduledTasksForAgent(call.arguments),
+      'create_scheduled_task' => await _createScheduledTaskForAgent(
+        call.arguments,
+      ),
+      'update_scheduled_task' => await _updateScheduledTaskForAgent(
+        call.arguments,
+      ),
+      'run_scheduled_task' => await _runScheduledTaskForAgent(call.arguments),
       'generate_image' => _registeredFunction(
         call,
         'model.generateImage',
@@ -2964,6 +3091,14 @@ plugin_file_* / plugin_manifest_* 工具不传 pluginId 时默认操作该插件
           return _readJotting(call);
         case 'save_jotting':
           return await _saveJotting(call);
+        case 'list_scheduled_tasks':
+          return _listScheduledTasksForAgent(call.arguments);
+        case 'create_scheduled_task':
+          return await _createScheduledTaskForAgent(call.arguments);
+        case 'update_scheduled_task':
+          return await _updateScheduledTaskForAgent(call.arguments);
+        case 'run_scheduled_task':
+          return await _runScheduledTaskForAgent(call.arguments);
         default:
           final functionName = LynAIFunctionService.aiToolAliases[call.name];
           if (functionName != null) {
@@ -4362,6 +4497,167 @@ ${ToolCallService.currentTimeContext()}${sharedContext.isEmpty ? '' : '\n\n$shar
     return _agentRuntime.updateMemory(conversations, cid, args);
   }
 
+  Map<String, dynamic> _listScheduledTasksForAgent(Map<String, dynamic> args) {
+    final provider = _scheduledTasks;
+    if (provider == null) {
+      return _agentError('missing_provider', '定时任务上下文不可用');
+    }
+    final pluginId = (args['pluginId'] as String? ?? '').trim();
+    final enabled = args['enabled'] as bool?;
+    _appendAgentTrace(
+      AgentTraceEvent.toolCall,
+      '查看定时任务',
+      metadata: {
+        if (pluginId.isNotEmpty) 'pluginId': pluginId,
+        'enabled': ?enabled,
+      },
+    );
+    final items = provider.tasks
+        .where((task) => pluginId.isEmpty || task.pluginId == pluginId)
+        .where((task) => enabled == null || task.enabled == enabled)
+        .map((task) => task.toJson())
+        .toList();
+    return _agentOk({'tasks': items});
+  }
+
+  Future<Map<String, dynamic>> _createScheduledTaskForAgent(
+    Map<String, dynamic> args,
+  ) async {
+    final provider = _scheduledTasks;
+    if (provider == null) {
+      return _agentError('missing_provider', '定时任务上下文不可用');
+    }
+    final pluginId = (args['pluginId'] as String? ?? '').trim();
+    final plugin = _plugins?.pluginById(pluginId);
+    if (pluginId.isEmpty ||
+        plugin == null ||
+        !plugin.enabled ||
+        plugin.hasError) {
+      return _agentError('plugin_unavailable', '定时任务执行插件不可用: $pluginId');
+    }
+    final name = (args['name'] as String? ?? '').trim();
+    final time = LocalTime.tryParse((args['time'] as String? ?? '').trim());
+    final script = (args['script'] as String? ?? '').trim();
+    if (name.isEmpty) return _agentError('invalid_arguments', '缺少 name');
+    if (time == null) {
+      return _agentError('invalid_arguments', 'time 必须使用 HH:mm 格式');
+    }
+    if (script.isEmpty) {
+      return _agentError('invalid_arguments', '缺少 script');
+    }
+    final repeat = switch (args['repeat']?.toString()) {
+      'weekly' => ScheduledTaskRepeat.weekly,
+      _ => ScheduledTaskRepeat.daily,
+    };
+    final days = (args['daysOfWeek'] as List<dynamic>? ?? const [])
+        .whereType<num>()
+        .map((item) => item.toInt())
+        .toList();
+    try {
+      final task = await provider.create(
+        name: name,
+        pluginId: pluginId,
+        repeat: repeat,
+        time: time,
+        daysOfWeek: days,
+        scriptKind: ScheduledTaskScriptKind.inline,
+        script: script,
+        source: ScheduledTaskSource.user,
+      );
+      _appendAgentTrace(
+        AgentTraceEvent.toolCall,
+        '创建定时任务',
+        content: task.name,
+        metadata: {'taskId': task.id, 'pluginId': pluginId},
+      );
+      return _agentOk({'task': task.toJson()});
+    } catch (error) {
+      return _agentError(
+        'create_failed',
+        error.toString().replaceFirst('Exception: ', ''),
+      );
+    }
+  }
+
+  Future<Map<String, dynamic>> _updateScheduledTaskForAgent(
+    Map<String, dynamic> args,
+  ) async {
+    final provider = _scheduledTasks;
+    if (provider == null) {
+      return _agentError('missing_provider', '定时任务上下文不可用');
+    }
+    final id = (args['id'] as String? ?? '').trim();
+    if (id.isEmpty) return _agentError('invalid_arguments', '缺少 id');
+    if (provider.taskById(id) == null) {
+      return _agentError('task_not_found', '定时任务不存在: $id');
+    }
+    final time = switch (args['time']) {
+      String value => LocalTime.tryParse(value.trim()),
+      _ => null,
+    };
+    if (args.containsKey('time') && time == null) {
+      return _agentError('invalid_arguments', 'time 必须使用 HH:mm 格式');
+    }
+    final repeat = switch (args['repeat']?.toString()) {
+      'weekly' => ScheduledTaskRepeat.weekly,
+      'daily' => ScheduledTaskRepeat.daily,
+      _ => null,
+    };
+    final days = (args['daysOfWeek'] as List<dynamic>? ?? const [])
+        .whereType<num>()
+        .map((item) => item.toInt())
+        .toList();
+    try {
+      final task = await provider.update(
+        id: id,
+        name: (args['name'] as String?)?.trim(),
+        time: time,
+        repeat: repeat,
+        daysOfWeek: args.containsKey('daysOfWeek') ? days : null,
+        script: (args['script'] as String?)?.trim(),
+        enabled: args['enabled'] as bool?,
+      );
+      _appendAgentTrace(
+        AgentTraceEvent.toolCall,
+        '更新定时任务',
+        metadata: {'taskId': id},
+      );
+      return _agentOk({'task': task.toJson()});
+    } catch (error) {
+      return _agentError(
+        'update_failed',
+        error.toString().replaceFirst('Exception: ', ''),
+      );
+    }
+  }
+
+  Future<Map<String, dynamic>> _runScheduledTaskForAgent(
+    Map<String, dynamic> args,
+  ) async {
+    final provider = _scheduledTasks;
+    if (provider == null) {
+      return _agentError('missing_provider', '定时任务上下文不可用');
+    }
+    final id = (args['id'] as String? ?? '').trim();
+    if (id.isEmpty) return _agentError('invalid_arguments', '缺少 id');
+    if (provider.taskById(id) == null) {
+      return _agentError('task_not_found', '定时任务不存在: $id');
+    }
+    final runner = _runScheduledTaskNow;
+    if (runner == null) {
+      return _agentError('scheduler_unavailable', '定时任务调度器未就绪');
+    }
+    final ran = await runner(id);
+    _appendAgentTrace(
+      AgentTraceEvent.toolCall,
+      '立即运行定时任务',
+      metadata: {'taskId': id, 'ran': ran},
+    );
+    return ran
+        ? _agentOk({'ran': true})
+        : _agentError('run_failed', '定时任务当前不可运行: $id');
+  }
+
   Map<String, dynamic> _listPluginFunctionsForAgent() {
     _appendAgentTrace(AgentTraceEvent.toolCall, '查看插件函数');
     final result = listPluginFunctions(
@@ -5250,6 +5546,8 @@ ${ToolCallService.currentTimeContext()}${sharedContext.isEmpty ? '' : '\n\n$shar
       modelConfigs: _modelConfigs,
       plugins: _plugins,
       settings: _settings,
+      scheduledTasks: _scheduledTasks,
+      runScheduledTaskNow: _runScheduledTaskNow,
       cancellationToken: cancellationToken,
       deadline: deadline,
     );
@@ -5282,6 +5580,8 @@ ${ToolCallService.currentTimeContext()}${sharedContext.isEmpty ? '' : '\n\n$shar
       modelConfigs: _modelConfigs,
       plugins: _plugins,
       settings: _settings,
+      scheduledTasks: _scheduledTasks,
+      runScheduledTaskNow: _runScheduledTaskNow,
       cancellationToken: cancellationToken,
       deadline: deadline,
     );
@@ -5314,6 +5614,8 @@ ${ToolCallService.currentTimeContext()}${sharedContext.isEmpty ? '' : '\n\n$shar
       modelConfigs: _modelConfigs,
       plugins: _plugins,
       settings: _settings,
+      scheduledTasks: _scheduledTasks,
+      runScheduledTaskNow: _runScheduledTaskNow,
       cancellationToken: cancellationToken,
       deadline: deadline,
     );
@@ -5713,6 +6015,8 @@ ${ToolCallService.currentTimeContext()}${sharedContext.isEmpty ? '' : '\n\n$shar
         conversations: _conversations,
         backend: _backend,
         storage: _storage,
+        scheduledTasks: _scheduledTasks,
+        runScheduledTaskNow: _runScheduledTaskNow,
         outboundHttpClient: _outboundHttpClient,
         allowPlaintextHttpFetch: _allowPlaintextHttpFetch,
         cancellationToken: cancellationToken,
@@ -5996,6 +6300,8 @@ ${ToolCallService.currentTimeContext()}${sharedContext.isEmpty ? '' : '\n\n$shar
       modelConfigs: _modelConfigs,
       plugins: _plugins,
       settings: _settings,
+      scheduledTasks: _scheduledTasks,
+      runScheduledTaskNow: _runScheduledTaskNow,
     );
     _appendAgentTrace(
       result['ok'] == false
@@ -6153,6 +6459,8 @@ ${ToolCallService.currentTimeContext()}${sharedContext.isEmpty ? '' : '\n\n$shar
       modelConfigs: _modelConfigs,
       plugins: _plugins,
       settings: _settings,
+      scheduledTasks: _scheduledTasks,
+      runScheduledTaskNow: _runScheduledTaskNow,
     );
   }
 
@@ -6190,6 +6498,8 @@ ${ToolCallService.currentTimeContext()}${sharedContext.isEmpty ? '' : '\n\n$shar
             settings: _settings,
             conversations: _conversations,
             backend: _backend,
+            scheduledTasks: _scheduledTasks,
+            runScheduledTaskNow: _runScheduledTaskNow,
             outboundHttpClient: _outboundHttpClient,
             allowPlaintextHttpFetch: _allowPlaintextHttpFetch,
             cancellationToken: cancellationToken,

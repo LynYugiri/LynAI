@@ -20,6 +20,7 @@ import 'providers/cloud_data_provider.dart';
 import 'providers/recycle_bin_provider.dart';
 import 'providers/role_memory_provider.dart';
 import 'providers/roleplay_provider.dart';
+import 'providers/scheduled_task_provider.dart';
 import 'providers/settings_provider.dart';
 import 'providers/task_provider.dart';
 import 'providers/workspace_provider.dart';
@@ -36,6 +37,7 @@ import 'services/storage_v2_upgrade_service.dart';
 import 'services/backend_client.dart';
 import 'services/calendar_platform_bridge.dart';
 import 'services/calendar_platform_projection_coordinator.dart';
+import 'services/scheduled_task_scheduler.dart';
 import 'services/device_identity_service.dart';
 import 'services/device_registration_service.dart';
 import 'services/secret_store.dart';
@@ -266,6 +268,10 @@ Future<void> main() async {
           create: (ctx) =>
               TaskProvider(storageV2: ctx.read<StorageV2Service>()),
         ),
+        ChangeNotifierProvider(
+          create: (ctx) =>
+              ScheduledTaskProvider(storageV2: ctx.read<StorageV2Service>()),
+        ),
         Provider(create: (_) => const CalendarPlatformBridge()),
         Provider(
           create: (ctx) {
@@ -284,6 +290,19 @@ Future<void> main() async {
             storageV2: ctx.read<StorageV2Service>(),
             onRoleDeleted: ctx.read<RoleMemoryProvider>().removeRole,
           ),
+        ),
+        Provider<ScheduledTaskScheduler>(
+          create: (ctx) => ScheduledTaskScheduler(
+            tasks: ctx.read<ScheduledTaskProvider>(),
+            plugins: ctx.read<PluginProvider>(),
+            runtimePlugins: ctx.read<PluginProvider>(),
+            features: ctx.read<FeatureProvider>(),
+            calendar: ctx.read<CalendarProvider>(),
+            modelConfigs: ctx.read<ModelConfigProvider>(),
+            settings: ctx.read<SettingsProvider>(),
+            taskProvider: ctx.read<TaskProvider>(),
+          ),
+          dispose: (_, scheduler) => scheduler.dispose(),
         ),
         ChangeNotifierProvider(create: (_) => ServerCapabilitiesService()),
         ProxyProvider4<
@@ -730,6 +749,8 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
   SyncProvider? _syncProvider;
   LanSyncProvider? _lanSyncProvider;
   CalendarPlatformProjectionCoordinator? _calendarProjectionCoordinator;
+  ScheduledTaskScheduler? _scheduledTaskScheduler;
+  ScheduledTaskProvider? _scheduledTaskProvider;
   AccountProvider? _accountProvider;
   Future<void>? _criticalSaveFlush;
   Future<void>? _loadDataFuture;
@@ -773,6 +794,14 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
     }
     _calendarProjectionCoordinator ??= context
         .read<CalendarPlatformProjectionCoordinator>();
+    if (_scheduledTaskScheduler == null || _scheduledTaskProvider == null) {
+      try {
+        _scheduledTaskScheduler ??= context.read<ScheduledTaskScheduler>();
+        _scheduledTaskProvider ??= context.read<ScheduledTaskProvider>();
+      } on ProviderNotFoundException {
+        // Focused widget tests may omit the scheduled task composition.
+      }
+    }
     _accountProvider ??= context.read<AccountProvider>();
   }
 
@@ -782,6 +811,7 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
       _isForeground = true;
       _accountProvider?.retryPendingRevocations();
       unawaited(_lanSyncProvider?.setHostingDesired(true));
+      unawaited(_scheduledTaskScheduler?.tickNow());
     }
     if (state
         case AppLifecycleState.inactive ||
@@ -814,6 +844,8 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
                 (name: 'roleplay', flush: provider.flushPendingSaves),
               if (_taskProvider case final provider?)
                 (name: 'tasks', flush: provider.flushPendingSaves),
+              if (_scheduledTaskProvider case final provider?)
+                (name: 'scheduledTasks', flush: provider.flushPendingSaves),
               if (_knowledgeProvider case final provider?)
                 (name: 'knowledge', flush: provider.flushPendingSaves),
               if (_memoryCardProvider case final provider?)
@@ -875,6 +907,12 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
       final recycleBinProvider = context.read<RecycleBinProvider>();
       final roleplayProvider = context.read<RoleplayProvider>();
       final taskProvider = context.read<TaskProvider>();
+      ScheduledTaskProvider? scheduledTaskProvider;
+      try {
+        scheduledTaskProvider = context.read<ScheduledTaskProvider>();
+      } on ProviderNotFoundException {
+        // Focused root widget tests may omit the scheduled task composition.
+      }
       final knowledgeProvider = context.read<KnowledgeProvider>();
       final memoryCardProvider = context.read<MemoryCardProvider>();
       final roleMemoryProvider = context.read<RoleMemoryProvider>();
@@ -903,6 +941,12 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
       } on ProviderNotFoundException {
         // Focused root widget tests may omit optional MCP composition.
       }
+      ScheduledTaskScheduler? scheduledTaskScheduler;
+      try {
+        scheduledTaskScheduler = context.read<ScheduledTaskScheduler>();
+      } on ProviderNotFoundException {
+        // Focused root widget tests may omit the scheduled task scheduler.
+      }
       await StorageV2UpgradeService(storageV2: storageV2).ensureDatasetsReady();
       await AgentPersistenceRepository(storageV2).reconcileAfterRestart();
 
@@ -916,6 +960,7 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
         recycleBinProvider.load(),
         roleplayProvider.loadSessions(),
         taskProvider.load(),
+        if (scheduledTaskProvider != null) scheduledTaskProvider.load(),
         knowledgeProvider.load(),
         memoryCardProvider.load(),
         roleMemoryProvider.load(),
@@ -927,6 +972,9 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
         memory: settingsProvider.settings.roleMemoryCharLimit,
         user: settingsProvider.settings.roleUserCharLimit,
       );
+      if (scheduledTaskScheduler != null) {
+        await scheduledTaskScheduler.attach();
+      }
       await applyPendingManagedModelIdMigrations(
         models: modelProvider,
         settings: settingsProvider,

@@ -33,6 +33,7 @@ import '../providers/model_config_provider.dart';
 import '../providers/mcp_provider.dart';
 import '../providers/plugin_provider.dart';
 import '../providers/role_memory_provider.dart';
+import '../providers/scheduled_task_provider.dart';
 import '../providers/settings_provider.dart';
 import '../providers/task_provider.dart';
 import '../providers/workspace_provider.dart';
@@ -51,6 +52,7 @@ import '../services/agent_user_interaction_broker.dart';
 import '../services/backend_client.dart';
 import '../services/lynai_permission_definitions.dart';
 import '../services/plugin_lua_runtime_service.dart';
+import '../services/scheduled_task_scheduler.dart';
 import '../services/knowledge_annotation_prompt.dart';
 import '../services/generation_background_service.dart';
 import '../services/model_context_compactor.dart';
@@ -2106,6 +2108,14 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
         .read<SettingsProvider>()
         .settings
         .agentPermissionSnapshot;
+    ScheduledTaskProvider? scheduledTasks;
+    ScheduledTaskScheduler? scheduledTaskScheduler;
+    try {
+      scheduledTasks = context.read<ScheduledTaskProvider>();
+      scheduledTaskScheduler = context.read<ScheduledTaskScheduler>();
+    } on ProviderNotFoundException {
+      // Focused widget tests may omit the scheduled task composition.
+    }
     final toolService = ToolCallService(
       context.read<FeatureProvider>(),
       tasks: context.read<TaskProvider>(),
@@ -2115,6 +2125,8 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       jottings: context.read<JottingProvider>(),
       roleMemory: context.read<RoleMemoryProvider>(),
       plugins: context.read<PluginProvider>(),
+      scheduledTasks: scheduledTasks,
+      runScheduledTaskNow: scheduledTaskScheduler?.runNow,
       modelConfigs: context.read<ModelConfigProvider>(),
       settings: context.read<SettingsProvider>(),
       conversations: context.read<ConversationProvider>(),

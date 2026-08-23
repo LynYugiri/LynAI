@@ -65,6 +65,12 @@ class FeatureDashboard extends StatelessWidget {
       subtitle: '间隔重复，复习记忆',
     ),
     FeatureDashboardItem(
+      value: 'scheduledTasks',
+      icon: Icons.schedule_send_outlined,
+      title: '定时任务',
+      subtitle: '按时间运行插件脚本',
+    ),
+    FeatureDashboardItem(
       value: 'plugin-studio',
       icon: Icons.design_services_outlined,
       title: '插件工坊',
