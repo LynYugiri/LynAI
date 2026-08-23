@@ -11,7 +11,11 @@ import '../providers/roleplay_provider.dart';
 import '../providers/settings_provider.dart';
 import '../services/backend_client.dart';
 import '../utils/managed_model_id_migration.dart';
+import '../widgets/settings_entry.dart';
 import '../widgets/text_editing_controller_host.dart';
+import 'local_model_settings_page.dart';
+import 'mcp_settings_page.dart';
+import 'web_search_settings_page.dart';
 
 const _endpointPresets = [
   {'name': 'OpenAI', 'url': 'https://api.openai.com/v1', 'type': 'openai'},
@@ -137,37 +141,76 @@ class ApiModelsPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final provider = context.watch<ModelConfigProvider>();
+    final appSettings = context.watch<SettingsProvider>().settings;
+    final subpageEntries = <SettingsEntry>[
+      SettingsEntry(
+        icon: Icons.smart_toy_outlined,
+        title: '本地模型',
+        subtitle: 'BlueLM 3B 路径、权限与初始化',
+        iconColor: Colors.teal,
+        onTap: () => Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const LocalModelSettingsPage()),
+        ),
+      ),
+      SettingsEntry(
+        icon: Icons.travel_explore,
+        title: '网页搜索',
+        subtitle:
+            '${appSettings.webSearchRoute.name} · ${appSettings.webSearchClientProvider.name}',
+        iconColor: Colors.lightBlue,
+        onTap: () => Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const WebSearchSettingsPage()),
+        ),
+      ),
+      SettingsEntry(
+        icon: Icons.hub_outlined,
+        title: 'MCP 服务',
+        subtitle: '连接远程或桌面工具服务',
+        iconColor: Colors.blueGrey,
+        onTap: () => Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const McpSettingsPage()),
+        ),
+      ),
+    ];
     return Scaffold(
-      appBar: AppBar(title: const Text('模型类别'), centerTitle: true),
+      appBar: AppBar(title: const Text('模型与接口'), centerTitle: true),
       body: ListView.builder(
         padding: const EdgeInsets.symmetric(vertical: 8),
-        itemCount: _categories.length,
+        itemCount: _categories.length + subpageEntries.length,
         itemBuilder: (context, index) {
-          final category = _categories[index];
-          final count = provider
-              .modelsByCategory(category.id)
-              .where((model) => !model.isBuiltInLocalModel)
-              .length;
-          return Card(
-            margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-            child: ListTile(
-              leading: CircleAvatar(
-                backgroundColor: category.color.withValues(alpha: 0.1),
-                child: Icon(category.icon, color: category.color),
-              ),
-              title: Text(
-                category.title,
-                style: const TextStyle(fontWeight: FontWeight.w600),
-              ),
-              subtitle: Text('${category.subtitle} · $count 个配置'),
-              trailing: const Icon(Icons.chevron_right),
-              onTap: () => Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => _ApiCategoryPage(category: category),
+          if (index < _categories.length) {
+            final category = _categories[index];
+            final count = provider
+                .modelsByCategory(category.id)
+                .where((model) => !model.isBuiltInLocalModel)
+                .length;
+            return Card(
+              margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+              child: ListTile(
+                leading: CircleAvatar(
+                  backgroundColor: category.color.withValues(alpha: 0.1),
+                  child: Icon(category.icon, color: category.color),
+                ),
+                title: Text(
+                  category.title,
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                ),
+                subtitle: Text('${category.subtitle} · $count 个配置'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => _ApiCategoryPage(category: category),
+                  ),
                 ),
               ),
-            ),
+            );
+          }
+          return SettingsItemCard(
+            entry: subpageEntries[index - _categories.length],
           );
         },
       ),

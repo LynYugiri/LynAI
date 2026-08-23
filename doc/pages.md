@@ -264,25 +264,22 @@ Agent 工具轮数上限保存为 `ConversationSettings.maxToolRounds`（新建�
 
 文件：`lib/pages/settings_page.dart`
 
-设置页本身是入口卡片，具体配置由子页面承担。页面顶部提供「搜索设置项」输入框，按标题、副标题和分组名过滤下方设置入口；输入搜索词后隐藏账号卡片，无匹配时显示空结果提示，清除搜索词恢复完整列表。设置入口按「外观」（主题、背景）、「向导」（新手向导、功能引导）、「模型与接口」（API 模型、本地模型、网页搜索、MCP 服务）、「插件」（插件配置、插件能力、插件工坊）和「数据」（数据管理、回收站、局域网配对与同步）分组展示；关于、权限管理、悬浮窗、角色管理和记忆管理保持为独立入口。搜索框下方显示 `AccountHeaderCard` 账号卡片：已登录时显示头像、用户名和连接状态，点击卡片进入账号详情；未登录时显示登录按钮，点击后弹出 `LoginDialog`（手机号+密码，可切换注册模式）。测试期间后端地址写死为 `http://8.138.82.3:8080`，设置页不再提供「连接到服务端」入口，未登录也能使用 LynAI 托管模型。
+设置页本身是入口卡片，具体配置由子页面承担。页面顶部提供「搜索设置项」输入框，按标题、副标题以及收纳页内的子项目关键词过滤设置入口；输入搜索词后隐藏账号卡片，无匹配时显示空结果提示，清除搜索词恢复完整列表。相关设置以入口页收纳而不是在设置页直接展开：「外观」页含主题与背景，「向导」页含新手向导与功能引导，「模型与接口」页在四个模型类别之外增加本地模型、网页搜索与 MCP 服务，「插件」页含插件配置、插件能力与插件工坊，「数据」页含数据管理、回收站与局域网配对同步。关于、权限管理、悬浮窗、角色管理和记忆管理保持为独立入口。搜索框下方显示 `AccountHeaderCard` 账号卡片：已登录时显示头像、用户名和连接状态，点击卡片进入账号详情；未登录时显示登录按钮，点击后弹出 `LoginDialog`（手机号+密码，可切换注册模式）。测试期间后端地址写死为 `http://8.138.82.3:8080`，设置页不再提供「连接到服务端」入口，未登录也能使用 LynAI 托管模型。
 
 | 页面 | 文件 | 说明 |
 |------|------|------|
 | 账号详情 | `account_detail_page.dart` | 展示头像、用户名、手机号和连接状态，可修改用户名（1–32 字符）；退出登录按钮固定在页面底部，成功后返回设置页。 |
 | 关于 | `about_page.dart` | 应用信息、项目链接、许可证和更新日志入口。 |
-| 新手向导 | `onboarding/onboarding_page.dart` | 重新运行首次启动向导，按上次选择预填；已登录时用户名自动填入账号用户名，可重新生成角色、角色记忆、知识库、牌组、任务清单、笔记与 SKILL。 |
-| 功能引导 | `home_page.dart` | 把 `hasCompletedGuidedTour` 置回 `false`，HomePage 会切回对话 Tab 并重新弹出聚光灯引导。 |
-| 背景 | `background_page.dart` | 背景图、清除背景、模糊开关和强度。 |
-| API | `api_models_page.dart` | 模型配置分类、编辑、排序和模型拉取。 |
-| 本地模型 | `local_model_settings_page.dart` | BlueLM 3B 路径（默认 `/sdcard/1225`）、所有文件访问授权、模型文件检测、初始化/释放和错误信息。该入口始终显示；聊天模型列表中的本地模型只在状态为 `validated/initializing/ready` 时出现。 |
-| 网页搜索 | `web_search_settings_page.dart` | 管理 client/backend/auto 路由、Tavily/SearXNG 首选项和 SearXNG endpoint；Tavily key 与 SearXNG bearer token 只写入 `SecretStore`。SearXNG HTTP 必须显式勾选精确 origin 明文授权，保存 Bearer token 时再次显示明文确认。 |
-| 对话权限 | `agent_defaults_settings_page.dart` | 控制之后创建的主聊天和悬浮聊天是否默认启用 Agent、默认权限以及单次任务最大工具轮数（默认 24）。默认权限为全部可分配权限，用户可逐项收回。历史对话不随默认值变化；对话设置弹窗只编辑当前对话权限，Agent 模式由输入区按钮切换。 |
+| 外观 | `appearance_settings_page.dart` | 子项目入口页：主题（预设色、HSV 调色板、深色模式）与背景（背景图、清除背景、模糊开关和强度）。 |
+| 向导 | `wizard_settings_page.dart` | 子项目入口页：新手向导与功能引导。 |
+| 模型与接口 | `api_models_page.dart` | Chat、OCR、语音转文字、图片生成四个模型类别，以及本地模型、网页搜索和 MCP 服务入口。 |
+| 权限管理 | `agent_defaults_settings_page.dart` | 控制之后创建的主聊天和悬浮聊天是否默认启用 Agent、默认权限以及单次任务最大工具轮数（默认 24）。默认权限为全部可分配权限，用户可逐项收回。历史对话不随默认值变化；对话设置弹窗只编辑当前对话权限，Agent 模式由输入区按钮切换。 |
 | 悬浮窗 | `floating_assistant_settings_page.dart` | Android 系统悬浮助手设置。原生面板分为 Chat、Translation、Agent；翻译支持一次翻译和停止滚动后自动翻译，Agent 模式展示运行状态与完整 Plan。 |
 | 翻译历史 | `translation_history_page.dart` | 浏览悬浮窗屏幕翻译历史记录（时间/原文/译文/应用包名），长按复制、一键清空。 |
-| 主题 | `theme_page.dart` | 预设色、HSV 调色板、浅色/深色/跟随系统。 |
-| 回收站 | `recycle_bin_page.dart` | 按功能分类查看已删除项目，支持恢复、永久删除和清空。 |
-| 数据管理 | `data_management_page.dart` | 本地备份导入导出，以及云端索引、容量、对象详情、双向同步和 purge 管理。 |
-| MCP 服务 | `mcp_settings_page.dart` | 添加/编辑 HTTP 或桌面 stdio server，启用连接、测试状态、配置凭据引用与逐工具开关。 |
+| 角色管理 | `role_management_page.dart` | 角色、角色分组与自定义角色管理。 |
+| 记忆管理 | `memory_settings_page.dart` | 角色记忆开关、容量、维护提醒与条目管理。 |
+| 插件 | `plugin_settings_page.dart` | 子项目入口页：插件配置（权限与配置）、插件能力和插件工坊。 |
+| 数据 | `data_settings_page.dart` | 子项目入口页：数据管理（本地备份与云端同步）、回收站和局域网配对同步。 |
 
 ## McpSettingsPage
 
@@ -298,7 +295,7 @@ HTTP server 录入 endpoint，并可显式允许 HTTP 或私网；默认要求 H
 
 文件：`lib/pages/api_models_page.dart`
 
-模型配置按用途分类：Chat、OCR、Speech、Image Generation。Chat 配置可以有多个子模型，每个子模型都可以单独设置启用状态、视觉能力、思考能力、工具能力和采样参数。每个分类最多显示一个名为 LynAI 的托管配置，不展示上游 Provider ID；该配置不可手动修改 endpoint/API key，但可以在本机关闭，或为 `maxTokens`、`temperature`、`topP`、视觉、思考和工具能力设置本机覆盖项。刷新操作表示同步 LynAI 模型，而不是同步 Provider。
+模型与接口页先展示四个模型配置分类：Chat、OCR、Speech、Image Generation，再展示本地模型、网页搜索和 MCP 服务三个相关设置入口。Chat 配置可以有多个子模型，每个子模型都可以单独设置启用状态、视觉能力、思考能力、工具能力和采样参数。每个分类最多显示一个名为 LynAI 的托管配置，不展示上游 Provider ID；该配置不可手动修改 endpoint/API key，但可以在本机关闭，或为 `maxTokens`、`temperature`、`topP`、视觉、思考和工具能力设置本机覆盖项。刷新操作表示同步 LynAI 模型，而不是同步 Provider。
 
 高级参数支持显式清空。实现上通过 sentinel 区分“不更新”和“清空为 null”。
 
