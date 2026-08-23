@@ -101,8 +101,22 @@ class RoleMemoryProvider extends ChangeNotifier with SerializedSaveQueue {
     await flushPendingSaves();
     final result = await _repository.load();
     if (generation != _mutationGeneration) return;
-    _entries = List.of(result.entries)
-      ..sort((a, b) => a.sortOrder.compareTo(b.sortOrder));
+    final sorted = List.of(result.entries)
+      ..sort((a, b) {
+        final roleCompare = a.roleId.compareTo(b.roleId);
+        if (roleCompare != 0) return roleCompare;
+        final targetCompare = a.target.compareTo(b.target);
+        if (targetCompare != 0) return targetCompare;
+        return a.sortOrder.compareTo(b.sortOrder);
+      });
+    final seen = <String>{};
+    _entries = [
+      for (final entry in sorted)
+        if (seen.add(
+          '${entry.roleId}\u0000${entry.target}\u0000${entry.entry}',
+        ))
+          entry,
+    ];
     _consolidationFailures.clear();
     _turnsSinceMemoryWrite.clear();
     notifyListeners();

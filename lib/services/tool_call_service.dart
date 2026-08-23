@@ -3537,6 +3537,11 @@ plugin_file_* / plugin_manifest_* 工具不传 pluginId 时默认操作该插件
     if (roleId == null || roleId.isEmpty) {
       return _error('当前对话没有绑定角色，无法写入角色记忆');
     }
+    final roleExists =
+        _settings?.settings.roles.any((role) => role.id == roleId) ?? true;
+    if (!roleExists) {
+      return _error('当前对话所属角色已被删除，无法写入角色记忆');
+    }
 
     final target = (call.arguments['target'] as String? ?? '').trim();
     final appSettings = _settings?.settings;

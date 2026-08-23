@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lynai/models/role_memory_entry.dart';
 import 'package:lynai/providers/role_memory_provider.dart';
 import 'package:lynai/services/lynai_permission_definitions.dart';
 
@@ -128,5 +129,35 @@ void main() {
       LynAIPermissions.defaultAgent,
       contains(LynAIPermissions.roleMemoryWrite),
     );
+  });
+
+  test('load 去重并恢复条目', () async {
+    final now = DateTime.now();
+    repository.entries = [
+      RoleMemoryEntry(
+        id: '1',
+        roleId: 'role-a',
+        target: RoleMemoryProvider.targetMemory,
+        entry: '重复条目',
+        sortOrder: 0,
+        createdAt: now,
+        updatedAt: now,
+      ),
+      RoleMemoryEntry(
+        id: '2',
+        roleId: 'role-a',
+        target: RoleMemoryProvider.targetMemory,
+        entry: '重复条目',
+        sortOrder: 1,
+        createdAt: now,
+        updatedAt: now,
+      ),
+    ];
+
+    await provider.load();
+
+    expect(provider.entryTextsFor('role-a', RoleMemoryProvider.targetMemory), [
+      '重复条目',
+    ]);
   });
 }
