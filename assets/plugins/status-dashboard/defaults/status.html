@@ -2,210 +2,810 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8"/>
-<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
-<title>LynAI 状态</title>
+<meta name="viewport" content="width=device-width,initial-scale=1.0,viewport-fit=cover"/>
+<title>LynAI 仪表盘</title>
 <link rel="stylesheet" href="status.css"/>
 </head>
-<body>
+<body class="is-loading">
+<div class="backdrop" aria-hidden="true">
+  <span class="orb orb-cyan"></span>
+  <span class="orb orb-violet"></span>
+  <span class="orb orb-amber"></span>
+</div>
+
 <main class="shell">
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="3" width="7" height="7" rx="2"/>
+          <rect x="14" y="3" width="7" height="7" rx="2"/>
+          <rect x="3" y="14" width="7" height="7" rx="2"/>
+          <rect x="14" y="14" width="7" height="7" rx="2"/>
+        </svg>
+      </span>
+      <span class="brand-copy">
+        <span class="eyebrow">LynAI</span>
+        <span class="brand-sub">Personal Dashboard</span>
+      </span>
+    </div>
+
+    <div class="topbar-tools">
+      <div class="clock">
+        <span class="clock-time" id="clock-time">--:--</span>
+        <span class="clock-date" id="clock-date">正在读取时间</span>
+      </div>
+      <button class="refresh-btn" id="refresh-btn" type="button" aria-label="刷新仪表盘">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 12a9 9 0 1 1-2.64-6.36"/>
+          <polyline points="21 3 21 9 15 9"/>
+        </svg>
+      </button>
+    </div>
+  </header>
+
   <section class="hero panel">
     <div class="hero-copy">
-      <p class="eyebrow">LynAI Status</p>
-      <h1>LynAI状态</h1>
-      <p class="subtitle">笔记、任务、对话和系统运行情况一屏掌握</p>
+      <p class="eyebrow accent">MY SPACE · SNAPSHOT</p>
+      <h1 id="hero-greeting">你好</h1>
+      <p class="subtitle" id="hero-subtitle">正在整理你的今日概览…</p>
       <div class="hero-tags">
-        <span class="hero-tag">实时聚合</span>
-        <span class="hero-tag">内置插件</span>
+        <span class="hero-tag"><i class="dot dot-violet"></i>笔记库</span>
+        <span class="hero-tag"><i class="dot dot-green"></i>任务进度</span>
+        <span class="hero-tag"><i class="dot dot-blue"></i>对话足迹</span>
       </div>
     </div>
-    <div class="hero-badge">
-      <span class="pulse"></span>
-      <span id="system-status">--</span>
+    <div class="hero-side">
+      <div class="hero-badge" id="system-badge">
+        <span class="pulse"></span>
+        <span id="system-status">正在连接</span>
+      </div>
+      <p class="hero-time" id="header-time">等待数据同步</p>
     </div>
-    <p class="hero-time" id="header-time">等待同步</p>
   </section>
 
   <section class="metrics">
     <article class="metric-card notes">
       <div class="metric-top">
         <span class="metric-icon">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
         </span>
         <span class="metric-label">笔记总数</span>
+        <span class="metric-ghost">NOTES</span>
       </div>
-      <div class="metric-value" id="notes-count">--</div>
-      <div class="metric-line"></div>
+      <div class="metric-value skeleton-value" id="notes-count">--</div>
+      <div class="metric-foot">
+        <span class="metric-hint" id="notes-hint">笔尖记录的点滴</span>
+        <span class="metric-line"></span>
+      </div>
     </article>
 
     <article class="metric-card todos">
       <div class="metric-top">
         <span class="metric-icon">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
         </span>
-        <span class="metric-label">任务已完成</span>
+        <span class="metric-label">任务完成</span>
+        <span class="metric-ghost">TASKS</span>
       </div>
-      <div class="metric-value" id="todos-done">--</div>
-      <div class="metric-sub" id="todos-rate">--</div>
+      <div class="ring-wrap">
+        <div class="ring" id="todo-ring">
+          <div class="ring-inner">
+            <span class="metric-value ring-value skeleton-value" id="todos-done">--</span>
+            <span class="ring-caption">已完成</span>
+          </div>
+        </div>
+      </div>
+      <div class="metric-foot">
+        <span class="metric-hint" id="todos-rate">完成率 --</span>
+        <span class="progress-track"><span class="progress-fill" id="todos-progress"></span></span>
+      </div>
     </article>
 
     <article class="metric-card conversations">
       <div class="metric-top">
         <span class="metric-icon">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
         </span>
         <span class="metric-label">对话记录</span>
+        <span class="metric-ghost">CHATS</span>
       </div>
-      <div class="metric-value" id="conversations-count">--</div>
-      <div class="metric-line"></div>
+      <div class="metric-value skeleton-value" id="conversations-count">--</div>
+      <div class="metric-foot">
+        <span class="metric-hint" id="conversations-hint">和 LynAI 的每一次交流</span>
+        <span class="metric-line"></span>
+      </div>
     </article>
   </section>
 
-  <section class="detail-grid">
-    <article class="system-card panel">
-      <div class="section-title">
-        <span>系统</span>
-        <small>Runtime</small>
+  <section class="dashboard-grid">
+    <article class="panel content-card tasks-card">
+      <div class="section-head">
+        <div class="section-title">
+          <span class="section-icon icon-green">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+          </span>
+          <div>
+            <h2>进行中任务</h2>
+            <p class="section-sub" id="tasks-subtitle">正在读取任务…</p>
+          </div>
+        </div>
+        <span class="count-chip" id="tasks-count">--</span>
       </div>
-      <div class="system-orbit">
-        <div class="orbit-ring"></div>
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+
+      <ul class="task-list" id="task-list">
+        <li class="skeleton-row"></li>
+        <li class="skeleton-row"></li>
+        <li class="skeleton-row"></li>
+      </ul>
+
+      <div class="empty-state" id="tasks-empty" style="display:none">
+        <span class="empty-icon">🎯</span>
+        <p id="tasks-empty-text">暂无进行中的任务</p>
       </div>
-      <p class="system-detail" id="system-detail">--</p>
-      <div class="system-glow"></div>
+
+      <div class="card-foot" id="tasks-foot">正在同步任务数据…</div>
     </article>
 
-    <article class="weather-card panel" id="weather-card" style="display:none">
-      <div class="section-title">
-        <span>天气</span>
-        <small id="weather-location">--</small>
+    <article class="panel content-card notes-card">
+      <div class="section-head">
+        <div class="section-title">
+          <span class="section-icon icon-violet">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>
+          </span>
+          <div>
+            <h2>最近笔记</h2>
+            <p class="section-sub" id="notes-subtitle">正在读取笔记…</p>
+          </div>
+        </div>
+        <span class="count-chip chip-violet" id="notes-count-chip">--</span>
+      </div>
+
+      <ul class="note-list" id="note-list">
+        <li class="skeleton-row"></li>
+        <li class="skeleton-row"></li>
+        <li class="skeleton-row"></li>
+      </ul>
+
+      <div class="empty-state" id="notes-empty" style="display:none">
+        <span class="empty-icon">📝</span>
+        <p id="notes-empty-text">还没有笔记，写点什么吧</p>
+      </div>
+
+      <div class="card-foot" id="notes-foot">正在同步笔记数据…</div>
+    </article>
+  </section>
+
+  <section class="dashboard-grid bottom-grid">
+    <article class="panel content-card weather-card" id="weather-card">
+      <div class="section-head">
+        <div class="section-title">
+          <span class="section-icon icon-cyan">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.5 19a4.5 4.5 0 1 0-.42-8.98 6 6 0 1 0-11.06 3.1"/><circle cx="12" cy="13" r="4"/></svg>
+          </span>
+          <div>
+            <h2>此刻天气</h2>
+            <p class="section-sub" id="weather-location">正在定位…</p>
+          </div>
+        </div>
+        <span class="weather-status" id="weather-status">获取中</span>
       </div>
       <div class="weather-main">
-        <div class="weather-temp" id="weather-temp">--</div>
-        <div>
-          <p id="weather-cond">--</p>
-          <p class="weather-meta" id="weather-humidity">--</p>
+        <span class="weather-icon" id="weather-icon">🌤️</span>
+        <div class="weather-temp skeleton-value" id="weather-temp">--</div>
+        <div class="weather-info">
+          <p class="weather-cond" id="weather-cond">--</p>
+          <p class="weather-meta" id="weather-humidity">湿度 --</p>
         </div>
       </div>
-      <div class="weather-glow"></div>
+    </article>
+
+    <article class="panel content-card system-card">
+      <div class="section-head">
+        <div class="section-title">
+          <span class="section-icon icon-amber">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+          </span>
+          <div>
+            <h2>运行环境</h2>
+            <p class="section-sub" id="system-subtitle">LynAI Runtime</p>
+          </div>
+        </div>
+        <span class="health-chip healthy" id="system-health"><i class="dot dot-green"></i>运行中</span>
+      </div>
+      <div class="system-rows">
+        <div class="system-row">
+          <span class="system-key">平台</span>
+          <span class="system-value" id="system-platform">--</span>
+        </div>
+        <div class="system-row">
+          <span class="system-key">版本</span>
+          <span class="system-value" id="system-version">--</span>
+        </div>
+        <div class="system-row">
+          <span class="system-key">时区</span>
+          <span class="system-value" id="system-timezone">--</span>
+        </div>
+      </div>
     </article>
   </section>
 
   <footer>
-    <p id="status-footer">正在连接...</p>
+    <p>
+      <span id="status-footer">正在连接 LynAI…</span>
+      <span class="footer-sep">·</span>
+      <span id="footer-refresh">每 60 秒自动刷新</span>
+    </p>
   </footer>
 </main>
 
 <script>
 (function () {
-  var el = function (id) { return document.getElementById(id); };
+  'use strict';
 
-  function animateValue(target, start, end, duration) {
+  var AUTO_REFRESH_MS = 60000;
+  var clockTimer = null;
+  var refreshTimer = null;
+  var refreshing = false;
+  var firstLoad = true;
+
+  function $(id) { return document.getElementById(id); }
+
+  function pad2(value) { return value < 10 ? '0' + value : String(value); }
+
+  function setText(id, value) {
+    var node = $(id);
+    if (node) node.textContent = value;
+  }
+
+  function createNode(tag, className, text) {
+    var node = document.createElement(tag);
+    if (className) node.className = className;
+    if (text !== undefined && text !== null) node.textContent = text;
+    return node;
+  }
+
+  function clearNode(id) {
+    var node = $(id);
+    if (!node) return null;
+    while (node.firstChild) node.removeChild(node.firstChild);
+    return node;
+  }
+
+  function localDateKey(input) {
+    var date = input instanceof Date ? input : new Date();
+    return date.getFullYear() + '-' + pad2(date.getMonth() + 1) + '-' + pad2(date.getDate());
+  }
+
+  function parseLocalDate(value) {
+    if (!value) return null;
+    var parts = String(value).split('-');
+    if (parts.length < 3) return null;
+    var year = parseInt(parts[0], 10);
+    var month = parseInt(parts[1], 10);
+    var day = parseInt(parts[2], 10);
+    if (!year || !month || !day) return null;
+    return new Date(year, month - 1, day);
+  }
+
+  function parseIsoDate(value) {
+    if (!value) return null;
+    var date = new Date(value);
+    return isNaN(date.getTime()) ? null : date;
+  }
+
+  function dayDiff(a, b) {
+    var ms = Date.UTC(b.getFullYear(), b.getMonth(), b.getDate()) -
+      Date.UTC(a.getFullYear(), a.getMonth(), a.getDate());
+    return Math.round(ms / 86400000);
+  }
+
+  function weekdayName(date) {
+    return ['周日', '周一', '周二', '周三', '周四', '周五', '周六'][date.getDay()];
+  }
+
+  function greeting() {
+    var hour = new Date().getHours();
+    if (hour < 5) return '夜深了 🌙';
+    if (hour < 9) return '早上好 ☀️';
+    if (hour < 12) return '上午好 🌤️';
+    if (hour < 14) return '中午好 ☀️';
+    if (hour < 18) return '下午好 🌇';
+    return '晚上好 🌙';
+  }
+
+  function greetingSubtitle() {
+    var now = new Date();
+    var parts = [now.getFullYear() + '年' + (now.getMonth() + 1) + '月' + now.getDate() + '日'];
+    parts.push(weekdayName(now));
+    parts.push('一起看看今天的进度吧');
+    return parts.join(' · ');
+  }
+
+  function updateClock() {
+    var now = new Date();
+    setText('clock-time', pad2(now.getHours()) + ':' + pad2(now.getMinutes()));
+    setText('clock-date', now.getMonth() + 1 + '月' + now.getDate() + '日 · ' + weekdayName(now));
+    setText('hero-greeting', greeting());
+    if (firstLoad) setText('hero-subtitle', greetingSubtitle());
+  }
+
+  function animateValue(node, start, end, duration) {
+    if (!node) return;
     var startTime = null;
     function step(timestamp) {
       if (!startTime) startTime = timestamp;
       var progress = Math.min((timestamp - startTime) / duration, 1);
       var eased = 1 - Math.pow(1 - progress, 3);
-      target.textContent = Math.round(start + (end - start) * eased);
+      node.textContent = String(Math.round(start + (end - start) * eased));
       if (progress < 1) {
         requestAnimationFrame(step);
       } else {
-        target.textContent = end;
+        node.textContent = String(end);
       }
     }
     requestAnimationFrame(step);
   }
 
-  function loadStats() {
-    if (!window.lynai || !window.lynai.call) {
-      setTimeout(loadStats, 200);
+  function relativeTime(value) {
+    var date = parseIsoDate(value);
+    if (!date) return '--';
+    var diff = Date.now() - date.getTime();
+    if (diff < 60000) return '刚刚';
+    if (diff < 3600000) return Math.floor(diff / 60000) + ' 分钟前';
+    if (diff < 86400000) return Math.floor(diff / 3600000) + ' 小时前';
+    if (diff < 172800000) return '昨天';
+    var now = new Date();
+    if (date.getFullYear() === now.getFullYear()) {
+      return (date.getMonth() + 1) + '月' + date.getDate() + '日';
+    }
+    return date.getFullYear() + '年' + (date.getMonth() + 1) + '月' + date.getDate() + '日';
+  }
+
+  function formatShortDate(value) {
+    var date = parseLocalDate(value);
+    if (!date) return '';
+    return (date.getMonth() + 1) + '月' + date.getDate() + '日';
+  }
+
+  function formatTime(value) {
+    if (!value) return '';
+    var parts = String(value).split(':');
+    if (parts.length < 2) return String(value);
+    var hour = parseInt(parts[0], 10);
+    if (isNaN(hour)) return String(value);
+    return (hour < 10 ? '0' + hour : String(hour)) + ':' + parts[1];
+  }
+
+  function taskMeta(task) {
+    var dateValue = task.dueDate || task.plannedDate;
+    if (!dateValue) return { label: '待安排', cls: 'soft', order: 9, date: '' };
+    var date = parseLocalDate(dateValue);
+    if (!date) return { label: '待安排', cls: 'soft', order: 9, date: '' };
+    var diff = dayDiff(new Date(), date);
+    if (diff < 0) {
+      return {
+        label: '已逾期 · ' + formatShortDate(dateValue),
+        cls: 'overdue',
+        order: 0,
+        date: dateValue
+      };
+    }
+    if (diff === 0) {
+      var time = task.plannedTime || task.dueTime;
+      return {
+        label: '今天' + (time ? ' · ' + formatTime(time) : ''),
+        cls: 'today',
+        order: 1,
+        date: dateValue
+      };
+    }
+    if (diff === 1) return { label: '明天', cls: 'soon', order: 2, date: dateValue };
+    return { label: formatShortDate(dateValue), cls: 'soon', order: 2 + diff, date: dateValue };
+  }
+
+  function weatherIcon(condition) {
+    var text = String(condition || '').toLowerCase();
+    if (/(sunny|clear|晴)/.test(text)) return '☀️';
+    if (/(partly|cloud.*sun|sun.*cloud|间晴|多云)/.test(text)) return '⛅';
+    if (/(storm|thunder|雷)/.test(text)) return '⛈️';
+    if (/(snow|sleet|ice|雪|冻雨)/.test(text)) return '🌨️';
+    if (/(rain|drizzle|shower|雨)/.test(text)) return '🌧️';
+    if (/(fog|mist|haze|雾|霾)/.test(text)) return '🌫️';
+    if (/(wind|风)/.test(text)) return '💨';
+    if (/(overcast|cloud|阴)/.test(text)) return '☁️';
+    return '🌤️';
+  }
+
+  function platformName(value) {
+    switch (String(value || '').toLowerCase()) {
+      case 'android': return 'Android';
+      case 'ios': return 'iOS';
+      case 'linux': return 'Linux';
+      case 'macos': return 'macOS';
+      case 'windows': return 'Windows';
+      case 'web': return 'Web';
+      default: return value || '--';
+    }
+  }
+
+  function setHealth(ok, text) {
+    var chip = $('system-health');
+    if (!chip) return;
+    while (chip.firstChild) chip.removeChild(chip.firstChild);
+    chip.appendChild(createNode('i', 'dot ' + (ok ? 'dot-green' : 'dot-red')));
+    chip.appendChild(document.createTextNode(text));
+    chip.className = 'health-chip ' + (ok ? 'healthy' : 'unhealthy');
+  }
+
+  function setBadge(ok, text) {
+    var badge = $('system-badge');
+    if (!badge) return;
+    badge.className = 'hero-badge ' + (ok ? 'badge-ok' : 'badge-error');
+    setText('system-status', text);
+  }
+
+  function renderStats(stats, failed) {
+    var notesNode = $('notes-count');
+    var todosNode = $('todos-done');
+    var conversationsNode = $('conversations-count');
+
+    if (!stats || !stats.ok) {
+      if (notesNode) notesNode.textContent = '--';
+      if (todosNode) todosNode.textContent = '--';
+      if (conversationsNode) conversationsNode.textContent = '--';
+      setText('todos-rate', '完成率 --');
+      setText('notes-hint', failed ? '统计数据暂不可用' : '暂无笔记数据');
+      setText('conversations-hint', failed ? '统计数据暂不可用' : '暂无对话数据');
+      setRing(0);
+      setProgress(0);
       return;
     }
-    el('status-footer').textContent = '加载数据...';
+
+    var notes = Math.max(0, parseInt(stats.notes, 10) || 0);
+    var done = Math.max(0, parseInt(stats.todos_done, 10) || 0);
+    var total = Math.max(0, parseInt(stats.todos_total, 10) || 0);
+    var conversations = Math.max(0, parseInt(stats.conversations, 10) || 0);
+    var pct = total > 0 ? Math.round(done / total * 100) : 0;
+
+    animateValue(notesNode, 0, notes, 700);
+    animateValue(todosNode, 0, done, 700);
+    animateValue(conversationsNode, 0, conversations, 700);
+    animateProgress(pct, 800);
+
+    setText('todos-rate', total > 0 ? (done + '/' + total + ' · 完成率 ' + pct + '%') : '暂无任务');
+    setText('notes-hint', notes > 0 ? '笔尖记录的点滴' : '还没有笔记，写点什么吧');
+    setText('conversations-hint', conversations > 0 ? '和 LynAI 的每一次交流' : '还没有对话，去聊两句吧');
+  }
+
+  function setRing(percent) {
+    var ring = $('todo-ring');
+    if (ring) ring.style.setProperty('--p', String(percent));
+  }
+
+  function setProgress(percent) {
+    var fill = $('todos-progress');
+    if (fill) fill.style.width = percent + '%';
+  }
+
+  function animateProgress(target, duration) {
+    var startTime = null;
+    function step(timestamp) {
+      if (!startTime) startTime = timestamp;
+      var progress = Math.min((timestamp - startTime) / duration, 1);
+      var eased = 1 - Math.pow(1 - progress, 3);
+      setRing(Math.round(target * eased));
+      setProgress(Math.round(target * eased));
+      if (progress < 1) {
+        requestAnimationFrame(step);
+      } else {
+        setRing(target);
+        setProgress(target);
+      }
+    }
+    requestAnimationFrame(step);
+  }
+
+  function renderTasks(result, failed) {
+    var list = clearNode('task-list');
+    var empty = $('tasks-empty');
+    var foot = $('tasks-foot');
+    var subtitle = $('tasks-subtitle');
+    if (!list || !empty) return;
+
+    if (failed) {
+      empty.style.display = 'block';
+      setText('tasks-empty-text', '任务数据暂不可用');
+      setText('tasks-count', '--');
+      if (subtitle) subtitle.textContent = '稍后会自动重试';
+      if (foot) foot.textContent = '连接中断 · 稍后会自动刷新';
+      return;
+    }
+
+    var tasks = (result && result.tasks) || [];
+    var unfinished = tasks.filter(function (task) { return !task.completed; });
+    var finishedToday = tasks.filter(function (task) {
+      return task.completed && task.completedAt && task.completedAt.slice(0, 10) === localDateKey();
+    }).length;
+    setText('tasks-count', String(unfinished.length));
+
+    if (subtitle) {
+      subtitle.textContent = unfinished.length > 0
+        ? '还有 ' + unfinished.length + ' 项待办'
+        : '今日清清爽爽，没有待办';
+    }
+
+    var open = unfinished
+      .map(function (task) {
+        var meta = taskMeta(task);
+        return { task: task, meta: meta };
+      })
+      .sort(function (a, b) {
+        if (a.meta.order !== b.meta.order) return a.meta.order - b.meta.order;
+        if (a.meta.date !== b.meta.date) return a.meta.date < b.meta.date ? -1 : 1;
+        var ta = a.task.plannedTime || a.task.dueTime || '';
+        var tb = b.task.plannedTime || b.task.dueTime || '';
+        return ta < tb ? -1 : ta > tb ? 1 : 0;
+      })
+      .slice(0, 5);
+
+    if (open.length === 0) {
+      empty.style.display = 'block';
+      setText('tasks-empty-text', finishedToday > 0
+        ? '今日任务已全部完成，漂亮！'
+        : '暂无进行中的任务');
+      if (foot) foot.textContent = finishedToday > 0
+        ? '今天完成了 ' + finishedToday + ' 项任务'
+        : '有新任务时会自动出现在这里';
+      return;
+    }
+
+    empty.style.display = 'none';
+    open.forEach(function (item) {
+      var task = item.task;
+      var meta = item.meta;
+      var row = createNode('li', 'task-row');
+      row.appendChild(createNode('span', 'task-dot ' + meta.cls));
+      row.appendChild(createNode('span', 'task-title', task.title || '未命名任务'));
+      row.appendChild(createNode('span', 'task-meta ' + meta.cls, meta.label));
+      list.appendChild(row);
+    });
+
+    var todayOpen = unfinished.filter(function (task) {
+      var meta = taskMeta(task);
+      return meta.order === 1;
+    }).length;
+    if (foot) {
+      foot.textContent = todayOpen > 0
+        ? '今天还有 ' + todayOpen + ' 项待办'
+        : '最近 5 项待办已按时间排好';
+    }
+  }
+
+  function renderNotes(result, failed) {
+    var list = clearNode('note-list');
+    var empty = $('notes-empty');
+    var foot = $('notes-foot');
+    var subtitle = $('notes-subtitle');
+    if (!list || !empty) return;
+
+    if (failed) {
+      empty.style.display = 'block';
+      setText('notes-empty-text', '笔记数据暂不可用');
+      setText('notes-count-chip', '--');
+      if (subtitle) subtitle.textContent = '稍后会自动重试';
+      if (foot) foot.textContent = '连接中断 · 稍后会自动刷新';
+      return;
+    }
+
+    var notes = (result && result.notes) || [];
+    setText('notes-count-chip', String(notes.length));
+
+    if (notes.length === 0) {
+      empty.style.display = 'block';
+      setText('notes-empty-text', '还没有笔记，写点什么吧');
+      if (subtitle) subtitle.textContent = '用笔记记录灵感';
+      if (foot) foot.textContent = '新笔记会出现在这里';
+      return;
+    }
+
+    empty.style.display = 'none';
+    notes.slice()
+      .sort(function (a, b) {
+        var ta = parseIsoDate(a.updatedAt);
+        var tb = parseIsoDate(b.updatedAt);
+        var av = ta ? ta.getTime() : 0;
+        var bv = tb ? tb.getTime() : 0;
+        return bv - av;
+      })
+      .slice(0, 4)
+      .forEach(function (note) {
+        var row = createNode('li', 'note-row');
+        var head = createNode('div', 'note-row-head');
+        head.appendChild(createNode('span', 'note-title', note.title || '无标题笔记'));
+        head.appendChild(createNode('span', 'note-time', relativeTime(note.updatedAt)));
+        var summary = createNode('p', 'note-summary', note.summary || '暂无摘要');
+        row.appendChild(head);
+        row.appendChild(summary);
+        list.appendChild(row);
+      });
+
+    if (subtitle) subtitle.textContent = '共 ' + notes.length + ' 篇笔记';
+    if (foot) foot.textContent = '按最近更新时间排序';
+  }
+
+  function renderWeather(weather, failed) {
+    var card = $('weather-card');
+    if (!card) return;
+    card.classList.add('loaded');
+
+    if (!weather || !weather.ok) {
+      setText('weather-temp', '--');
+      setText('weather-cond', failed ? '天气暂不可用' : '暂无天气数据');
+      setText('weather-humidity', failed ? '检查网络后自动重试' : '湿度 --');
+      setText('weather-location', '--');
+      setText('weather-status', failed ? '离线' : '无数据');
+      $('weather-icon').textContent = failed ? '🛰️' : '🌤️';
+      return;
+    }
+
+    var condition = weather.condition || '--';
+    setText('weather-temp', (weather.temp || '--') + '°C');
+    setText('weather-cond', condition);
+    setText('weather-humidity', '湿度 ' + (weather.humidity || '--') + '%');
+    setText('weather-location', weather.location || '当前位置');
+    setText('weather-status', '实时');
+    $('weather-icon').textContent = weatherIcon(condition);
+  }
+
+  function renderSystem(system, failed) {
+    if (!system || !system.ok) {
+      setBadge(false, failed ? '状态获取失败' : '未知');
+      setHealth(false, '离线');
+      setText('system-platform', '--');
+      setText('system-version', '--');
+      setText('system-timezone', '--');
+      setText('header-time', failed ? '系统状态暂不可用' : '等待数据同步');
+      return;
+    }
+
+    setBadge(true, '运行中');
+    setHealth(true, '运行中');
+    setText('system-platform', platformName(system.platform));
+    setText('system-version', system.appVersion || '--');
+    var timezone = system.timezone || '--';
+    if (typeof system.timezoneOffsetMinutes === 'number') {
+      var total = system.timezoneOffsetMinutes;
+      var sign = total <= 0 ? '+' : '-';
+      var abs = Math.abs(total);
+      timezone += ' · UTC' + sign + pad2(Math.floor(abs / 60)) + ':' + pad2(abs % 60);
+    }
+    setText('system-timezone', timezone);
+    setText('header-time', '更新于 ' + new Date().toLocaleTimeString('zh-CN', { hour12: false }));
+  }
+
+  function updateFooter(okCount, failCount) {
+    var now = new Date();
+    var time = now.toLocaleTimeString('zh-CN', { hour12: false });
+    if (firstLoad && failCount === 0) {
+      setText('status-footer', '更新于 ' + time + ' · 一切正常');
+    } else if (failCount > 0 && okCount === 0) {
+      setText('status-footer', '更新于 ' + time + ' · 暂时无法连接 LynAI');
+    } else if (failCount > 0) {
+      setText('status-footer', '更新于 ' + time + ' · ' + failCount + ' 项数据暂不可用');
+    } else {
+      setText('status-footer', '更新于 ' + time + ' · 全部就绪');
+    }
+  }
+
+  function callBridge(method, params) {
+    if (window.lynai && window.lynai.call) {
+      return window.lynai.call(method, params || {}).catch(function () { return null; });
+    }
+    return Promise.resolve(null);
+  }
+
+  function loadData() {
+    if (refreshing) return;
+    refreshing = true;
+    var btn = $('refresh-btn');
+    if (btn) btn.classList.add('spinning');
 
     var calls = [
-      window.lynai.call('plugin.func', {name: 'stats'}).catch(function(e) { console.error('stats error:', e); return null; }),
-      window.lynai.call('plugin.func', {name: 'weather'}).catch(function(e) { console.error('weather error:', e); return null; }),
-      window.lynai.call('system.status').catch(function(e) { console.error('system error:', e); return null; })
+      callBridge('plugin.func', { name: 'stats' }),
+      callBridge('tasks.list', {}),
+      callBridge('notes.list', {}),
+      callBridge('plugin.func', { name: 'weather' }),
+      callBridge('system.status')
     ];
-
     var startTime = Date.now();
 
     Promise.all(calls).then(function (results) {
       var stats = results[0];
-      var weather = results[1];
-      var system = results[2];
-      console.log('stats:', stats, 'weather:', weather, 'system:', system);
+      var tasks = results[1];
+      var notes = results[2];
+      var weather = results[3];
+      var system = results[4];
+      var failCount = results.filter(function (item) { return item === null; }).length;
 
       var elapsed = Date.now() - startTime;
-      var minDelay = elapsed < 400 ? 400 - elapsed : 0;
+      var wait = elapsed < 350 ? 350 - elapsed : 0;
       setTimeout(function () {
-        renderStats(stats, minDelay);
-        renderWeather(weather, minDelay);
-        renderSystem(system, minDelay);
-        el('status-footer').textContent = '更新于 ' + new Date().toLocaleTimeString('zh-CN');
-      }, minDelay);
+        renderStats(stats, stats === null);
+        renderTasks(tasks, tasks === null);
+        renderNotes(notes, notes === null);
+        renderWeather(weather, weather === null);
+        renderSystem(system, system === null);
+        updateFooter(results.length - failCount, failCount);
+
+        document.body.classList.remove('is-loading');
+        firstLoad = false;
+        refreshing = false;
+        if (btn) btn.classList.remove('spinning');
+      }, wait);
     });
   }
 
-  function renderStats(stats, delay) {
-    if (!stats || !stats.ok) {
-      el('notes-count').textContent = '--';
-      el('todos-done').textContent = '--';
-      el('todos-rate').textContent = '数据不可用';
-      el('conversations-count').textContent = '--';
+  function waitForBridge(callback) {
+    if (window.lynai && window.lynai.call) {
+      callback();
       return;
     }
-    var notes = stats.notes || 0;
-    var done = stats.todos_done || 0;
-    var total = stats.todos_total || 0;
-    var convs = stats.conversations || 0;
-    var pct = total > 0 ? Math.round(done / total * 100) : 0;
-
-    animateValue(el('notes-count'), 0, notes, 600);
-    animateValue(el('todos-done'), 0, done, 600);
-    el('todos-rate').textContent = total > 0 ? done + '/' + total + ' · ' + pct + '%' : '暂无任务';
-    animateValue(el('conversations-count'), 0, convs, 600);
+    var attempts = 0;
+    var timer = setInterval(function () {
+      attempts += 1;
+      if (window.lynai && window.lynai.call) {
+        clearInterval(timer);
+        callback();
+      } else if (attempts >= 60) {
+        clearInterval(timer);
+        renderStats(null, true);
+        renderTasks(null, true);
+        renderNotes(null, true);
+        renderWeather(null, true);
+        renderSystem(null, true);
+        updateFooter(0, 5);
+        document.body.classList.remove('is-loading');
+        firstLoad = false;
+      }
+    }, 200);
   }
 
-  function renderWeather(weather, delay) {
-    if (!weather || !weather.ok) {
-      el('weather-card').style.display = 'none';
-      return;
-    }
-    el('weather-card').style.display = 'block';
-    el('weather-temp').textContent = (weather.temp || '--') + '°C';
-    el('weather-cond').textContent = weather.condition || '--';
-    el('weather-humidity').textContent = '湿度 ' + (weather.humidity || '--') + '%';
-    el('weather-location').textContent = weather.location || '--';
-  }
-
-  function renderSystem(system, delay) {
-    if (!system || !system.ok) {
-      el('system-status').textContent = '--';
-      el('system-detail').textContent = '--';
-      return;
-    }
-    el('system-status').textContent = '运行中';
-    var detail = (system.platform || '--') + ' / ' + (system.appVersion || '--');
-    el('system-detail').textContent = detail;
-
-    if (system.timestamp) {
-      var d = new Date(system.timestamp);
-      el('header-time').textContent = d.toLocaleTimeString('zh-CN', {hour12: false}) +
-        ' · ' + (system.timezone || '');
-    }
+  function scheduleAutoRefresh() {
+    if (refreshTimer) clearInterval(refreshTimer);
+    refreshTimer = setInterval(function () {
+      if (document.visibilityState !== 'visible') return;
+      loadData();
+    }, AUTO_REFRESH_MS);
   }
 
   function init() {
-    if (document.readyState === 'loading') {
-      document.addEventListener('DOMContentLoaded', loadStats);
-    } else {
-      loadStats();
-    }
-    window.addEventListener('lynai-ready', function () { loadStats(); });
+    updateClock();
+    clockTimer = setInterval(updateClock, 1000);
+
+    var btn = $('refresh-btn');
+    if (btn) btn.addEventListener('click', function () { loadData(); });
+
+    waitForBridge(function () {
+      loadData();
+      scheduleAutoRefresh();
+    });
+
+    window.addEventListener('lynai-ready', function () {
+      loadData();
+      scheduleAutoRefresh();
+    });
+
+    document.addEventListener('visibilitychange', function () {
+      if (document.visibilityState === 'visible' && !refreshing) loadData();
+    });
   }
 
-  init();
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
 })();
 </script>
 </body>

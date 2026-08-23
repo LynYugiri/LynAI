@@ -3,7 +3,7 @@
   "name": "状态",
   "version": "1.0.0",
   "author": "LynAI",
-  "description": "显示笔记、任务、对话和系统状态概览",
+  "description": "个人仪表盘：一屏掌握笔记、任务、对话、天气与系统状态",
   "icon": "icon.svg",
   "entry": "main.lua",
   "permissions": [
@@ -30,7 +30,7 @@
   "featurePages": [
     {
       "id": "status",
-      "title": "状态",
+      "title": "仪表盘",
       "entry": "status.html"
     }
   ],
