@@ -1,15 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../pages/account_detail_page.dart';
 import '../providers/account_provider.dart';
-import '../providers/model_config_provider.dart';
 import '../services/backend_client.dart';
 import 'login_dialog.dart';
 
 /// 设置页顶部的账号卡片。
 ///
-/// 已登录时显示头像、用户名和登出按钮；未登录时显示「点击登录」按钮，
-/// 点击后弹出 [LoginDialog]。后端未连接时登录不可用。
+/// 已登录时显示头像、用户名和连接状态，点击卡片进入 [AccountDetailPage]；
+/// 未登录时显示「点击登录」按钮，点击后弹出 [LoginDialog]。
+/// 后端未连接时登录不可用。
 class AccountHeaderCard extends StatelessWidget {
   const AccountHeaderCard({super.key});
 
@@ -37,93 +38,90 @@ class _LoggedInCard extends StatelessWidget {
     final user = account.user!;
     return Card(
       margin: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Row(
-          children: [
-            CircleAvatar(
-              backgroundColor: theme.colorScheme.primary.withValues(
-                alpha: 0.12,
+      child: InkWell(
+        onTap: () => Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const AccountDetailPage()),
+        ),
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            children: [
+              CircleAvatar(
+                backgroundColor: theme.colorScheme.primary.withValues(
+                  alpha: 0.12,
+                ),
+                child: Text(
+                  user.displayName.isNotEmpty
+                      ? user.displayName[0].toUpperCase()
+                      : '?',
+                  style: TextStyle(color: theme.colorScheme.primary),
+                ),
               ),
-              child: Text(
-                user.displayName.isNotEmpty
-                    ? user.displayName[0].toUpperCase()
-                    : '?',
-                style: TextStyle(color: theme.colorScheme.primary),
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Flexible(
-                        child: Text(
-                          user.displayName,
-                          style: const TextStyle(
-                            fontWeight: FontWeight.w700,
-                            fontSize: 16,
-                          ),
-                        ),
-                      ),
-                      if (user.isAdmin) ...[
-                        const SizedBox(width: 6),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 6,
-                            vertical: 1,
-                          ),
-                          decoration: BoxDecoration(
-                            color: theme.colorScheme.primary.withValues(
-                              alpha: 0.12,
-                            ),
-                            borderRadius: BorderRadius.circular(4),
-                          ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Flexible(
                           child: Text(
-                            '管理员',
-                            style: TextStyle(
-                              fontSize: 10,
-                              fontWeight: FontWeight.w600,
-                              color: theme.colorScheme.primary,
+                            user.displayName,
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w700,
+                              fontSize: 16,
                             ),
                           ),
                         ),
+                        if (user.isAdmin) ...[
+                          const SizedBox(width: 6),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 6,
+                              vertical: 1,
+                            ),
+                            decoration: BoxDecoration(
+                              color: theme.colorScheme.primary.withValues(
+                                alpha: 0.12,
+                              ),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Text(
+                              '管理员',
+                              style: TextStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.w600,
+                                color: theme.colorScheme.primary,
+                              ),
+                            ),
+                          ),
+                        ],
                       ],
-                    ],
-                  ),
-                  if (user.phone.isNotEmpty)
-                    Text(user.phone, style: theme.textTheme.bodySmall),
-                  if (!account.isBackendConnected)
-                    Text(
-                      '本地账号 · 未连接后端',
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: theme.colorScheme.onSurfaceVariant,
-                      ),
                     ),
-                ],
+                    if (user.phone.isNotEmpty)
+                      Text(user.phone, style: theme.textTheme.bodySmall),
+                    if (!account.isBackendConnected)
+                      Text(
+                        '本地账号 · 未连接后端',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                  ],
+                ),
               ),
-            ),
-            if (account.loading)
-              const SizedBox(
-                width: 24,
-                height: 24,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              )
-            else
-              TextButton(
-                onPressed: () async {
-                  await account.logout();
-                  if (context.mounted) {
-                    await context
-                        .read<ModelConfigProvider>()
-                        .removeLynaiManagedModels();
-                  }
-                },
-                child: const Text('退出登录'),
-              ),
-          ],
+              if (account.loading)
+                const SizedBox(
+                  width: 24,
+                  height: 24,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              else
+                const Icon(Icons.chevron_right),
+            ],
+          ),
         ),
       ),
     );

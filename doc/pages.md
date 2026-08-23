@@ -18,6 +18,7 @@ HomePage
 ├── 对话
 ├── 社区
 └── 设置
+    ├── 账号详情
     ├── 关于
     ├── 背景
     ├── API
@@ -54,7 +55,7 @@ HomePage
 
 文件：`lib/pages/onboarding/onboarding_page.dart`
 
-首次启动且 `AppSettings.hasCompletedOnboarding == false` 时，根组件在 Home 前展示新手向导。设置页「新手向导」入口可随时重跑；重跑时从 `onboardingInputJson` 恢复上次选择。
+首次启动且 `AppSettings.hasCompletedOnboarding == false` 时，根组件在 Home 前展示新手向导。设置页「新手向导」入口可随时重跑；重跑时从 `onboardingInputJson` 恢复上次选择，已登录账号会把当前用户名自动填到「你的名字是？」（账号名优先于上次保存的名字，仍可手动修改）。
 
 | 步骤 | 行为 |
 |------|------|
@@ -263,12 +264,13 @@ Agent 工具轮数上限保存为 `ConversationSettings.maxToolRounds`（新建�
 
 文件：`lib/pages/settings_page.dart`
 
-设置页本身是入口卡片，具体配置由子页面承担。顶部显示 `AccountHeaderCard` 账号卡片：已登录时显示头像、用户名和退出登录按钮；未登录时显示登录按钮，点击后弹出 `LoginDialog`（手机号+密码，可切换注册模式）。测试期间后端地址写死为 `http://8.138.82.3:8080`，设置页不再提供「连接到服务端」入口，未登录也能使用 LynAI 托管模型。
+设置页本身是入口卡片，具体配置由子页面承担。顶部显示 `AccountHeaderCard` 账号卡片：已登录时显示头像、用户名和连接状态，点击卡片进入账号详情；未登录时显示登录按钮，点击后弹出 `LoginDialog`（手机号+密码，可切换注册模式）。测试期间后端地址写死为 `http://8.138.82.3:8080`，设置页不再提供「连接到服务端」入口，未登录也能使用 LynAI 托管模型。
 
 | 页面 | 文件 | 说明 |
 |------|------|------|
+| 账号详情 | `account_detail_page.dart` | 展示头像、用户名、手机号和连接状态，可修改用户名（1–32 字符）；退出登录按钮固定在页面底部，成功后返回设置页。 |
 | 关于 | `about_page.dart` | 应用信息、项目链接、许可证和更新日志入口。 |
-| 新手向导 | `onboarding/onboarding_page.dart` | 重新运行首次启动向导，按上次选择预填，可重新生成角色、角色记忆、知识库、牌组、任务清单、笔记与 SKILL。 |
+| 新手向导 | `onboarding/onboarding_page.dart` | 重新运行首次启动向导，按上次选择预填；已登录时用户名自动填入账号用户名，可重新生成角色、角色记忆、知识库、牌组、任务清单、笔记与 SKILL。 |
 | 功能引导 | `home_page.dart` | 把 `hasCompletedGuidedTour` 置回 `false`，HomePage 会切回对话 Tab 并重新弹出聚光灯引导。 |
 | 背景 | `background_page.dart` | 背景图、清除背景、模糊开关和强度。 |
 | API | `api_models_page.dart` | 模型配置分类、编辑、排序和模型拉取。 |

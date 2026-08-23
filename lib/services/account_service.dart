@@ -2,7 +2,8 @@ import '../models/account.dart';
 
 /// 账号服务抽象。
 ///
-/// 定义注册、登录、登出、当前用户查询和同步能力，不绑定具体后端实现。
+/// 定义注册、登录、登出、资料修改、当前用户查询和同步能力，
+/// 不绑定具体后端实现。
 /// 前端页面和 Provider 只依赖这个抽象，后端就绪后用
 /// [RemoteAccountService] 实现。
 abstract class AccountService {
@@ -21,6 +22,12 @@ abstract class AccountService {
 
   /// 登出当前用户，清理本地凭证。
   Future<void> logout();
+
+  /// 修改当前用户的显示名称，返回更新后的用户。
+  ///
+  /// 实现应把结果同步回本地缓存的会话，使重启后无需等待
+  /// `/auth/me` 也能看到新名称。
+  Future<AccountUser> updateDisplayName(String displayName);
 
   /// 获取当前登录用户，未登录或会话失效返回 null。
   Future<AccountUser?> getCurrentUser();

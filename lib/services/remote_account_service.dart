@@ -219,6 +219,54 @@ class RemoteAccountService implements AccountService, AccountSessionRecovery {
     return session;
   }
 
+  @override
+  Future<AccountUser> updateDisplayName(String displayName) async {
+    final generation = _authGeneration;
+    final scope = _client.backendScope;
+    final session = await loadStoredSession();
+    if (session == null) {
+      throw const AccountUnavailableException('当前未登录');
+    }
+    final resp = await _client.patch(
+      '/auth/me',
+      body: {'displayName': displayName},
+    );
+    if (resp.statusCode != 200) {
+      throw AccountUnavailableException(
+        BackendClient.extractErrorMessage(resp.body) ?? '修改用户名失败',
+      );
+    }
+    final decoded = jsonDecode(resp.body);
+    if (decoded is! Map) {
+      throw const AccountUnavailableException('账号信息无效');
+    }
+    final userJson = Map<String, dynamic>.from(
+      decoded['user'] is Map ? decoded['user'] as Map : decoded,
+    );
+    final user = AccountUser.fromJson(userJson);
+    if (user.id.isEmpty || user.id != session.user.id) {
+      throw const AccountUnavailableException('账号信息无效');
+    }
+    final saved = await _saveSession(
+      AuthSession(
+        user: user,
+        token: AuthToken(
+          accessToken: _client.accessToken ?? session.token.accessToken,
+          refreshToken: _client.refreshToken,
+          expiresAt: session.token.expiresAt,
+        ),
+      ),
+      scope: scope,
+      generation: generation,
+    );
+    if (!saved ||
+        generation != _authGeneration ||
+        _client.backendScope != scope) {
+      throw const AccountUnavailableException('后端地址已变更，请重试');
+    }
+    return user;
+  }
+
   Future<AuthSession> _acceptAuthenticatedSession(
     String body,
     String scope,

@@ -334,20 +334,21 @@ Subagent 适合 QQ/消息应用这类流程：主 Agent 只描述目标，Subage
 
 文件：`lib/services/account_service.dart`、`lib/services/remote_account_service.dart`
 
-`AccountService` 是账号系统的抽象，定义注册、登录、登出、当前用户查询和会话恢复能力。前端页面和 Provider 只依赖抽象接口，不绑定具体后端实现。
+`AccountService` 是账号系统的抽象，定义注册、登录、登出、用户名修改、当前用户查询和会话恢复能力。前端页面和 Provider 只依赖抽象接口，不绑定具体后端实现。
 
 | 方法 | 说明 |
 |------|------|
 | `register({username, password, displayName})` | 手机号和密码注册新用户，返回 `AuthSession`。 |
 | `login({username, password})` | 手机号和密码登录，返回 `AuthSession`。 |
 | `logout()` | 登出当前用户，清理本地凭证。 |
+| `updateDisplayName(displayName)` | 通过 `PATCH /auth/me` 修改用户名并更新本地缓存会话。 |
 | `getCurrentUser()` | 获取当前登录用户，未登录返回 null。 |
 | `loadStoredSession()` | 从本地持久化加载会话状态（启动时调用）。 |
 | `AccountSessionRecovery.restoreLocalSession()` | 只恢复本地 token 和缓存用户，不访问网络。 |
 | `AccountSessionRecovery.refreshCurrentSession()` | 单独刷新 `/auth/me`，临时失败保留缓存会话。 |
 | `isBackendConnected` | 当前服务是否已连接到真实后端。 |
 
-账号服务通过 `RemoteAccountService` 访问配置的后端 `/auth/*` 端点；未配置后端地址时 `AccountProvider` 不创建账号服务，登录/注册返回「未连接后端」。启动时先用 `restoreLocalSession()` 恢复本地 user/token，完成本地同步 scope 绑定后即可进入 Home；`GET /auth/me` 由后台 `refreshCurrentSession()` 更新用户资料和 `isAdmin`。access token 过期时复用 `BackendClient` 的 401-refresh-retry。网络错误、5xx 和 refresh 403 保留缓存会话，只有 refresh 明确返回 401 或刷新后 `/auth/me` 仍返回 401 时清除会话。后端轮换 refresh token 后，新 token pair 会立即覆盖安全存储。显式登出只触发一次可等待的本地 session 解绑；撤销队列记录规范化完整 Base URL，并向原 path prefix 下的 `/auth/revoke` 后台重试。
+账号服务通过 `RemoteAccountService` 访问配置的后端 `/auth/*` 端点；未配置后端地址时 `AccountProvider` 不创建账号服务，登录/注册返回「未连接后端」。启动时先用 `restoreLocalSession()` 恢复本地 user/token，完成本地同步 scope 绑定后即可进入 Home；`GET /auth/me` 由后台 `refreshCurrentSession()` 更新用户资料和 `isAdmin`。修改用户名成功后，`RemoteAccountService` 把后端返回的新用户写回本地缓存会话，原 token 与 session 保持不变。access token 过期时复用 `BackendClient` 的 401-refresh-retry。网络错误、5xx 和 refresh 403 保留缓存会话，只有 refresh 明确返回 401 或刷新后 `/auth/me` 仍返回 401 时清除会话。后端轮换 refresh token 后，新 token pair 会立即覆盖安全存储。显式登出只触发一次可等待的本地 session 解绑；撤销队列记录规范化完整 Base URL，并向原 path prefix 下的 `/auth/revoke` 后台重试。
 
 `RemoteApplyCoordinator` 是云同步和 LAN 同步共享的进程内本地提交门。它不串行网络认证和传输，只保证会修改 storage_v2、插件文件、Provider 内存、模型迁移和平台投影的提交阶段不会交错；前一操作失败后尾链仍可继续执行。
 

@@ -149,6 +149,36 @@ void main() {
       expect(provider.user, isNull);
     });
 
+    test('updateDisplayName publishes the refreshed user', () async {
+      final provider = AccountProvider(service: _MockAccountService());
+      await provider.login('13800001111', '');
+      var notified = false;
+      provider.addListener(() => notified = true);
+
+      final updated = await provider.updateDisplayName('  新名字  ');
+
+      expect(updated?.displayName, '新名字');
+      expect(provider.user?.displayName, '新名字');
+      expect(provider.loading, isFalse);
+      expect(provider.error, isNull);
+      expect(notified, isTrue);
+    });
+
+    test('updateDisplayName without backend reports an error', () async {
+      final backend = BackendClient();
+      final provider = AccountProvider(
+        backend: backend,
+        secretStore: InMemorySecretStore(),
+      );
+
+      final updated = await provider.updateDisplayName('新名字');
+
+      expect(updated, isNull);
+      expect(provider.loading, isFalse);
+      expect(provider.error, contains('未连接后端'));
+      backend.dispose();
+    });
+
     test(
       'logout activation failure preserves authenticated publication',
       () async {
@@ -398,6 +428,79 @@ void main() {
   });
 
   group('remote account session', () {
+    test('updateDisplayName persists the refreshed cached user', () async {
+      final client = BackendClient(
+        client: _AccountClient((request) async {
+          if (request.url.path == '/auth/login') {
+            return _jsonResponse(200, _sessionJson());
+          }
+          if (request.method == 'PATCH' && request.url.path == '/auth/me') {
+            return _jsonResponse(200, {
+              'user': {
+                'id': '1',
+                'phone': '13800001111',
+                'displayName': '新名字',
+                'isAdmin': false,
+              },
+            });
+          }
+          return _jsonResponse(404, {'error': 'not found'});
+        }),
+      )..configure('https://example.com');
+      final secrets = InMemorySecretStore();
+      final service = RemoteAccountService(client, secretStore: secrets);
+      await service.login(username: '13800001111', password: 'password');
+
+      final updated = await service.updateDisplayName('新名字');
+
+      expect(updated.displayName, '新名字');
+      final stored =
+          jsonDecode(
+                (await SharedPreferences.getInstance()).getString(
+                  RemoteAccountService.sessionKeyForScope(client.backendScope),
+                )!,
+              )
+              as Map<String, dynamic>;
+      expect(stored['user']['displayName'], '新名字');
+      expect(client.accessToken, 'initial-access');
+      expect(
+        await secrets.read(
+          RemoteAccountService.accessTokenKeyForScope(client.backendScope),
+        ),
+        'initial-access',
+      );
+      client.dispose();
+    });
+
+    test('updateDisplayName propagates backend errors', () async {
+      final client = BackendClient(
+        client: _AccountClient((request) async {
+          if (request.url.path == '/auth/login') {
+            return _jsonResponse(200, _sessionJson());
+          }
+          if (request.method == 'PATCH' && request.url.path == '/auth/me') {
+            return _jsonResponse(400, {'error': 'invalid display name'});
+          }
+          return _jsonResponse(404, {'error': 'not found'});
+        }),
+      )..configure('https://example.com');
+      final secrets = InMemorySecretStore();
+      final service = RemoteAccountService(client, secretStore: secrets);
+      await service.login(username: '13800001111', password: 'password');
+
+      await expectLater(
+        service.updateDisplayName(''),
+        throwsA(
+          isA<AccountUnavailableException>().having(
+            (e) => e.message,
+            'message',
+            'invalid display name',
+          ),
+        ),
+      );
+      client.dispose();
+    });
+
     test('refresh persists the new token pair', () async {
       final client = BackendClient(
         client: _AccountClient((request) async {
@@ -1204,6 +1307,11 @@ class _MockAccountService implements AccountService {
   Future<void> logout() async {}
 
   @override
+  Future<AccountUser> updateDisplayName(String displayName) async {
+    return AccountUser(id: '1', phone: '13800001111', displayName: displayName);
+  }
+
+  @override
   Future<AccountUser?> getCurrentUser() async => null;
 
   @override
@@ -1234,6 +1342,10 @@ class _ThrowingAccountService implements AccountService {
 
   @override
   Future<void> logout() async {}
+
+  @override
+  Future<AccountUser> updateDisplayName(String displayName) =>
+      throw UnimplementedError();
 
   @override
   Future<AccountUser?> getCurrentUser() async => null;
@@ -1267,6 +1379,10 @@ class _DelayedAccountService implements AccountService {
 
   @override
   Future<void> logout() async {}
+
+  @override
+  Future<AccountUser> updateDisplayName(String displayName) =>
+      throw UnimplementedError();
 
   @override
   Future<AccountUser?> getCurrentUser() async => null;
@@ -1318,6 +1434,10 @@ class _SplitRecoveryAccountService
 
   @override
   Future<void> logout() async {}
+
+  @override
+  Future<AccountUser> updateDisplayName(String displayName) =>
+      throw UnimplementedError();
 }
 
 class _DelayedRestoreAccountService
@@ -1358,4 +1478,8 @@ class _DelayedRestoreAccountService
 
   @override
   Future<void> logout() async {}
+
+  @override
+  Future<AccountUser> updateDisplayName(String displayName) =>
+      throw UnimplementedError();
 }

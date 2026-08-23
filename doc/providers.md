@@ -149,6 +149,8 @@ Provider 的更新策略是：先改内存并通知 UI，再把持久化操作�
 
 模型排序先按 `category`，再按 `priority`。`managed=true` 的托管配置由同步流程维护，普通编辑和删除入口不会改写它们；托管 ID 形如 `__lynai_relay_<category>__`。同步先构建完整下一集合，再一次性替换当前托管数据；离线、请求失败和无效响应不会清空现有数据。相同 ID 更新时保留本地排序、当前模型、禁用状态和用户覆盖。
 
+`ModelConfigProvider` 还维护 `_builtInModels` 覆盖层：监听 `OnDeviceLlmService`，当本地 BlueLM 状态为 `validated/initializing/ready` 时把 `ModelConfig.localBlueLm()` 注入 `models` getter，其他状态自动移除。该覆盖层不进入 repository、`_queueSaveModels`、云/LAN 同步、备份或 API 管理页，因此失败时本地模型从所有模型列表消失，而设置页仍可修改路径和授权。
+
 普通 Provider 编辑页提供逐 Provider 的“同步非秘密配置”开关，默认关闭。同步只传 `SyncedModelConfigV1`；安全存储引用和 API key 不会进入 Outbox。远端应用后重新加载模型并再次拉取托管 Relay 基线。
 
 ## SettingsProvider
@@ -270,7 +272,7 @@ Provider 的更新策略是：先改内存并通知 UI，再把持久化操作�
 
 文件：`lib/providers/account_provider.dart`
 
-负责账号登录态管理，委托 `AccountService` 完成注册、登录、登出和会话恢复。Provider 只保存内存状态并通知 UI，不直接读写 SharedPreferences——持久化由 service 实现负责。
+负责账号登录态管理，委托 `AccountService` 完成注册、登录、登出、用户名修改和会话恢复。Provider 只保存内存状态并通知 UI，不直接读写 SharedPreferences——持久化由 service 实现负责。
 
 | 方法 | 说明 |
 |------|------|
@@ -280,6 +282,7 @@ Provider 的更新策略是：先改内存并通知 UI，再把持久化操作�
 | `load()` | 兼容入口，依次执行本地恢复、远端刷新和激活。启动组合根不使用它阻塞首屏。 |
 | `login(username, password)` | 手机号和密码登录，成功返回 true 并设置 `user`。 |
 | `register(username, password, {displayName})` | 手机号和密码注册新用户，成功后自动登录。 |
+| `updateDisplayName(displayName)` | 通过 `PATCH /auth/me` 修改当前用户名，成功后立即发布更新后的 `user`。 |
 | `logout()` | 登出并清除本地凭证。 |
 | `clearError()` | 清除最近一次操作的错误信息。 |
 
@@ -287,7 +290,7 @@ Provider 的更新策略是：先改内存并通知 UI，再把持久化操作�
 |------|------|
 | `user` | 当前登录用户，未登录时为 null。 |
 | `isLoggedIn` | 是否已登录。 |
-| `loading` | 是否正在执行登录/注册/登出。 |
+| `loading` | 是否正在执行登录/注册/用户名修改/登出。 |
 | `error` | 最近一次操作的错误信息。 |
 | `isBackendConnected` | 当前使用的账号服务是否已连接真实后端。 |
 

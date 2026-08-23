@@ -140,4 +140,13 @@ class _TestAccountService implements AccountService {
 
   @override
   Future<void> logout() async {}
+
+  @override
+  Future<AccountUser> updateDisplayName(String displayName) async {
+    return AccountUser(
+      id: 'user-1',
+      phone: '13800001111',
+      displayName: displayName,
+    );
+  }
 }

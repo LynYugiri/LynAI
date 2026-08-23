@@ -370,6 +370,43 @@ class AccountProvider extends ChangeNotifier {
     }
   }
 
+  /// 修改当前登录用户的显示名称。
+  ///
+  /// 成功后返回更新后的 [AccountUser] 并同步更新内存状态；
+  /// 失败时返回 null，错误写入 [error]。
+  Future<AccountUser?> updateDisplayName(String displayName) async {
+    final generation = ++_operationGeneration;
+    final trimmed = displayName.trim();
+    final svc = _service;
+    if (trimmed.isEmpty) {
+      _error = '用户名不能为空';
+      _notifyListeners();
+      return null;
+    }
+    if (svc == null) {
+      _error = '未连接后端，无法修改用户名';
+      _notifyListeners();
+      return null;
+    }
+    _loading = true;
+    _error = null;
+    _notifyListeners();
+    try {
+      final user = await svc.updateDisplayName(trimmed);
+      if (!_isCurrent(generation)) return null;
+      _user = user;
+      _loading = false;
+      _notifyListeners();
+      return user;
+    } catch (e) {
+      if (!_isCurrent(generation)) return null;
+      _loading = false;
+      _error = e.toString();
+      _notifyListeners();
+      return null;
+    }
+  }
+
   /// 登出当前用户。
   Future<void> logout() async {
     final generation = ++_operationGeneration;

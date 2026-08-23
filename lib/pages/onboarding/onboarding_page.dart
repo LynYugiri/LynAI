@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../../models/agent_working_memory.dart';
 import '../../models/onboarding/onboarding_draft.dart';
 import '../../models/onboarding/onboarding_input.dart';
+import '../../providers/account_provider.dart';
 import '../../providers/feature_provider.dart';
 import '../../providers/knowledge_provider.dart';
 import '../../providers/memory_card_provider.dart';
@@ -79,6 +80,18 @@ class _OnboardingPageState extends State<OnboardingPage> {
     _nameController.text = _controller.input.userName;
     _occupationCustomController.text = _controller.input.occupationCustom;
     _freeTextController.text = _controller.input.freeText;
+
+    // 已登录时，把账号用户名自动填到「你的名字是？」里；
+    // 账号名优先于上次向导保存的名字，之后仍可手动修改。
+    final accountName = context
+        .read<AccountProvider>()
+        .user
+        ?.displayName
+        .trim();
+    if (accountName != null && accountName.isNotEmpty) {
+      _nameController.text = accountName;
+      _controller.setUserName(accountName);
+    }
   }
 
   @override

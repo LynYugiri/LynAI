@@ -266,6 +266,10 @@ final class _MemoryAccountService implements AccountService {
     required String password,
     String? displayName,
   }) => throw UnimplementedError();
+
+  @override
+  Future<AccountUser> updateDisplayName(String displayName) =>
+      throw UnimplementedError();
 }
 
 final class _MemoryCloudRepository implements CloudDataRepository {
