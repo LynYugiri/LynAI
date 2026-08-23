@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lynai/models/backup_models.dart';
 import 'package:lynai/models/role_memory_entry.dart';
 import 'package:lynai/providers/role_memory_provider.dart';
 import 'package:lynai/services/lynai_permission_definitions.dart';
@@ -207,5 +208,26 @@ void main() {
     expect(provider.entryTextsFor('role-a', RoleMemoryProvider.targetMemory), [
       '重复条目',
     ]);
+  });
+
+  test('备份分区暴露角色记忆数据', () {
+    final now = DateTime.now();
+    final data = BackupData(
+      roleMemoryEntries: [
+        RoleMemoryEntry(
+          id: '1',
+          roleId: 'role-a',
+          target: RoleMemoryProvider.targetMemory,
+          entry: '条目',
+          createdAt: now,
+          updatedAt: now,
+        ),
+      ],
+      roleMemoryCounters: const {'role-a': 3},
+    );
+
+    expect(BackupSection.roleMemory.key, 'roleMemory');
+    expect(BackupSection.roleMemory.label, '角色记忆');
+    expect(data.hasSection(BackupSection.roleMemory), isTrue);
   });
 }

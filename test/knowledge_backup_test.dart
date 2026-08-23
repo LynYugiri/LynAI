@@ -80,7 +80,7 @@ void main() {
         final archive = await source.readZipBytes(
           await source.exportZipBytes(selection),
         );
-        expect(archive.manifest['schemaVersion'], 14);
+        expect(archive.manifest['schemaVersion'], 15);
         expect(
           archive.data.knowledgeCategories?.single.toJson(),
           isNot(contains('isDefault')),

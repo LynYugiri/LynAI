@@ -14,6 +14,7 @@ import 'model_config.dart';
 import 'merge_models.dart';
 import 'note.dart';
 import 'plugin.dart';
+import 'role_memory_entry.dart';
 import 'roleplay.dart';
 import 'task.dart';
 import 'task_list.dart';
@@ -48,6 +49,9 @@ enum BackupSection {
 
   /// 插件。
   plugins,
+
+  /// 角色记忆。
+  roleMemory,
 }
 
 /// 设置备份的子分类。
@@ -107,6 +111,8 @@ extension BackupSectionInfo on BackupSection {
         return 'roleplay';
       case BackupSection.plugins:
         return 'plugins';
+      case BackupSection.roleMemory:
+        return 'roleMemory';
     }
   }
 
@@ -131,6 +137,8 @@ extension BackupSectionInfo on BackupSection {
         return '情景演绎';
       case BackupSection.plugins:
         return '插件';
+      case BackupSection.roleMemory:
+        return '角色记忆';
     }
   }
 }
@@ -481,6 +489,12 @@ class BackupData {
   /// 插件列表。
   final List<BackupPluginData>? plugins;
 
+  /// 角色记忆条目。
+  final List<RoleMemoryEntry>? roleMemoryEntries;
+
+  /// 角色记忆 nudge 计数。
+  final Map<String, int>? roleMemoryCounters;
+
   /// 创建一个备份数据实例。
   const BackupData({
     this.appSettings,
@@ -509,6 +523,8 @@ class BackupData {
     this.roleplaySessions,
     this.roleplayThreads,
     this.plugins,
+    this.roleMemoryEntries,
+    this.roleMemoryCounters,
   });
 
   /// 判断指定分类是否有可用的备份数据。
@@ -542,6 +558,8 @@ class BackupData {
         return roleplaySessions != null || roleplayThreads != null;
       case BackupSection.plugins:
         return plugins != null;
+      case BackupSection.roleMemory:
+        return roleMemoryEntries != null || roleMemoryCounters != null;
     }
   }
 

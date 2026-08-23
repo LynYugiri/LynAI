@@ -41,6 +41,10 @@ class RoleMemoryProvider extends ChangeNotifier with SerializedSaveQueue {
 
   List<RoleMemoryEntry> get allEntries => List.unmodifiable(_entries);
 
+  /// nudge 计数快照（备份使用）。
+  Map<String, int> get nudgeCounters =>
+      Map.unmodifiable(_turnsSinceMemoryWrite);
+
   List<RoleMemoryEntry> entriesFor(String roleId, String target) {
     if (!_validTarget(target)) return const [];
     return List.unmodifiable(
@@ -122,6 +126,43 @@ class RoleMemoryProvider extends ChangeNotifier with SerializedSaveQueue {
       ..clear()
       ..addAll(result.turnsSinceMemoryWrite);
     notifyListeners();
+  }
+
+  /// 备份恢复入口：全量替换条目与 nudge 计数并等待落盘。
+  Future<void> replaceBackupSnapshot({
+    required List<RoleMemoryEntry> entries,
+    required Map<String, int> counters,
+  }) async {
+    final sorted = List.of(entries)
+      ..sort((a, b) {
+        final roleCompare = a.roleId.compareTo(b.roleId);
+        if (roleCompare != 0) return roleCompare;
+        final targetCompare = a.target.compareTo(b.target);
+        if (targetCompare != 0) return targetCompare;
+        return a.sortOrder.compareTo(b.sortOrder);
+      });
+    final seen = <String>{};
+    _entries = [
+      for (final entry in sorted)
+        if (seen.add(
+          '${entry.roleId}\u0000${entry.target}\u0000${entry.entry}',
+        ))
+          entry,
+    ];
+    _turnsSinceMemoryWrite
+      ..clear()
+      ..addAll(counters);
+    _consolidationFailures.clear();
+    _mutationGeneration++;
+    final snapshot = List<RoleMemoryEntry>.from(_entries);
+    final snapshotCounters = Map<String, int>.from(counters);
+    notifyListeners();
+    await enqueueSave(
+      () => _repository.replace(
+        snapshot,
+        turnsSinceMemoryWrite: snapshotCounters,
+      ),
+    );
   }
 
   void updateLimits({int? memory, int? user}) {

@@ -434,7 +434,7 @@ void main() {
                   ),
                 )
                 as Map<String, dynamic>;
-        expect(jsonFile('manifest.json')['schemaVersion'], 14);
+        expect(jsonFile('manifest.json')['schemaVersion'], 15);
         final manifest = jsonFile('manifest.json');
         expect(jsonEncode(manifest), isNot(contains(root.path)));
         expect(jsonEncode(manifest), isNot(contains('originalPath')));

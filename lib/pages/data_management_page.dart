@@ -23,6 +23,7 @@ import '../providers/knowledge_provider.dart';
 import '../providers/memory_card_provider.dart';
 import '../providers/model_config_provider.dart';
 import '../providers/plugin_provider.dart';
+import '../providers/role_memory_provider.dart';
 import '../providers/roleplay_provider.dart';
 import '../providers/settings_provider.dart';
 import '../providers/sync_provider.dart';
@@ -69,6 +70,7 @@ class _DataManagementPageState extends State<DataManagementPage> {
       calendarProvider: context.read<CalendarProvider>(),
       knowledgeProvider: context.read<KnowledgeProvider>(),
       memoryCardProvider: context.read<MemoryCardProvider>(),
+      roleMemoryProvider: context.read<RoleMemoryProvider>(),
       pluginProvider: context.read<PluginProvider>(),
       storageV2: context.read<StorageV2Service>(),
     );
@@ -1396,7 +1398,53 @@ class _SelectionTree extends StatelessWidget {
           busy: busy,
           onChanged: onChanged,
         ),
+        _RoleMemorySelectionTile(
+          selection: selection,
+          enabled: availableSections.contains(BackupSection.roleMemory),
+          busy: busy,
+          onChanged: onChanged,
+        ),
       ],
+    );
+  }
+}
+
+class _RoleMemorySelectionTile extends StatelessWidget {
+  const _RoleMemorySelectionTile({
+    required this.selection,
+    required this.enabled,
+    required this.busy,
+    required this.onChanged,
+  });
+
+  final BackupSelection selection;
+  final bool enabled;
+  final bool busy;
+  final ValueChanged<BackupSelection> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final selected = selection.contains(BackupSection.roleMemory);
+    return _SectionShell(
+      child: CheckboxListTile(
+        value: enabled && selected,
+        onChanged: !enabled || busy
+            ? null
+            : (value) {
+                final sections = Set<BackupSection>.from(selection.sections);
+                if (value == true) {
+                  sections.add(BackupSection.roleMemory);
+                } else {
+                  sections.remove(BackupSection.roleMemory);
+                }
+                onChanged(selection.copyWith(sections: sections));
+              },
+        title: Text(
+          BackupSection.roleMemory.label,
+          style: const TextStyle(fontWeight: FontWeight.w800),
+        ),
+        subtitle: const Text('每个角色的笔记、用户画像与维护计数'),
+      ),
     );
   }
 }

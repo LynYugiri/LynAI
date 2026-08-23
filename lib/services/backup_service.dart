@@ -30,6 +30,7 @@ import '../models/message.dart';
 import '../models/model_config.dart';
 import '../models/note.dart';
 import '../models/plugin.dart';
+import '../models/role_memory_entry.dart';
 import '../models/roleplay.dart';
 import '../models/schedule_item.dart';
 import '../models/task.dart';
@@ -42,6 +43,7 @@ import '../providers/model_config_provider.dart';
 import '../providers/knowledge_provider.dart';
 import '../providers/memory_card_provider.dart';
 import '../providers/plugin_provider.dart';
+import '../providers/role_memory_provider.dart';
 import '../providers/roleplay_provider.dart';
 import '../providers/settings_provider.dart';
 import '../providers/task_provider.dart';
@@ -67,6 +69,7 @@ class BackupService {
     TaskProvider? taskProvider,
     this.knowledgeProvider,
     this.memoryCardProvider,
+    this.roleMemoryProvider,
     CalendarProvider? calendarProvider,
     this.pluginProvider,
     PluginRepository? pluginRepository,
@@ -89,6 +92,7 @@ class BackupService {
   final TaskProvider taskProvider;
   final KnowledgeProvider? knowledgeProvider;
   final MemoryCardProvider? memoryCardProvider;
+  final RoleMemoryProvider? roleMemoryProvider;
   final CalendarProvider calendarProvider;
   final PluginProvider? pluginProvider;
   final StorageV2Service? storageV2;
@@ -97,7 +101,7 @@ class BackupService {
   final Future<String> Function()? _appVersionLoader;
   final _uuid = const Uuid();
 
-  static const currentSchemaVersion = 14;
+  static const currentSchemaVersion = 15;
   static const oldestCompatibleSchemaVersion = 1;
   static const maxBackupZipInputBytes = 512 * 1024 * 1024;
   static const maxBackupZipEntries = 10000;
@@ -571,6 +575,21 @@ class BackupService {
         'cardCount': cards.length,
       };
     }
+    if (selection.contains(BackupSection.roleMemory) &&
+        roleMemoryProvider != null) {
+      final entries = roleMemoryProvider!.allEntries;
+      final counters = roleMemoryProvider!.nudgeCounters;
+      addJson('role_memory.json', {
+        'version': 1,
+        'entries': entries.map((item) => item.toJson()).toList(),
+        'turnsSinceMemoryWrite': counters,
+      });
+      sections[BackupSection.roleMemory.key] = {
+        'enabled': true,
+        'files': ['role_memory.json'],
+        'entryCount': entries.length,
+      };
+    }
     if (selection.contains(BackupSection.calendar)) {
       final events = calendarProvider.events
           .where((item) => selection.calendarEventIds.contains(item.id))
@@ -835,6 +854,7 @@ class BackupService {
     final tasksJson = readMap('tasks.json');
     final knowledgeJson = readMap('knowledge.json');
     final memoryCardsJson = readMap('memory_cards.json');
+    final roleMemoryJson = readMap('role_memory.json');
     final calendarJson = readMap('calendar.json');
     final roleplayJson = readMap('roleplay_scenarios.json');
     final roleplayThreadsJson = readMap('roleplay_threads.json');
@@ -860,6 +880,7 @@ class BackupService {
       tasksJson: tasksJson,
       knowledgeJson: knowledgeJson,
       memoryCardsJson: memoryCardsJson,
+      roleMemoryJson: roleMemoryJson,
       calendarJson: calendarJson,
       roleplayJson: roleplayJson,
       roleplayThreadsJson: roleplayThreadsJson,
@@ -1096,6 +1117,15 @@ class BackupService {
           warnings,
           '记忆卡片复习记录',
         ),
+        roleMemoryEntries: _parseList(
+          roleMemoryJson?['entries'],
+          RoleMemoryEntry.fromJson,
+          warnings,
+          '角色记忆',
+        ),
+        roleMemoryCounters: _parseStringIntMap(
+          roleMemoryJson?['turnsSinceMemoryWrite'],
+        ),
         calendarEvents: planning.events,
         anniversaries: planning.anniversaries,
         roleplaySessions: _parseList(
@@ -1224,6 +1254,7 @@ class BackupService {
     required Map<String, dynamic>? tasksJson,
     required Map<String, dynamic>? knowledgeJson,
     required Map<String, dynamic>? memoryCardsJson,
+    required Map<String, dynamic>? roleMemoryJson,
     required Map<String, dynamic>? calendarJson,
     required Map<String, dynamic>? roleplayJson,
     required Map<String, dynamic>? roleplayThreadsJson,
@@ -1289,6 +1320,13 @@ class BackupService {
           require('memory_cards.json', memoryCardsJson, 'cards', List);
           require('memory_cards.json', memoryCardsJson, 'reviewLogs', List);
         }
+        require('role_memory.json', roleMemoryJson, 'entries', List);
+        require(
+          'role_memory.json',
+          roleMemoryJson,
+          'turnsSinceMemoryWrite',
+          Map,
+        );
       }
       require('calendar.json', calendarJson, 'events', List);
       require('calendar.json', calendarJson, 'anniversaries', List);
@@ -2521,6 +2559,13 @@ class BackupService {
         replaced += result.replaced;
         skipped += result.skipped;
       }
+      if (plan.sections.contains(BackupSection.roleMemory) &&
+          roleMemoryProvider != null) {
+        final result = await _applyRoleMemory(data, plan);
+        added += result.added;
+        replaced += result.replaced;
+        skipped += result.skipped;
+      }
       if (plan.sections.contains(BackupSection.calendar)) {
         final result = await _applyCalendar(data, plan);
         added += result.added;
@@ -3441,6 +3486,55 @@ class BackupService {
       reviewLogs: reviewLogs,
     );
     return ImportResult(added: added, replaced: replaced, skipped: skipped);
+  }
+
+  Future<ImportResult> _applyRoleMemory(
+    BackupData data,
+    ImportPlan plan,
+  ) async {
+    final provider = roleMemoryProvider!;
+    final incomingEntries = data.roleMemoryEntries;
+    if (incomingEntries == null) {
+      return const ImportResult(added: 0, replaced: 0, skipped: 0);
+    }
+    final validRoleIds = settingsProvider.settings.roles
+        .map((role) => role.id)
+        .toSet();
+    final filtered = incomingEntries
+        .where((item) => validRoleIds.contains(item.roleId))
+        .toList();
+    final replacing = plan.mode == ImportMode.replaceSection;
+
+    final current = provider.allEntries;
+    final currentKeySet = current
+        .map((item) => '${item.roleId}\u0000${item.target}\u0000${item.entry}')
+        .toSet();
+    final entries = [
+      ...(replacing ? const <RoleMemoryEntry>[] : current),
+      ...filtered,
+    ];
+    final seen = <String>{};
+    final deduped = <RoleMemoryEntry>[];
+    var added = 0;
+    for (final item in entries) {
+      final key = '${item.roleId}\u0000${item.target}\u0000${item.entry}';
+      if (!seen.add(key)) continue;
+      deduped.add(item);
+      if (replacing || !currentKeySet.contains(key)) added++;
+    }
+    var skipped = filtered.length - added;
+    if (skipped < 0) skipped = 0;
+
+    final counters = <String, int>{
+      if (!replacing) ...provider.nudgeCounters,
+      ...?data.roleMemoryCounters,
+    };
+    await provider.replaceBackupSnapshot(entries: deduped, counters: counters);
+    return ImportResult(
+      added: added,
+      replaced: replacing ? added : 0,
+      skipped: skipped,
+    );
   }
 
   Future<ImportResult> _applyCalendar(BackupData data, ImportPlan plan) async {
@@ -5152,6 +5246,8 @@ class BackupService {
       plugins: data.plugins
           ?.where((item) => selection.pluginIds.contains(item.plugin.id))
           .toList(),
+      roleMemoryEntries: data.roleMemoryEntries,
+      roleMemoryCounters: data.roleMemoryCounters,
     );
   }
 
@@ -5244,6 +5340,8 @@ class BackupService {
         return '${data.roleplaySessions?.length ?? 0} 个情景，${data.roleplayThreads?.length ?? 0} 次演绎';
       case BackupSection.plugins:
         return '${data.plugins?.length ?? 0} 个插件';
+      case BackupSection.roleMemory:
+        return '${data.roleMemoryEntries?.length ?? 0} 条角色记忆';
     }
   }
 
@@ -5276,6 +5374,18 @@ class BackupService {
   static Object? _nonEmptyMap(Object? value) {
     if (value is Map && value.isEmpty) return null;
     return value;
+  }
+
+  static Map<String, int>? _parseStringIntMap(Object? value) {
+    if (value is! Map) return null;
+    final result = <String, int>{};
+    for (final entry in value.entries) {
+      final parsed = (entry.value as num?)?.toInt();
+      if (parsed != null && parsed >= 0) {
+        result[entry.key.toString()] = parsed;
+      }
+    }
+    return result;
   }
 
   static List<T>? _parseList<T>(
