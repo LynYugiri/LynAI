@@ -181,6 +181,8 @@ class ConversationProvider extends ChangeNotifier with SerializedSaveQueue {
     ConversationSettings settings, {
     String roleId = 'default',
     AgentWorkingMemory? initialMemory,
+    String? workspaceId,
+    String? workspaceName,
   }) {
     try {
       final now = DateTime.now();
@@ -192,6 +194,8 @@ class ConversationProvider extends ChangeNotifier with SerializedSaveQueue {
         settings: settings,
         agentWorkingMemory: initialMemory,
         roleId: roleId,
+        workspaceId: _nonEmpty(workspaceId),
+        workspaceName: _nonEmpty(workspaceName),
         createdAt: now,
         updatedAt: now,
       );
@@ -209,6 +213,8 @@ class ConversationProvider extends ChangeNotifier with SerializedSaveQueue {
     ConversationSettings settings, {
     String roleId = 'default',
     AgentWorkingMemory? initialMemory,
+    String? workspaceId,
+    String? workspaceName,
     required List<
       ({
         String role,
@@ -253,6 +259,8 @@ class ConversationProvider extends ChangeNotifier with SerializedSaveQueue {
         settings: settings,
         agentWorkingMemory: initialMemory,
         roleId: roleId,
+        workspaceId: _nonEmpty(workspaceId),
+        workspaceName: _nonEmpty(workspaceName),
         createdAt: now,
         updatedAt: now,
       );
@@ -661,6 +669,59 @@ class ConversationProvider extends ChangeNotifier with SerializedSaveQueue {
     notifyListeners();
   }
 
+  /// 把会话绑定到工作区（写入 ID 与名称快照）。
+  ///
+  /// 返回错误码语义供 Agent 工具转成结构化错误：
+  /// - `ok`：绑定或幂等重复绑定成功；
+  /// - `already_bound`：已绑定到其他工作区，不静默搬移。
+  String bindConversationToWorkspace(
+    String conversationId,
+    String workspaceId,
+    String workspaceName,
+  ) {
+    final index = _conversations.indexWhere((c) => c.id == conversationId);
+    if (index == -1) return 'conversation_not_found';
+    final normalizedId = workspaceId.trim();
+    final normalizedName = workspaceName.trim();
+    if (normalizedId.isEmpty || normalizedName.isEmpty) {
+      return 'invalid_arguments';
+    }
+    final current = _conversations[index].workspaceId;
+    if (current != null && current != normalizedId) return 'already_bound';
+    if (current == normalizedId &&
+        _conversations[index].workspaceName == normalizedName) {
+      return 'ok';
+    }
+    _conversations[index] = _conversations[index].copyWith(
+      workspaceId: normalizedId,
+      workspaceName: normalizedName,
+      updatedAt: DateTime.now(),
+    );
+    _touchConversation(index);
+    _queueSaveConversations();
+    notifyListeners();
+    return 'ok';
+  }
+
+  /// 删除工作区时，把该工作区会话转回普通对话（保留消息与角色）。
+  void detachWorkspaceFromConversations(String workspaceId) {
+    var changed = false;
+    _conversations = _conversations
+        .map((conversation) {
+          if (conversation.workspaceId != workspaceId) return conversation;
+          changed = true;
+          return conversation.copyWith(
+            workspaceId: null,
+            workspaceName: null,
+            updatedAt: conversation.updatedAt,
+          );
+        })
+        .toList(growable: false);
+    if (!changed) return;
+    _queueSaveConversations();
+    notifyListeners();
+  }
+
   /// 记录一个由 AI 创建的插件草稿产物。
   void addPluginArtifact(
     String conversationId,
@@ -821,16 +882,37 @@ class ConversationProvider extends ChangeNotifier with SerializedSaveQueue {
 
   /// 搜索对话（匹配标题、消息内容和附件名）。
   List<ConversationSearchResult> searchConversations(String query) {
+    return searchConversationsInScope(query);
+  }
+
+  /// 按历史域搜索对话。
+  ///
+  /// [workspaceOnly] 为 null 时搜索全部（兼容旧调用）；为 true 时只搜索
+  /// 工作区会话（再按 [workspaceId] 过滤）；为 false 时只搜索普通会话。
+  List<ConversationSearchResult> searchConversationsInScope(
+    String query, {
+    bool? workspaceOnly,
+    String? workspaceId,
+  }) {
+    final scoped = _conversations.where((conversation) {
+      return switch (workspaceOnly) {
+        null => true,
+        true =>
+          conversation.workspaceId != null &&
+              (workspaceId == null || conversation.workspaceId == workspaceId),
+        false => conversation.workspaceId == null,
+      };
+    });
     final matcher = ChatSearchMatcher.fromQuery(query);
     if (matcher.isEmpty) {
-      return _conversations
+      return scoped
           .map((c) => ConversationSearchResult(conversation: c))
           .toList();
     }
     if (matcher.hasError) return const [];
 
     final results = <ConversationSearchResult>[];
-    for (final conv in _conversations) {
+    for (final conv in scoped) {
       final titleRanges = matcher.rangesIn(conv.title);
       if (titleRanges.isNotEmpty) {
         results.add(
@@ -893,5 +975,10 @@ class ConversationProvider extends ChangeNotifier with SerializedSaveQueue {
     return searchConversations(
       query,
     ).where((result) => result.conversation.roleId == roleId).toList();
+  }
+
+  static String? _nonEmpty(String? value) {
+    final normalized = value?.trim();
+    return normalized == null || normalized.isEmpty ? null : normalized;
   }
 }

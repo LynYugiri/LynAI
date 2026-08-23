@@ -110,6 +110,7 @@ void main() {
         MultiProvider(
           providers: [
             ChangeNotifierProvider.value(value: conversations),
+            ChangeNotifierProvider.value(value: memoryWorkspaceProvider()),
             ChangeNotifierProvider.value(value: settings),
             ChangeNotifierProvider(create: (_) => FeatureProvider()),
             ChangeNotifierProvider(create: (_) => MemoryCardProvider()),
@@ -176,6 +177,7 @@ void main() {
       MultiProvider(
         providers: [
           ChangeNotifierProvider.value(value: conversations),
+          ChangeNotifierProvider.value(value: memoryWorkspaceProvider()),
           ChangeNotifierProvider.value(value: settings),
           ChangeNotifierProvider.value(value: models),
           ChangeNotifierProvider(create: (_) => FeatureProvider()),
@@ -241,6 +243,7 @@ void main() {
       MultiProvider(
         providers: [
           ChangeNotifierProvider.value(value: conversations),
+          ChangeNotifierProvider.value(value: memoryWorkspaceProvider()),
           ChangeNotifierProvider.value(value: settings),
           ChangeNotifierProvider.value(value: models),
           ChangeNotifierProvider(create: (_) => FeatureProvider()),
@@ -311,6 +314,7 @@ void main() {
       MultiProvider(
         providers: [
           ChangeNotifierProvider.value(value: conversations),
+          ChangeNotifierProvider.value(value: memoryWorkspaceProvider()),
           ChangeNotifierProvider.value(value: settings),
           ChangeNotifierProvider.value(value: models),
           ChangeNotifierProvider(create: (_) => FeatureProvider()),

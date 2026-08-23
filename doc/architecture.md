@@ -172,7 +172,7 @@ storage_v2 中的资源注册表使用 content-addressed blob 路径。对话附
 
 动态工具统一注册到 `AgentToolRegistry`。MCP Provider、插件工具与 tool source 共用 `AgentToolNameCodec`，按 source、server/plugin ID 和远端工具名生成长度有界的 `tool_v1_*` canonical name。`ToolCallService.createRunSnapshot()` 在 Run 开始时捕获 descriptor、并发语义和权限快照。内置与插件 handler 固定在 snapshot；MCP 只固定模型 schema，执行时查询实时 registry，断连或禁用后 fail closed，避免调用已释放连接。MCP 细节见 [MCP](mcp.md)。
 
-权限为全局单源（`AppSettings.agentGrantedPermissions`），对话不再保存独立权限快照。新安装/未迁移用户默认授予 `LynAIPermissions.agentAssignable` 中的全部对话权限，设置页仍可逐项收回。宿主能力与插件对外函数统一由 `LynAICapabilityRegistry` 声明权限与读/写性质；插件权限按 `pluginAutoGrant` 分为免授权（如 `network:public`、插件沙盒）与敏感（需在“权限管理”逐项授权），插件可通过 `functions.expose` + `plugin.call` 互相调用，被调函数以自身插件身份执行，避免权限提升。详见 [services](services.md)。
+权限为全局单源（`AppSettings.agentGrantedPermissions`），对话不再保存独立权限快照。新安装/未迁移用户默认授予 `LynAIPermissions.agentAssignable` 中的全部对话权限，设置页仍可逐项收回。宿主能力与插件对外函数统一由 `LynAICapabilityRegistry` 声明权限与读/写性质；插件权限按 `pluginAutoGrant` 分为免授权（如 `network:public`、插件沙盒）与敏感（需在“权限管理”逐项授权）。插件 tool/function 以 pluginId 为命名空间，同名能力可由不同插件分别注册；插件可通过 `functions.expose` + `plugin.call` 互相调用，同一插件的功能页调用自身函数无需 `expose`。被调函数以自身插件身份执行，避免权限提升。详见 [services](services.md)。
 
 模型来源的终态工具结果统一经过 `AgentToolExecutionService` 的 runtime-level sanitizer，再进入持久化和模型上下文。sanitizer 负责 bounded JSON、安全元数据和 Resource/Blob offload；页面、插件和 MCP handler 不各自承担最终结果清洗，也不得绕过该运行时边界传递原始二进制或本地路径。
 
@@ -421,3 +421,24 @@ Physical dataset activation is protected by a shared runtime barrier. It stops a
 ## 随记功能
 
 启动组合根新增 `JottingProvider`，并在数据加载、后台保存、Dataset 切换 flush/reload 和悬浮聊天中与既有 Feature/Knowledge/MemoryCard 等分区并列处理。随记数据文件 `jottings.json` 仅本地保存，不进入云/LAN 同步。随记编辑使用独立全屏 `JottingEditorPage` Route，时间线页面保持挂载以保留滚动与筛选上下文。
+
+## 工作区（Workspace）
+
+工作区是应用级的本机上下文：绑定对话历史域、可挂载功能页、开发插件、
+添加文件（Resource 引用）与真实本地文件夹。它不携带权限——Agent 对工作区
+的读写完全由当前对话设置中的权限快照决定。
+
+- 模型：`Workspace` / `WorkspaceFileRef`（`lib/models/workspace.dart`）。
+- 元数据：`workspaces.json` generic data file，本机保存，不进入云/LAN 同步
+  与 v1 备份；会话通过 `Conversation.workspaceId/workspaceName` 快照归入
+  工作区历史域，会话字段随 conversations 表同步。
+- storage_v2 schema v34：`conversations` 增加 `workspace_id` 与
+  `workspace_name` 两列。
+- Provider：`WorkspaceProvider`（串行保存队列）；真实目录读写经
+  `WorkspaceFileService` 的 canonical-root 校验，添加文件经
+  `StorageV2Service.importResourceFile(role: 'workspace_file')`。
+- 入口：对话页左上角历史按钮与工作区按钮共用左侧 Scaffold drawer；
+  历史抽屉以「对话历史 / 工作区对话历史」双 Tab 切分两个历史域。
+- Agent：`list_workspaces` / `create_workspace` / `bind_workspace` 在普通
+  对话即可注册；`workspace_file_list/read/write` 仅在会话绑定工作区后注册。
+  权限分别为 `workspace:read` 与 `workspace:write`，随对话权限快照过滤。

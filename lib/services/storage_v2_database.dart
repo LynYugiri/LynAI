@@ -86,6 +86,8 @@ class ConversationRows extends Table {
       text().named('agent_working_memory_json').nullable()();
   TextColumn get pluginWorkspaceId =>
       text().named('plugin_workspace_id').nullable()();
+  TextColumn get workspaceId => text().named('workspace_id').nullable()();
+  TextColumn get workspaceName => text().named('workspace_name').nullable()();
   TextColumn get pluginArtifactsJson =>
       text().named('plugin_artifacts_json').nullable()();
   TextColumn get roleId => text().named('role_id')();
@@ -1134,7 +1136,7 @@ class SyncScopeState {
 class StorageV2DriftDatabase extends _$StorageV2DriftDatabase {
   StorageV2DriftDatabase(File file) : super(_open(file));
 
-  static const currentSchemaVersion = 33;
+  static const currentSchemaVersion = 34;
 
   bool needsTransportHeadBackfill = false;
 
@@ -1430,6 +1432,10 @@ SET captures_local = active
           'plugin_artifacts_json',
           'TEXT',
         );
+      }
+      if (from < 34) {
+        await _addColumnIfMissing('conversations', 'workspace_id', 'TEXT');
+        await _addColumnIfMissing('conversations', 'workspace_name', 'TEXT');
       }
       await _ensureCloudDataColumns();
     },
@@ -2461,6 +2467,8 @@ WHERE id IN (${List.filled(runIds.length, '?').join(', ')})
                   : jsonEncode(json['agentWorkingMemory']),
             ),
             pluginWorkspaceId: Value(json['pluginWorkspaceId'] as String?),
+            workspaceId: Value(json['workspaceId'] as String?),
+            workspaceName: Value(json['workspaceName'] as String?),
             pluginArtifactsJson: Value(
               json['pluginArtifacts'] == null
                   ? null
@@ -6099,6 +6107,10 @@ CREATE TABLE IF NOT EXISTS cloud_reseed_tasks (
               if (row.pluginWorkspaceId != null &&
                   row.pluginWorkspaceId!.isNotEmpty)
                 'pluginWorkspaceId': row.pluginWorkspaceId,
+              if (row.workspaceId != null && row.workspaceId!.isNotEmpty)
+                'workspaceId': row.workspaceId,
+              if (row.workspaceName != null && row.workspaceName!.isNotEmpty)
+                'workspaceName': row.workspaceName,
               if (row.pluginArtifactsJson != null &&
                   row.pluginArtifactsJson!.isNotEmpty)
                 'pluginArtifacts': jsonDecode(row.pluginArtifactsJson!),
@@ -6860,6 +6872,8 @@ CREATE TABLE IF NOT EXISTS cloud_reseed_tasks (
                     : jsonEncode(json['agentWorkingMemory']),
               ),
               pluginWorkspaceId: Value(json['pluginWorkspaceId'] as String?),
+              workspaceId: Value(json['workspaceId'] as String?),
+              workspaceName: Value(json['workspaceName'] as String?),
               pluginArtifactsJson: Value(
                 json['pluginArtifacts'] == null
                     ? null

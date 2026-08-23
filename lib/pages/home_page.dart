@@ -720,6 +720,7 @@ class _HomePageState extends State<HomePage> {
               onBackHandlerChanged: _setChatBackHandler,
               onBackAvailabilityChanged: _setChatBackAvailability,
               onNewConversationHandlerChanged: _setChatNewConversationHandler,
+              onOpenWorkspaceFeature: _openFeatureFromQuickAction,
               onConversationLoaded: () {
                 _targetConversationId = null;
               },

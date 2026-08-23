@@ -103,10 +103,11 @@ void main() {
           .cast<Map<String, dynamic>>();
 
       expect(skills.length, 3, reason: 'plugin-authoring 应有 3 个 skill');
-      expect(
-        skills.map((s) => s['name'] as String),
-        ['plugin_authoring', 'web_design', 'motion_design'],
-      );
+      expect(skills.map((s) => s['name'] as String), [
+        'plugin_authoring',
+        'web_design',
+        'motion_design',
+      ]);
       expect(editables.length, 3, reason: 'editableFiles 应与 skills 数量一致');
 
       final pathPattern = RegExp(r'^skills/([A-Za-z0-9_-]{1,64})\.md$');
@@ -145,11 +146,7 @@ void main() {
         containsPair('autoEnable', true),
         reason: '纯 Skill 内置插件应自动启用',
       );
-      expect(
-        manifest['permissions'] as List,
-        isEmpty,
-        reason: '纯知识型插件不应声明权限',
-      );
+      expect(manifest['permissions'] as List, isEmpty, reason: '纯知识型插件不应声明权限');
     },
   );
 
@@ -2205,7 +2202,7 @@ end
   );
 
   test(
-    'Plugin snapshots cannot enable duplicate tools and functions',
+    'Plugin snapshots can enable duplicate tools and functions across plugins',
     () async {
       final installedRoot = await Directory.systemTemp.createTemp(
         'lynai_plugin_conflict_root_',
@@ -2239,14 +2236,9 @@ function same_func(args) return {ok = true} end
         await provider.setEnabled('conflict_source', true);
         final snapshot = await provider.createSnapshot('conflict_source');
 
-        expect(
-          () => provider.setEnabled(snapshot.id, true),
-          throwsA(
-            isA<Exception>()
-                .having((e) => e.toString(), 'message', contains('same_tool'))
-                .having((e) => e.toString(), 'message', contains('same_func')),
-          ),
-        );
+        // 插件 API 名以 pluginId 为命名空间，不同插件允许同名 tool/function。
+        await provider.setEnabled(snapshot.id, true);
+        expect(provider.pluginById(snapshot.id)?.enabled, isTrue);
 
         await provider.setToolEnabled(snapshot.id, 'same_tool', false);
         await provider.setFunctionEnabled(snapshot.id, 'same_func', false);
@@ -2257,17 +2249,91 @@ function same_func(args) return {ok = true} end
         await provider.setToolEnabled(snapshot.id, 'same_tool', true);
         await provider.setFunctionEnabled(snapshot.id, 'same_func', true);
         await provider.setEnabled(snapshot.id, true);
+        await provider.setEnabled('conflict_source', true);
+        expect(provider.pluginById('conflict_source')?.enabled, isTrue);
         expect(provider.pluginById(snapshot.id)?.enabled, isTrue);
-        expect(
-          () => provider.setEnabled('conflict_source', true),
-          throwsA(
-            isA<Exception>().having(
-              (e) => e.toString(),
-              'message',
-              contains('API 名称冲突'),
-            ),
-          ),
+      } finally {
+        await installedRoot.delete(recursive: true);
+        await sourceRoot.delete(recursive: true);
+      }
+    },
+  );
+
+  test(
+    'Plugin tools with duplicate raw names dispatch through canonical names',
+    () async {
+      final installedRoot = await Directory.systemTemp.createTemp(
+        'lynai_plugin_canonical_root_',
+      );
+      final sourceRoot = await Directory.systemTemp.createTemp(
+        'lynai_plugin_canonical_source_',
+      );
+      try {
+        Future<Directory> writePlugin(String id, String marker) async {
+          final dir = Directory('${sourceRoot.path}/$id');
+          await dir.create(recursive: true);
+          await File('${dir.path}/plugin.json').writeAsString(
+            jsonEncode({
+              'id': id,
+              'name': id,
+              'version': '1.0.0',
+              'entry': 'main.lua',
+              'tools': [
+                {
+                  'name': 'same_tool',
+                  'handler': 'same_tool',
+                  'parameters': {'type': 'object', 'properties': {}},
+                },
+              ],
+            }),
+          );
+          await File('${dir.path}/main.lua').writeAsString(
+            'function same_tool(args) return {ok = true, source = "$marker"} end',
+          );
+          return dir;
+        }
+
+        await writePlugin('duplicate_tool_a', 'a');
+        await writePlugin('duplicate_tool_b', 'b');
+
+        final provider = PluginProvider(
+          repository: PluginRepository(rootOverride: installedRoot),
         );
+        await provider.importDirectory('${sourceRoot.path}/duplicate_tool_a');
+        await provider.importDirectory('${sourceRoot.path}/duplicate_tool_b');
+        await provider.setEnabled('duplicate_tool_a', true);
+        await provider.setEnabled('duplicate_tool_b', true);
+
+        final service = ToolCallService(FeatureProvider(), plugins: provider);
+        final canonicalA = canonicalPluginToolName(
+          'duplicate_tool_a',
+          'same_tool',
+        );
+        final canonicalB = canonicalPluginToolName(
+          'duplicate_tool_b',
+          'same_tool',
+        );
+
+        final resultA = await service.execute(
+          ChatToolCall(id: 'a', name: canonicalA, arguments: const {}),
+          const [],
+        );
+        final resultB = await service.execute(
+          ChatToolCall(id: 'b', name: canonicalB, arguments: const {}),
+          const [],
+        );
+        expect(resultA['ok'], isTrue, reason: resultA.toString());
+        expect(resultA['source'], 'a');
+        expect(resultB['ok'], isTrue, reason: resultB.toString());
+        expect(resultB['source'], 'b');
+
+        // 多个启用插件共享裸名时 fail closed，不做顺序命中。
+        final ambiguous = await service.execute(
+          const ChatToolCall(id: 'raw', name: 'same_tool', arguments: {}),
+          const [],
+        );
+        expect(ambiguous['ok'], isFalse, reason: ambiguous.toString());
+        expect(ambiguous['error'], contains('多个启用插件'));
       } finally {
         await installedRoot.delete(recursive: true);
         await sourceRoot.delete(recursive: true);
@@ -2349,7 +2415,10 @@ function same_func(args) return {ok = true} end
 
         // 首次安装没有 skills/ 可编辑副本，读取应回退到 defaults/ 出厂模板。
         expect(
-          await provider.readFile('plugin-authoring', 'skills/plugin_authoring.md'),
+          await provider.readFile(
+            'plugin-authoring',
+            'skills/plugin_authoring.md',
+          ),
           contains('# 插件创作工作流'),
         );
         expect(
@@ -2357,7 +2426,10 @@ function same_func(args) return {ok = true} end
           contains('# 前端设计'),
         );
         expect(
-          await provider.readFile('plugin-authoring', 'skills/motion_design.md'),
+          await provider.readFile(
+            'plugin-authoring',
+            'skills/motion_design.md',
+          ),
           contains('# 动效设计'),
         );
       } finally {

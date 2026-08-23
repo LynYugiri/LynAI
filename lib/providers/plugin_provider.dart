@@ -380,7 +380,6 @@ class PluginProvider extends ChangeNotifier {
         }
         final shouldEnable = enabled && !plugin.hasError;
         if (shouldEnable) {
-          _ensureNoEnabledPluginApiConflict(plugin);
           _ensureDependenciesSatisfied(plugin);
         }
         if (!enabled && plugin.enabled) {
@@ -603,11 +602,7 @@ class PluginProvider extends ChangeNotifier {
         } else {
           tools.remove(toolName);
         }
-        final next = plugin.copyWith(
-          enabledTools: tools.toList(growable: false),
-        );
-        if (plugin.enabled) _ensureNoEnabledPluginApiConflict(next);
-        return next;
+        return plugin.copyWith(enabledTools: tools.toList(growable: false));
       });
 
   /// 启用或禁用插件的指定内部函数。
@@ -622,11 +617,7 @@ class PluginProvider extends ChangeNotifier {
     } else {
       functions.remove(functionName);
     }
-    final next = plugin.copyWith(
-      enabledFunctions: functions.toList(growable: false),
-    );
-    if (plugin.enabled) _ensureNoEnabledPluginApiConflict(next);
-    return next;
+    return plugin.copyWith(enabledFunctions: functions.toList(growable: false));
   });
 
   /// 判断插件函数当前是否允许通过 plugin.func 调用。
@@ -1701,54 +1692,5 @@ class PluginProvider extends ChangeNotifier {
       '插件 ${target.displayName} 被其他已启用插件依赖，无法禁用：'
       '${dependents.join('、')}',
     );
-  }
-
-  /// 确保新启用的插件不会与已启用插件的 API 名称冲突。
-  void _ensureNoEnabledPluginApiConflict(InstalledPlugin target) {
-    final targetEnabledTools = target.enabledTools.toSet();
-    final targetTools = target.manifest.tools
-        .map((tool) => tool.name.trim())
-        .where((name) => name.isNotEmpty && targetEnabledTools.contains(name))
-        .toSet();
-    final targetEnabledFunctions = target.enabledFunctions.toSet();
-    final targetFunctions = target.manifest.functions
-        .map((function) => function.name.trim())
-        .where(
-          (name) => name.isNotEmpty && targetEnabledFunctions.contains(name),
-        )
-        .toSet();
-    if (targetTools.isEmpty && targetFunctions.isEmpty) return;
-
-    // 遍历所有已启用插件，检测 tool 和 function 名称冲突
-    for (final plugin in _plugins) {
-      if (plugin.id == target.id || !plugin.enabled || plugin.hasError) {
-        continue;
-      }
-      final toolConflicts = plugin.manifest.tools
-          .map((tool) => tool.name.trim())
-          .where(
-            (name) =>
-                plugin.enabledTools.contains(name) &&
-                targetTools.contains(name),
-          )
-          .toList(growable: false);
-      final functionConflicts = plugin.manifest.functions
-          .map((function) => function.name.trim())
-          .where(
-            (name) =>
-                plugin.enabledFunctions.contains(name) &&
-                targetFunctions.contains(name),
-          )
-          .toList(growable: false);
-      if (toolConflicts.isEmpty && functionConflicts.isEmpty) continue;
-      final parts = [
-        if (toolConflicts.isNotEmpty) 'Tools: ${toolConflicts.join(', ')}',
-        if (functionConflicts.isNotEmpty)
-          'Functions: ${functionConflicts.join(', ')}',
-      ];
-      throw Exception(
-        '插件 ${target.displayName} 与已启用插件 ${plugin.displayName} API 名称冲突：${parts.join('；')}',
-      );
-    }
   }
 }

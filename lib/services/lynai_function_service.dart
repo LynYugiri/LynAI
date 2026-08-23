@@ -1073,11 +1073,12 @@ class LynAIFunctionService {
     };
   }
 
-  /// 跨插件调用入口：让一个插件调用另一个插件暴露的（expose）函数。
+  /// 插件函数调用入口。
   ///
-  /// 调用方必须持有 plugins.callFunction 权限；目标函数必须 expose 且其所在
-  /// 插件已启用。函数内部再调用 lynai.* 时以目标插件身份执行，其
-  /// grantedPermissions 决定可访问的宿主能力。
+  /// 同一插件的功能页/Lua 调用自身函数无需 expose；其他插件调用时才要求
+  /// 目标函数 expose，并校验 plugins.callFunction、requires 与已声明的
+  /// dependencies 版本约束。函数内部再调用 lynai.* 时以目标插件身份执行，
+  /// 其 grantedPermissions 决定可访问的宿主能力。
   Future<Map<String, dynamic>> _pluginCall(
     LynAIFunctionContext context,
     Map<String, dynamic> args,
@@ -1106,11 +1107,15 @@ class LynAIFunctionService {
     if (function == null || !target.enabledFunctions.contains(function.name)) {
       return _error('目标插件函数不可用: $pluginId.$functionName');
     }
-    if (!function.expose) {
-      return _error('目标插件函数未对外暴露: $pluginId.$functionName');
-    }
     final callerType = context.identity.type;
     final caller = context.plugin;
+    final isLocalCall =
+        (callerType == LynAICallerType.plugin ||
+            callerType == LynAICallerType.pluginWebview) &&
+        caller?.id == target.id;
+    if (!function.expose && !isLocalCall) {
+      return _error('目标插件函数未对外暴露: $pluginId.$functionName');
+    }
     if (callerType == LynAICallerType.plugin ||
         callerType == LynAICallerType.pluginWebview) {
       if (caller == null) {

@@ -1,5 +1,6 @@
 import '../models/conversation.dart';
 import '../models/plugin.dart';
+import '../models/workspace.dart';
 import 'tool_call_service.dart';
 
 /// 组装发送给模型的 API 消息列表。
@@ -16,6 +17,10 @@ List<Map<String, dynamic>> buildApiMessages(
   Object? lastUserContentOverride,
   bool enableTools = false,
   bool webSearchConfigured = false,
+  Workspace? workspace,
+  bool workspaceReadAllowed = false,
+  bool workspaceWriteAllowed = false,
+  bool workspaceFileAvailable = false,
   String annotationPrompt = '',
   String extraSystemPrompt = '',
 }) {
@@ -33,10 +38,19 @@ List<Map<String, dynamic>> buildApiMessages(
   final workspacePrompt = conv.settings.agentEnabled
       ? ToolCallService.pluginWorkspacePrompt(conv.pluginWorkspaceId, plugins)
       : '';
+  final localWorkspacePrompt = conv.settings.agentEnabled
+      ? ToolCallService.workspaceSystemPrompt(
+          workspace,
+          readAllowed: workspaceReadAllowed,
+          writeAllowed: workspaceWriteAllowed,
+          fileAvailable: workspaceFileAvailable,
+        )
+      : '';
   final fullToolPrompt = <String>[
     toolPrompt,
     if (agentContext.isNotEmpty) agentContext,
     if (workspacePrompt.isNotEmpty) workspacePrompt,
+    if (localWorkspacePrompt.isNotEmpty) localWorkspacePrompt,
     if (extraSystemPrompt.isNotEmpty) extraSystemPrompt,
   ].join('\n\n');
   final systemParts = <String>[

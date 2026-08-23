@@ -421,3 +421,15 @@ on directory or registry ownership mismatch.
 文件：`lib/models/recycle_bin_item.dart`
 
 新增 `RecycleBinItemTypes.jotting` 与 `RecycleBinCategories.jottings`，随记删除后进入回收站，payload 保存完整 `jotting` JSON。
+
+## Workspace 模型
+
+`lib/models/workspace.dart` 定义 `Workspace`、`WorkspaceFileRef` 与
+`WorkspacePluginPolicyMode`。工作区只保存配置与引用快照：添加文件是
+`StorageV2Resource`（role=`workspace_file`）的引用；挂载目录保存绝对路径
+（仅桌面端）。可挂载功能页集合固定在 `supportedWorkspaceFeatureIds`。
+
+`Conversation` 新增 `workspaceId` / `workspaceName`：`workspaceId` 决定会话
+属于哪个历史域与哪个工作区的 `workspace_file_*` 根；`workspaceName` 是绑定
+时快照，用于工作区被删除或未同步到设备时的历史分组兜底。二者与既有的
+`pluginWorkspaceId`（插件创作绑定）正交，不互相覆盖。

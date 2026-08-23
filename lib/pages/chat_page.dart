@@ -34,6 +34,7 @@ import '../providers/mcp_provider.dart';
 import '../providers/plugin_provider.dart';
 import '../providers/settings_provider.dart';
 import '../providers/task_provider.dart';
+import '../providers/workspace_provider.dart';
 import '../services/attachment_storage_service.dart';
 import '../services/api_message_builder.dart';
 import '../services/api_service.dart';
@@ -47,6 +48,7 @@ import '../services/agent_tool_result_sanitizer.dart';
 import '../services/agent_tool_execution_service.dart';
 import '../services/agent_user_interaction_broker.dart';
 import '../services/backend_client.dart';
+import '../services/lynai_permission_definitions.dart';
 import '../services/plugin_lua_runtime_service.dart';
 import '../services/knowledge_annotation_prompt.dart';
 import '../services/generation_background_service.dart';
@@ -74,6 +76,7 @@ import '../widgets/reference_palette.dart';
 import 'chat/dialog_settings_content.dart';
 import 'chat/history_drawer.dart';
 import 'chat/share_conversation_image.dart';
+import 'chat/workspace_drawer.dart';
 
 final class _UserTextHighlight {
   const _UserTextHighlight({
@@ -285,6 +288,9 @@ class ChatPage extends StatefulWidget {
   final void Function(bool Function() handler)? onBackHandlerChanged;
   final ValueChanged<bool>? onBackAvailabilityChanged;
   final void Function(VoidCallback handler)? onNewConversationHandlerChanged;
+
+  /// 工作区抽屉中点功能页时由 HomePage 切换到对应功能 Tab。
+  final ValueChanged<String>? onOpenWorkspaceFeature;
   const ChatPage({
     super.key,
     this.conversationId,
@@ -296,6 +302,7 @@ class ChatPage extends StatefulWidget {
     this.onBackHandlerChanged,
     this.onBackAvailabilityChanged,
     this.onNewConversationHandlerChanged,
+    this.onOpenWorkspaceFeature,
   });
 
   @override
@@ -318,6 +325,8 @@ class _ChatPluginArtifactEntry extends _ChatTimelineEntry {
 
   final ConversationPluginArtifact artifact;
 }
+
+enum _DrawerContent { history, workspace }
 
 /// 对话页状态管理。
 ///
@@ -386,6 +395,9 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
   String? _searchRegexError;
   double _historyScrollOffset = 0;
   final Set<String> _collapsedHistoryRoleIds = {};
+  final Set<String> _collapsedWorkspaceRoleIds = {};
+  HistoryDomain _historyDomain = HistoryDomain.normal;
+  _DrawerContent _drawerContent = _DrawerContent.history;
   int _historyScrollRestoreGeneration = 0;
 
   int _streamGen = 0;
@@ -1706,6 +1718,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     final settingsProvider = context.read<SettingsProvider>();
     final roleId = settingsProvider.settings.currentRoleId;
     final initialMemory = settingsProvider.currentRole.defaultMemory;
+    final activeWorkspace = context.read<WorkspaceProvider>().activeWorkspace;
     final targetConvId = _convId;
     final sendGen = ++_sendGen;
     setState(() => _preparingSend = true);
@@ -1727,6 +1740,8 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
         conversationSettings,
         roleId: roleId,
         initialMemory: initialMemory,
+        workspaceId: activeWorkspace?.id,
+        workspaceName: activeWorkspace?.name,
         messages: [
           (
             role: 'user',
@@ -1801,12 +1816,37 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     final annotationPrompt = const KnowledgeAnnotationPromptFormatter().format(
       context.read<KnowledgeProvider>().knowledgeAnnotationPromptSnapshot,
     );
+    final workspaceProvider = context.read<WorkspaceProvider>();
+    final pluginProvider = context.read<PluginProvider>();
+    final workspace = workspaceProvider.workspaceById(conv.workspaceId);
+    final grantedPermissions = context
+        .read<SettingsProvider>()
+        .settings
+        .agentPermissionSnapshot
+        .permissions;
+    final workspaceReadAllowed = grantedPermissions.contains(
+      LynAIPermissions.workspaceRead,
+    );
+    final workspaceWriteAllowed = grantedPermissions.contains(
+      LynAIPermissions.workspaceWrite,
+    );
+    final workspaceFileAvailable =
+        workspace != null && (workspaceReadAllowed || workspaceWriteAllowed);
+    final visiblePlugins = workspaceProvider.effectiveVisiblePlugins(
+      conv.workspaceId,
+      allPlugins: pluginProvider.plugins,
+      boundPluginId: conv.pluginWorkspaceId,
+    );
     final msgs = buildApiMessages(
       conv,
-      context.read<PluginProvider>().plugins,
+      visiblePlugins,
       lastUserContentOverride: lastUserContentOverride,
       enableTools: _supportsNativeTools(model),
       webSearchConfigured: webSearchConfigured,
+      workspace: workspace,
+      workspaceReadAllowed: workspaceReadAllowed,
+      workspaceWriteAllowed: workspaceWriteAllowed,
+      workspaceFileAvailable: workspaceFileAvailable,
       annotationPrompt: annotationPrompt,
     );
     unawaited(
@@ -2039,6 +2079,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       modelConfigs: context.read<ModelConfigProvider>(),
       settings: context.read<SettingsProvider>(),
       conversations: context.read<ConversationProvider>(),
+      workspaces: context.read<WorkspaceProvider>(),
       backend: context.read<BackendClient>(),
       conversationId: cid,
       persistence: _agentPersistence,
@@ -3216,8 +3257,11 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
 
   void _toggleHistoryRole(String roleId) {
     setState(() {
-      if (!_collapsedHistoryRoleIds.add(roleId)) {
-        _collapsedHistoryRoleIds.remove(roleId);
+      final target = _historyDomain == HistoryDomain.workspace
+          ? _collapsedWorkspaceRoleIds
+          : _collapsedHistoryRoleIds;
+      if (!target.add(roleId)) {
+        target.remove(roleId);
       }
     });
   }
@@ -3294,6 +3338,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
           }
         },
         appBar: AppBar(
+          leadingWidth: _shareSelecting ? null : 104,
           leading: _shareSelecting
               ? IconButton(
                   icon: const Icon(Icons.close),
@@ -3301,10 +3346,22 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
                   onPressed: _cancelShareSelection,
                 )
               : Builder(
-                  builder: (ctx) => IconButton(
-                    icon: const Icon(Icons.history),
-                    tooltip: '历史记录',
-                    onPressed: () => Scaffold.of(ctx).openDrawer(),
+                  builder: (ctx) => Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      IconButton(
+                        icon: const Icon(Icons.history),
+                        tooltip: '历史记录',
+                        onPressed: () =>
+                            _openLeftDrawer(ctx, _DrawerContent.history),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.folder_copy_outlined),
+                        tooltip: '工作区',
+                        onPressed: () =>
+                            _openLeftDrawer(ctx, _DrawerContent.workspace),
+                      ),
+                    ],
                   ),
                 ),
           title: Text(
@@ -3359,14 +3416,38 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     );
   }
 
+  void _openLeftDrawer(BuildContext ctx, _DrawerContent content) {
+    setState(() {
+      _drawerContent = content;
+      if (content == _DrawerContent.history) {
+        final workspace = context.read<WorkspaceProvider>().activeWorkspace;
+        _historyDomain = workspace == null
+            ? HistoryDomain.normal
+            : HistoryDomain.workspace;
+      }
+    });
+    Scaffold.of(ctx).openDrawer();
+  }
+
   Widget _drawer(BuildContext ctx) => Drawer(
-    child: HistoryDrawer(
-      onSelect: _selectHistory,
-      currentConvId: _convId,
-      scrollController: _historyScrollController,
-      collapsedRoleIds: Set.unmodifiable(_collapsedHistoryRoleIds),
-      onToggleRole: _toggleHistoryRole,
-    ),
+    child: _drawerContent == _DrawerContent.workspace
+        ? WorkspaceDrawer(
+            onOpenFeature: (featureId) =>
+                widget.onOpenWorkspaceFeature?.call(featureId),
+          )
+        : HistoryDrawer(
+            onSelect: _selectHistory,
+            currentConvId: _convId,
+            scrollController: _historyScrollController,
+            collapsedRoleIds: Set.unmodifiable(_collapsedHistoryRoleIds),
+            collapsedWorkspaceRoleIds: Set.unmodifiable(
+              _collapsedWorkspaceRoleIds,
+            ),
+            onToggleRole: _toggleHistoryRole,
+            domain: _historyDomain,
+            onDomainChanged: (domain) =>
+                setState(() => _historyDomain = domain),
+          ),
   );
 
   Widget _body(Conversation? conv, ModelConfig? model, ModelConfigProvider mp) {
@@ -4975,6 +5056,8 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     final newConvId = cp.createConversation(
       origConv.settings.copyWith(modelId: editModel.id, thinking: _thinking),
       roleId: origConv.roleId,
+      workspaceId: origConv.workspaceId,
+      workspaceName: origConv.workspaceName,
     );
     for (int i = 0; i < origMsgIdx; i++) {
       cp.addMessage(

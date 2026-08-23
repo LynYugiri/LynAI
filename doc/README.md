@@ -67,6 +67,7 @@ lib/
 | 应用入口 | `lib/main.dart` | 注册 Provider、执行本地启动屏障，并在 Home 后调度账号、同步、插件和平台后台维护。 |
 | 主导航 | `lib/pages/home_page.dart` | 五个主 Tab、返回键协调、背景图和状态保活。 |
 | 对话 | `lib/pages/chat_page.dart` | 输入、附件、语音、流式请求、工具调用、重试、分享。 |
+| 工作区 | `lib/providers/workspace_provider.dart`, `lib/pages/chat/workspace_drawer.dart` | 本机工作区、文件树、历史双域与 Agent 工作区工具。 |
 | 功能页 | `lib/pages/feature_page.dart` | Dashboard、历史、规范日历、笔记、规范任务清单、情景演绎。 |
 | 设置 | `lib/pages/settings_page.dart` | 关于、背景、API、主题、数据管理入口。 |
 | 数据管理 | `lib/pages/data_management_page.dart` | ZIP 备份、预览、导入和冲突处理。 |

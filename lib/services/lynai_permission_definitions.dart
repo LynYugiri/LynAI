@@ -43,6 +43,8 @@ class LynAIPermissions {
   static const pluginsFilesRead = 'plugins.files:read';
   static const pluginsFilesWrite = 'plugins.files:write';
   static const pluginsRun = 'plugins.run';
+  static const workspaceRead = 'workspace:read';
+  static const workspaceWrite = 'workspace:write';
   static const storageRead = 'storage:read';
   static const storageWrite = 'storage:write';
   static const memoryCardsRead = 'memoryCards:read';
@@ -78,6 +80,8 @@ class LynAIPermissions {
     pluginsFilesRead,
     pluginsFilesWrite,
     pluginsRun,
+    workspaceRead,
+    workspaceWrite,
     storageRead,
     memoryCardsRead,
     memoryCardsWrite,
@@ -188,6 +192,18 @@ const lynaiPermissionDefinitions = <LynAIPermissionDefinition>[
     title: '运行插件',
     description:
         '允许 Agent 就地试跑本地插件的 tool/function/command handler（以插件身份、按其已授权权限执行）。',
+    risk: LynAIPermissionRisk.elevated,
+  ),
+  LynAIPermissionDefinition(
+    id: LynAIPermissions.workspaceRead,
+    title: '读取工作区文件',
+    description: '允许 Agent 查看工作区列表以及当前工作区的文件内容。',
+  ),
+  LynAIPermissionDefinition(
+    id: LynAIPermissions.workspaceWrite,
+    title: '修改工作区',
+    description:
+        '允许 Agent 创建/绑定工作区，并写入工作区文件与开发插件挂载。',
     risk: LynAIPermissionRisk.elevated,
   ),
   LynAIPermissionDefinition(

@@ -163,3 +163,22 @@ All main chat, floating chat and Subagent `AgentLoopRuntime` handles are registe
 - `save_jotting`：为用户新建一条随记，只新增不修改已有内容，内容上限 50000 字符。
 
 权限：`search_jottings`/`read_jotting` 需要 `jottings:read`，`save_jotting` 需要 `jottings:write`，两者均加入默认 Agent 权限。
+
+## 工作区工具与权限
+
+- `workspace:read` / `workspace:write` 加入对话权限快照可分配集合，新对话
+  默认包含；旧用户的显式权限快照不会自动追加。
+- 普通对话在注入 `WorkspaceProvider` 且权限允许时注册
+  `list_workspaces` / `create_workspace` / `bind_workspace`；会话绑定工作区
+  后，下一轮 run 才注册 `workspace_file_*`。
+- 工作区插件策略（followGlobal/custom）通过 `effectiveVisiblePlugins`
+  统一收窄 Agent 可见插件，ToolCallService 与 `buildApiMessages` 使用同一
+  Provider 计算，保证提示词与工具快照一致。
+- 所有 `ToolCallService` 克隆点（correlated 执行与 `run_subagent`）必须
+  透传 `workspaces`；Subagent 的 `bind_workspace` 绑定的是主对话。
+- 工具路径语法：`files/<name>` 为添加文件（Resource 引用），
+  `mount/<path>` 为挂载目录；插件源码仍走 `plugin_file_*`，功能页数据仍走
+  各自功能工具。
+
+悬浮聊天不注入 `WorkspaceProvider`：不注册工作区管理/文件工具，`buildApiMessages`
+也不注入工作区提示词，悬浮层创建的会话始终是普通对话（workspaceId == null）。

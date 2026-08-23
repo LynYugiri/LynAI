@@ -122,7 +122,9 @@ class PluginFunctionDefinition {
   /// 函数参数 JSON Schema。
   final Map<String, dynamic> parameters;
 
-  /// 是否允许其他插件或 Agent 通过 plugin.call 调用。
+  /// 是否允许其他插件通过 plugin.call 跨插件调用。
+  ///
+  /// 同一插件自己的功能页或 Lua 调用自身函数时不需要 expose。
   final bool expose;
 
   /// 调用方需要额外持有的权限（空表示只需 plugins.callFunction）。

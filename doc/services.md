@@ -345,7 +345,7 @@ Subagent 适合 QQ/消息应用这类流程：主 Agent 只描述目标，Subage
 
 ## 跨插件调用
 
-插件在 manifest `functions` 中通过 `expose: true` 声明对外函数（可加 `requires` 声明调用方额外权限）。插件还可以在 manifest `dependencies` 中声明依赖插件 ID 与版本约束；该字段可选，不声明即表示没有依赖。启用插件时 `PluginProvider` 会校验已声明的依赖已安装、已启用且版本满足约束，禁用插件时会阻止关闭仍被其他已启用插件依赖的插件。`plugin.call` 是跨插件调用入口：调用方须持有 `plugins.callFunction` 以及目标函数 `requires` 中声明的额外权限，目标函数须 `expose` 且所在插件已启用；若调用方声明了对目标插件的版本约束，运行时会校验目标插件版本。函数内部再调用 `lynai.*` 时以目标插件身份执行，其 `grantedPermissions` 决定可访问的宿主能力，避免权限提升。Lua 侧经 `lynai.plugin.call(pluginId, function, args)` 触发。
+插件在 manifest `functions` 中通过 `expose: true` 声明对外函数（可加 `requires` 声明调用方额外权限）。插件还可以在 manifest `dependencies` 中声明依赖插件 ID 与版本约束；该字段可选，不声明即表示没有依赖。启用插件时 `PluginProvider` 会校验已声明的依赖已安装、已启用且版本满足约束，禁用插件时会阻止关闭仍被其他已启用插件依赖的插件。`plugin.call` 以 `pluginId + functionName` 定位目标函数，因此不同插件可以使用相同的 function/tool 名称；同一插件的功能页或 Lua 调用自身函数无需 `expose`。跨插件调用时：调用方须持有 `plugins.callFunction` 以及目标函数 `requires` 中声明的额外权限，目标函数须 `expose` 且所在插件已启用；若调用方声明了对目标插件的版本约束，运行时会校验目标插件版本。函数内部再调用 `lynai.*` 时以目标插件身份执行，其 `grantedPermissions` 决定可访问的宿主能力，避免权限提升。Lua 侧经 `lynai.plugin.call(pluginId, function, args)` 触发。
 
 ## 引用选择器注册表
 
@@ -732,3 +732,27 @@ plugin roots, so it exports and restores only the selected dataset.
 文件：`lib/services/storage_v2_database.dart`、`lib/repositories/jotting_repository.dart`
 
 新增 Drift 表 `jottings`（`id, content, tags_json, created_at, updated_at`），schemaVersion 30。`loadDataFile('jottings.json')` 与 `writeDataFile('jottings.json')` 负责读写；`JottingRepository` 使用全量快照替换持久化。当前 `jottings` 不进入 `_syncTableNames` 与 `_syncTablesForFile`，因此不参与云/LAN 同步；待云端分享阶段再纳入同步。
+
+## WorkspaceFileService
+
+`WorkspaceFileService` 只负责挂载真实本地文件夹的列目录与文本读写。所有
+相对路径经 `normalizeRelative` 规范化，写路径先解析父目录符号链接并与
+规范化挂载根比较，列目录不跟随 Link，拒绝 `..`/绝对路径/symlink 逃逸与
+二进制文件。单层列目录上限 1000 条，读取与写入均有字符上限，写入使用临时
+文件 + rename。
+
+## 工作区工具（ToolCallService）
+
+`ToolCallService` 注入 `WorkspaceProvider` 后按会话自己的 `workspaceId`
+快照解析工作区，不受全局当前工作区影响：
+
+- `list_workspaces`（workspace:read）；
+- `create_workspace` / `bind_workspace`（workspace:write）；
+- `workspace_file_list` / `workspace_file_read`（workspace:read）；
+- `workspace_file_write`（workspace:write）。
+
+`create_workspace` 支持 `sourcePluginId` 与 `bindCurrentConversation`，
+与 `create_plugin` 协同；`bind_workspace` 自动把会话的 `pluginWorkspaceId`
+并入目标工作区开发插件列表。已绑定工作区的对话中 `create_plugin` 成功且拥有
+`workspace:write` 时，新插件自动挂入该工作区 `devPluginIds`。系统提示词由
+`ToolCallService.workspaceSystemPrompt` 生成，仅在对应工具本轮会注册时注入。

@@ -203,6 +203,7 @@ Future<void> _pumpChat(
       providers: [
         ChangeNotifierProvider.value(value: conversations),
         ChangeNotifierProvider.value(value: settings),
+        ChangeNotifierProvider.value(value: memoryWorkspaceProvider()),
         ChangeNotifierProvider.value(value: memoryModelConfigProvider()),
         ChangeNotifierProvider(create: (_) => FeatureProvider()),
         ChangeNotifierProvider(create: (_) => TaskProvider()),

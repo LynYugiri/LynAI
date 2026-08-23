@@ -7,11 +7,13 @@ import 'package:lynai/providers/conversation_provider.dart';
 import 'package:lynai/providers/model_config_provider.dart';
 import 'package:lynai/providers/roleplay_provider.dart';
 import 'package:lynai/providers/settings_provider.dart';
+import 'package:lynai/providers/workspace_provider.dart';
 import 'package:lynai/repositories/conversation_repository.dart';
 import 'package:lynai/repositories/model_config_repository.dart';
 import 'package:lynai/repositories/recycle_bin_repository.dart';
 import 'package:lynai/repositories/roleplay_repository.dart';
 import 'package:lynai/repositories/settings_repository.dart';
+import 'package:lynai/repositories/workspace_repository.dart';
 
 class MemoryConversationRepository implements ConversationRepository {
   List<Conversation> _conversations = const [];
@@ -142,8 +144,24 @@ class MemoryRecycleBinRepository implements RecycleBinRepository {
   }
 }
 
+class MemoryWorkspaceRepository implements WorkspaceRepository {
+  WorkspaceStoreState _state = const WorkspaceStoreState(workspaces: []);
+
+  @override
+  Future<WorkspaceStoreState> load() async => _state;
+
+  @override
+  Future<void> save(WorkspaceStoreState state) async {
+    _state = state;
+  }
+}
+
 ConversationProvider memoryConversationProvider() {
   return ConversationProvider(repository: MemoryConversationRepository());
+}
+
+WorkspaceProvider memoryWorkspaceProvider() {
+  return WorkspaceProvider(repository: MemoryWorkspaceRepository());
 }
 
 ModelConfigProvider memoryModelConfigProvider() {

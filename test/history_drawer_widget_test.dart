@@ -6,6 +6,7 @@ import 'package:lynai/models/message.dart';
 import 'package:lynai/pages/chat/history_drawer.dart';
 import 'package:lynai/providers/conversation_provider.dart';
 import 'package:lynai/providers/settings_provider.dart';
+import 'package:lynai/providers/workspace_provider.dart';
 import 'package:provider/provider.dart';
 
 import 'support/memory_repositories.dart';
@@ -34,7 +35,9 @@ void main() {
     WidgetTester tester, {
     required ConversationProvider conversations,
     required SettingsProvider settings,
+    WorkspaceProvider? workspaces,
     Set<String> collapsed = const {},
+    HistoryDomain domain = HistoryDomain.normal,
   }) async {
     await tester.pumpWidget(
       MaterialApp(
@@ -42,13 +45,19 @@ void main() {
           providers: [
             ChangeNotifierProvider.value(value: conversations),
             ChangeNotifierProvider.value(value: settings),
+            ChangeNotifierProvider.value(
+              value: workspaces ?? memoryWorkspaceProvider(),
+            ),
           ],
           child: Scaffold(
             body: HistoryDrawer(
               onSelect: (_) {},
               scrollController: ScrollController(),
               collapsedRoleIds: collapsed,
+              collapsedWorkspaceRoleIds: const {},
               onToggleRole: (_) {},
+              domain: domain,
+              onDomainChanged: (_) {},
             ),
           ),
         ),

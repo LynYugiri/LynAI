@@ -231,6 +231,17 @@ class Conversation {
   /// 摘要；由 `create_plugin` 成功或插件工坊的“交给 AI”入口绑定。
   final String? pluginWorkspaceId;
 
+  /// 当前对话所属工作区 ID。
+  ///
+  /// 非空时该对话只出现在「工作区对话历史」，Agent 的 workspace_file_* 工具
+  /// 以该工作区为根目录；普通对话为 null。
+  final String? workspaceId;
+
+  /// 绑定工作区时的名称快照。
+  ///
+  /// 工作区之后被删除或未同步到当前设备时，历史仍可按该快照分组展示。
+  final String? workspaceName;
+
   /// 当前对话创建过的插件草稿产物，用于在消息流中渲染插件卡片。
   final List<ConversationPluginArtifact> pluginArtifacts;
 
@@ -251,6 +262,8 @@ class Conversation {
     this.agentWorkingMemory,
     this.roleId = 'default',
     this.pluginWorkspaceId,
+    this.workspaceId,
+    this.workspaceName,
     this.pluginArtifacts = const [],
     required this.createdAt,
     required this.updatedAt,
@@ -337,6 +350,8 @@ class Conversation {
       }
     }
     final rawWorkspaceId = json['pluginWorkspaceId'];
+    final rawUserWorkspaceId = json['workspaceId'];
+    final rawUserWorkspaceName = json['workspaceName'];
     return Conversation(
       id: id,
       title: title,
@@ -353,6 +368,13 @@ class Conversation {
       roleId: json['roleId'] as String? ?? 'default',
       pluginWorkspaceId: rawWorkspaceId is String && rawWorkspaceId.isNotEmpty
           ? rawWorkspaceId
+          : null,
+      workspaceId: rawUserWorkspaceId is String && rawUserWorkspaceId.isNotEmpty
+          ? rawUserWorkspaceId
+          : null,
+      workspaceName:
+          rawUserWorkspaceName is String && rawUserWorkspaceName.isNotEmpty
+          ? rawUserWorkspaceName
           : null,
       pluginArtifacts: pluginArtifacts,
       createdAt: createdAt,
@@ -374,6 +396,10 @@ class Conversation {
       'roleId': roleId,
       if (pluginWorkspaceId != null && pluginWorkspaceId!.isNotEmpty)
         'pluginWorkspaceId': pluginWorkspaceId,
+      if (workspaceId != null && workspaceId!.isNotEmpty)
+        'workspaceId': workspaceId,
+      if (workspaceName != null && workspaceName!.isNotEmpty)
+        'workspaceName': workspaceName,
       if (pluginArtifacts.isNotEmpty)
         'pluginArtifacts': pluginArtifacts
             .map((item) => item.toJson())
@@ -394,6 +420,8 @@ class Conversation {
     Object? agentWorkingMemory = _sentinel,
     String? roleId,
     Object? pluginWorkspaceId = _sentinel,
+    Object? workspaceId = _sentinel,
+    Object? workspaceName = _sentinel,
     Object? pluginArtifacts = _sentinel,
     DateTime? createdAt,
     DateTime? updatedAt,
@@ -414,6 +442,12 @@ class Conversation {
       pluginWorkspaceId: identical(pluginWorkspaceId, _sentinel)
           ? this.pluginWorkspaceId
           : pluginWorkspaceId as String?,
+      workspaceId: identical(workspaceId, _sentinel)
+          ? this.workspaceId
+          : workspaceId as String?,
+      workspaceName: identical(workspaceName, _sentinel)
+          ? this.workspaceName
+          : workspaceName as String?,
       pluginArtifacts: identical(pluginArtifacts, _sentinel)
           ? this.pluginArtifacts
           : pluginArtifacts as List<ConversationPluginArtifact>,

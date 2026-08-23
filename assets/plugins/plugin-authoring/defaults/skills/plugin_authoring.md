@@ -9,7 +9,7 @@
 | 清单字段 | 概念 | 说明 |
 | --- | --- | --- |
 | `tools` | 模型可调用的工具 | 声明参数 schema，由 main.lua 里的 handler 执行；通过工具调用进入模型上下文 |
-| `functions` | 宿主/其他插件可调用的函数 | 不进模型工具列表，`expose: true` 可被其他插件依赖调用 |
+| `functions` | 宿主/其他插件可调用的函数 | 不进模型工具列表；本插件功能页调用自身函数无需 `expose`，跨插件调用需 `expose: true` |
 | `commands` | 引用面板选项源 | 用户手动触发的快捷入口 |
 | `skills` | 可编辑工作流知识 | 模型按需 `load_plugin_skill` 加载正文，正文是 `skills/<name>.md` |
 | `featurePages` | WebView 功能页 | `index.html/css/js` 或 HTML 单文件，通过 `PluginFeatureWebView` 渲染 |
@@ -54,6 +54,8 @@
 - `entry`：默认 `main.lua`；Lua 文件必须存在于插件目录。
 - `permissions`：只填实际需要的权限（如 `network:public`、`notes:read`、`webview:bridge`、`model:ocr`）；声明不用的权限会让用户多一次授权决策，声明了用不到的权限会被视为越权请求。`permissions: []` 表示纯知识型插件。
 - `tools`：`name` 匹配 `^[a-zA-Z0-9_-]{1,64}$`，`handler` 对应 main.lua 中的全局函数，`parameters` 必须是合法 JSON Schema（注册与执行时都要过 `AgentJsonSchemaValidator` 子集校验）。
+- `tools`/`functions` 的 `name` 只需在同一插件同一能力类别内唯一；不同插件以 pluginId 为命名空间，可以复用 `game_new` 之类的通用名。
+- `functions.expose`：只有允许**其他插件**跨插件调用时才设为 `true`；本插件自己的功能页调用自身函数不需要 expose。
 - `dependencies`：可选；声明即要求对应插件已安装、启用且版本满足。不声明就没有依赖。
 - `editableFiles`：每项 `path`/`title`/`type`/`defaultPath` 缺一不可；`type` 常用 `markdown`/`html`/`css`/`javascript`/`lua`。
 - `skills`：`name` 决定正文路径 `skills/<name>.md`；`description` 和 `whenToUse` 是模型决定是否加载的唯一契约，必须写清触发场景；`modelInvocable: false` 可让 Skill 只接受显式调用。
@@ -62,7 +64,7 @@
 
 - Lua 工具 handler 返回值统一 `{ok=..., error=..., ...业务字段}`；异步续延用 `__lynai_function` + `__lynai_next`（如 `http.fetchPublic`），不在 handler 里阻塞等待。
 - 工具调用成功（`ok=true`、`action_ok=true`）不等于业务成功；必须检查返回的业务字段（如 `business_ok`、生成的对象 id），必要时读回验证。
-- 功能页里调用插件函数或宿主能力走 WebView 桥接（`window.LynAI` / `webkit.messageHandlers`），以宿主实际注入的桥接 API 为准。
+- 功能页里调用插件函数或宿主能力走 WebView 桥接（`window.LynAI` / `webkit.messageHandlers`），以宿主实际注入的桥接 API 为准。功能页用 `plugin.call` 调自己插件的函数时带 `pluginId`/`functionName`，函数无需 `expose`。
 - 模型侧调用插件函数先 `list_plugin_functions` 看 `pluginId`、`functionName` 和参数 schema，再 `call_plugin_function`（需要 `plugins.callFunction` 权限）。
 
 ## 分流原则

@@ -5,7 +5,9 @@ import '../../../models/chat_role.dart';
 import '../../../models/conversation.dart';
 import '../../../providers/conversation_provider.dart';
 import '../../../providers/settings_provider.dart';
+import '../../../providers/workspace_provider.dart';
 import '../../../utils/chat_search_matcher.dart';
+import '../chat/history_drawer.dart' show HistoryDomain;
 
 /// “新建”浮动按钮的下拉菜单项。
 class AddMenuItem {
@@ -71,8 +73,9 @@ class AddMenuButton extends StatelessWidget {
 
 /// 功能页内的对话历史列表。
 ///
-/// 按角色分组展示历史对话，支持标题/正文搜索、切换角色、重命名与删除。
-class HistoryList extends StatelessWidget {
+/// 按角色分组展示历史对话，支持标题/正文搜索、切换角色、重命名与删除；
+/// 顶部 Tab 在普通对话与工作区对话两个历史域之间切换。
+class HistoryList extends StatefulWidget {
   final TextEditingController searchController;
   final String searchQuery;
   final ValueChanged<String> onSearchChanged;
@@ -87,16 +90,35 @@ class HistoryList extends StatelessWidget {
   });
 
   @override
+  State<HistoryList> createState() => _HistoryListState();
+}
+
+class _HistoryListState extends State<HistoryList> {
+  HistoryDomain _domain = HistoryDomain.normal;
+
+  @override
   Widget build(BuildContext context) {
     final cp = context.watch<ConversationProvider>();
     final sp = context.watch<SettingsProvider>();
+    final wp = context.watch<WorkspaceProvider>();
+    final isWorkspace = _domain == HistoryDomain.workspace;
+    final activeWorkspace = wp.activeWorkspace;
     final roles = sp.settings.roles;
     final currentRoleId = sp.settings.currentRoleId;
     final current = roles.firstWhere(
       (r) => r.id == currentRoleId,
       orElse: ChatRole.defaultRole,
     );
-    final results = cp.searchConversations(searchQuery);
+    final results = isWorkspace
+        ? cp.searchConversationsInScope(
+            widget.searchQuery,
+            workspaceOnly: true,
+            workspaceId: activeWorkspace?.id,
+          )
+        : cp.searchConversationsInScope(
+            widget.searchQuery,
+            workspaceOnly: false,
+          );
     final currentResults = results
         .where((r) => r.conversation.roleId == currentRoleId)
         .toList();
@@ -107,12 +129,28 @@ class HistoryList extends StatelessWidget {
         .map((r) => r.conversation.roleId)
         .toSet()
         .toList();
-    final hasAnyConversation = cp.conversations.isNotEmpty;
+    final hasAnyConversation = results.isNotEmpty;
 
     return Column(
       children: [
         Padding(
           padding: const EdgeInsets.fromLTRB(12, 8, 12, 6),
+          child: SegmentedButton<HistoryDomain>(
+            segments: const [
+              ButtonSegment(value: HistoryDomain.normal, label: Text('对话历史')),
+              ButtonSegment(
+                value: HistoryDomain.workspace,
+                label: Text('工作区对话历史'),
+              ),
+            ],
+            selected: {_domain},
+            onSelectionChanged: (selection) =>
+                setState(() => _domain = selection.single),
+            showSelectedIcon: false,
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 4, 12, 6),
           child: Row(
             children: [
               Expanded(child: _searchBox(context)),
@@ -135,12 +173,32 @@ class HistoryList extends StatelessWidget {
           child: ListView(
             padding: const EdgeInsets.symmetric(horizontal: 8),
             children: [
-              if (!hasAnyConversation && searchQuery.isEmpty)
-                _historyEmptyState(context, current.name),
-              _sectionTitle(context, current.name, current.themeColor),
-              if (currentResults.isEmpty) _emptyTile(searchQuery),
-              for (final r in currentResults)
-                _conversationItem(context, r, cp, current.themeColor),
+              if (isWorkspace)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(8, 8, 8, 2),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.folder_outlined, size: 16),
+                      const SizedBox(width: 6),
+                      Text(
+                        activeWorkspace?.name ?? '工作区对话',
+                        style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              if (!hasAnyConversation && widget.searchQuery.isEmpty)
+                isWorkspace
+                    ? const SizedBox.shrink()
+                    : _historyEmptyState(context, current.name),
+              if (!isWorkspace || hasAnyConversation) ...[
+                _sectionTitle(context, current.name, current.themeColor),
+                if (currentResults.isEmpty) _emptyTile(widget.searchQuery),
+                for (final r in currentResults)
+                  _conversationItem(context, r, cp, current.themeColor),
+              ],
               for (final roleId in otherRoleIds) ...[
                 Builder(
                   builder: (context) {
@@ -231,22 +289,22 @@ class HistoryList extends StatelessWidget {
 
   Widget _searchBox(BuildContext context) {
     return TextField(
-      controller: searchController,
+      controller: widget.searchController,
       decoration: InputDecoration(
         hintText: '搜索对话标题或内容...',
         prefixIcon: const Icon(Icons.search),
-        suffixIcon: searchQuery.isNotEmpty
+        suffixIcon: widget.searchQuery.isNotEmpty
             ? IconButton(
                 icon: const Icon(Icons.clear),
                 onPressed: () {
-                  searchController.clear();
-                  onSearchChanged('');
+                  widget.searchController.clear();
+                  widget.onSearchChanged('');
                 },
               )
             : null,
         border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
       ),
-      onChanged: onSearchChanged,
+      onChanged: widget.onSearchChanged,
     );
   }
 
@@ -289,7 +347,7 @@ class HistoryList extends StatelessWidget {
           backgroundColor: color.withValues(alpha: 0.14),
           child: Icon(Icons.chat, color: color),
         ),
-        title: searchQuery.isNotEmpty && matchInTitle
+        title: widget.searchQuery.isNotEmpty && matchInTitle
             ? _highlight(
                 context,
                 conversation.title,
@@ -301,7 +359,7 @@ class HistoryList extends StatelessWidget {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
               ),
-        subtitle: searchQuery.isNotEmpty && !matchInTitle
+        subtitle: widget.searchQuery.isNotEmpty && !matchInTitle
             ? _highlight(
                 context,
                 matchContent.isNotEmpty
@@ -328,7 +386,11 @@ class HistoryList extends StatelessWidget {
         ),
         onTap: () {
           context.read<SettingsProvider>().selectRole(conversation.roleId);
-          onConversationTap(conversation.id);
+          final workspaceId = conversation.workspaceId;
+          if (workspaceId != null && workspaceId.isNotEmpty) {
+            context.read<WorkspaceProvider>().selectWorkspace(workspaceId);
+          }
+          widget.onConversationTap(conversation.id);
         },
         onLongPress: () => _renameDialog(context, provider, conversation),
       ),
@@ -361,7 +423,9 @@ class HistoryList extends StatelessWidget {
     List<ChatSearchRange> ranges,
     TextStyle? style,
   ) {
-    if (searchQuery.isEmpty || ranges.isEmpty) return Text(text, style: style);
+    if (widget.searchQuery.isEmpty || ranges.isEmpty) {
+      return Text(text, style: style);
+    }
     final spans = <TextSpan>[];
     var start = 0;
     for (final range in ranges) {

@@ -109,6 +109,63 @@ void main() {
     }
   });
 
+  test(
+    'plugin.call lets a plugin feature page call its own non-exposed function',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      final root = await Directory.systemTemp.createTemp('lynai_ic_local_');
+      try {
+        final provider = PluginProvider(
+          repository: PluginRepository(rootOverride: root),
+        );
+        final local = await _pluginDir(
+          'local_plugin',
+          'function hidden(args) args = args or {}; '
+              'return { ok = true, value = (args.x or 0) + 1 } end',
+          [
+            {
+              'name': 'hidden',
+              'handler': 'hidden',
+              'parameters': {
+                'type': 'object',
+                'properties': {
+                  'x': {'type': 'number'},
+                },
+              },
+            },
+          ],
+          const [LynAIPermissions.pluginCallFunction],
+        );
+        await provider.importDirectory(local.path);
+        await provider.trustInstalledBuiltIn('local_plugin');
+
+        final result = await LynAIFunctionService().execute(
+          LynAIFunctionCall(
+            name: 'plugin.call',
+            arguments: {
+              'pluginId': 'local_plugin',
+              'functionName': 'hidden',
+              'arguments': {'x': 41},
+            },
+          ),
+          LynAIFunctionContext(
+            identity: const LynAICallIdentity(
+              type: LynAICallerType.pluginWebview,
+              pluginId: 'local_plugin',
+            ),
+            plugins: provider,
+            plugin: provider.pluginById('local_plugin'),
+          ),
+        );
+
+        expect(result['ok'], isTrue, reason: result.toString());
+        expect(result['value'], 42);
+      } finally {
+        await root.delete(recursive: true);
+      }
+    },
+  );
+
   test('plugin.call requires plugins.callFunction on the caller', () async {
     SharedPreferences.setMockInitialValues({});
     final root = await Directory.systemTemp.createTemp('lynai_ic_perm_');

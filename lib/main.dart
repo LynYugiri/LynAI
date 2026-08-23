@@ -21,6 +21,7 @@ import 'providers/recycle_bin_provider.dart';
 import 'providers/roleplay_provider.dart';
 import 'providers/settings_provider.dart';
 import 'providers/task_provider.dart';
+import 'providers/workspace_provider.dart';
 import 'repositories/plugin_repository.dart';
 import 'repositories/cloud_data_repository.dart';
 import 'repositories/agent_persistence_repository.dart';
@@ -202,6 +203,10 @@ Future<void> main() async {
               ConversationProvider(storageV2: ctx.read<StorageV2Service>()),
         ),
         ChangeNotifierProvider(
+          create: (ctx) =>
+              WorkspaceProvider(storageV2: ctx.read<StorageV2Service>()),
+        ),
+        ChangeNotifierProvider(
           create: (ctx) => FeatureProvider(
             storageV2: ctx.read<StorageV2Service>(),
             authorDeviceId: () async =>
@@ -320,6 +325,7 @@ Future<void> main() async {
               datasetBarrier: ctx.read<DatasetRuntimeBarrier>(),
               beforeLocalSnapshot: () async {
                 final conversations = ctx.read<ConversationProvider>();
+                final workspaces = ctx.read<WorkspaceProvider>();
                 final features = ctx.read<FeatureProvider>();
                 final calendar = ctx.read<CalendarProvider>();
                 final roleplay = ctx.read<RoleplayProvider>();
@@ -334,6 +340,7 @@ Future<void> main() async {
                     name: 'conversations',
                     flush: conversations.flushPendingSaves,
                   ),
+                  (name: 'workspaces', flush: workspaces.flushPendingSaves),
                   (name: 'features', flush: features.flushPendingSaves),
                   (name: 'calendar', flush: calendar.flushPendingSaves),
                   (name: 'roleplay', flush: roleplay.flushPendingSaves),
@@ -611,6 +618,7 @@ Future<void> main() async {
               settings: settings,
               models: models,
               plugins: plugins,
+              workspaces: ctx.read<WorkspaceProvider>(),
               mcp: mcp,
               calendarProjection: ctx
                   .read<CalendarPlatformProjectionCoordinator>(),
@@ -702,6 +710,7 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
   bool _hasError = false;
   String _errorMessage = '';
   ConversationProvider? _conversationProvider;
+  WorkspaceProvider? _workspaceProvider;
   FeatureProvider? _featureProvider;
   CalendarProvider? _calendarProvider;
   RoleplayProvider? _roleplayProvider;
@@ -735,6 +744,7 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
   void didChangeDependencies() {
     super.didChangeDependencies();
     _conversationProvider ??= context.read<ConversationProvider>();
+    _workspaceProvider ??= context.read<WorkspaceProvider>();
     _featureProvider ??= context.read<FeatureProvider>();
     _calendarProvider ??= context.read<CalendarProvider>();
     _roleplayProvider ??= context.read<RoleplayProvider>();
@@ -787,6 +797,8 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
             await flushAllTasks([
               if (_conversationProvider case final provider?)
                 (name: 'conversations', flush: provider.flushPendingSaves),
+              if (_workspaceProvider case final provider?)
+                (name: 'workspaces', flush: provider.flushPendingSaves),
               if (_featureProvider case final provider?)
                 (name: 'features', flush: provider.flushPendingSaves),
               if (_calendarProvider case final provider?)
@@ -846,6 +858,7 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
     });
     try {
       final conversationProvider = context.read<ConversationProvider>();
+      final workspaceProvider = context.read<WorkspaceProvider>();
       final modelProvider = context.read<ModelConfigProvider>();
       final settingsProvider = context.read<SettingsProvider>();
       final featureProvider = context.read<FeatureProvider>();
@@ -887,6 +900,7 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
 
       await settingsProvider.loadSettings();
       await conversationProvider.loadConversations();
+      await workspaceProvider.loadWorkspaces();
       await Future.wait([
         featureProvider.load(),
         calendarProvider.load(),

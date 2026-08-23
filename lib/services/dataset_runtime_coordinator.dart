@@ -12,6 +12,7 @@ import '../providers/recycle_bin_provider.dart';
 import '../providers/roleplay_provider.dart';
 import '../providers/settings_provider.dart';
 import '../providers/task_provider.dart';
+import '../providers/workspace_provider.dart';
 import '../repositories/agent_persistence_repository.dart';
 import '../utils/flush_tasks.dart';
 import 'backend_client.dart';
@@ -35,6 +36,7 @@ class DatasetRuntimeCoordinator {
     required this.settings,
     required this.models,
     required this.plugins,
+    required this.workspaces,
     this.mcp,
     this.calendarProjection,
     this.quiesceOperations,
@@ -55,6 +57,7 @@ class DatasetRuntimeCoordinator {
   final SettingsProvider settings;
   final ModelConfigProvider models;
   final PluginProvider plugins;
+  final WorkspaceProvider workspaces;
   final McpProvider? mcp;
   final CalendarPlatformProjectionCoordinator? calendarProjection;
   final Future<void> Function()? quiesceOperations;
@@ -111,6 +114,7 @@ class DatasetRuntimeCoordinator {
       (name: 'jottings', flush: jottings.flushPendingSaves),
       (name: 'settings', flush: settings.flushPendingSaves),
       (name: 'models', flush: models.flushPendingSaves),
+      (name: 'workspaces', flush: workspaces.flushPendingSaves),
     ]);
     await plugins.syncAllPluginsForDatasetSwitch();
   }
@@ -118,6 +122,7 @@ class DatasetRuntimeCoordinator {
   Future<void> _reload() async {
     await settings.loadSettings();
     await conversations.loadConversations();
+    await workspaces.loadWorkspaces();
     await features.load();
     await calendar.load();
     await roleplay.loadSessions();

@@ -331,7 +331,7 @@ purge 先由页面请求 preview 并确认，Provider 提交签名写后立即�
 | `load()` | 加载已安装插件状态。 |
 | `importZipBytes()` / `importDirectory()` | 校验 manifest 后安装插件；`importZipBytes` 返回安装后的 `InstalledPlugin`，供页面立即弹出授权对话框；同 ID 安装与其他 mutation 串行。 |
 | `deletePlugin()` / `uninstall()` | 删除可卸载插件、关联数据和同步删除标记。 |
-| `setEnabled()` / `setGrantedPermissions()` | 修改插件启用和授权状态；启用时校验依赖已安装、启用且版本满足约束，禁用时阻止关闭仍被依赖的插件。 |
+| `setEnabled()` / `setGrantedPermissions()` | 修改插件启用和授权状态；启用时校验依赖已安装、启用且版本满足约束，禁用时阻止关闭仍被依赖的插件。插件 tool/function 以 pluginId 为命名空间，不同插件可以使用同名能力。 |
 | `setToolEnabled()` / `setFunctionEnabled()` / `setSkillEnabled()` | 独立开关插件能力。 |
 | `importBuiltIn()` / `syncBuiltIn()` | 导入或同步内置插件；安全的纯 Skill 插件可按 manifest 自动启用。 |
 | `createSnapshot()` / `restoreSnapshotToSource()` | 创建独立快照或把快照内容恢复到来源插件。 |
@@ -352,7 +352,7 @@ purge 先由页面请求 preview 并确认，Provider 提交签名写后立即�
 
 ### 权限模型
 
-插件需在 `plugin.json` 中声明权限，用户安装后可在管理页修改授予范围；本地 ZIP 导入、市场安装和插件工坊导入完成后会立即弹出权限授权对话框，敏感权限默认全选，并支持一键「全选」。管理页的权限区还会列出调用依赖插件 `expose` 函数时其 `requires` 声明的额外权限。实际执行时 `PluginLuaRuntimeService` 会根据授予权限裁剪沙箱 API。内置 `mobile-agent-skills` 是纯 Skill 插件，不声明权限，不执行工具，只为 Agent 提供工作流说明。当前 15 个 skill：`android_accessibility`（无障碍原语）、`messaging`（消息应用通用流程）、`qq`（QQ 自动回复）、`wechat`（微信会话自动化）、`system_settings`（系统设置开关）、`camera_ocr_scan`（拍照与 OCR 扫描）、`contacts_phone`（通讯录与电话）、`clock_alarm`（系统闹钟与倒计时）、`map_navigation`（地图导航）、`media_share`（系统分享与跨应用转发）、`study_problem_solving`（题目解答与错题本沉淀）、`study_research_qa`（开放问题检索综述）、`note_taking`（笔记方法论与新建/编辑/归档）、`note_capture_to_kb`（对话沉淀到知识库）、`memory_card_generation`（记忆卡片生成）。内置 `plugin-authoring` 同为纯 Skill 插件，承载插件创作 Skill 集：`plugin_authoring`（插件创作工作流）、`web_design`（前端设计）、`motion_design`（动效设计），供 Agent 在生成/修改插件与 Web 产物时按需加载。Skill 正文可编辑性由 `PluginSkillDefinition.editable` 和 `editableFiles/defaultPath` overlay 决定；内置 Skill 的模板放在 `defaults/skills/`，用户/模型写入的 `skills/` 文件会在同步内置插件时保留。
+插件需在 `plugin.json` 中声明权限，用户安装后可在管理页修改授予范围；本地 ZIP 导入、市场安装和插件工坊导入完成后会立即弹出权限授权对话框，敏感权限默认全选，并支持一键「全选」。管理页的权限区还会列出调用依赖插件 `expose` 函数时其 `requires` 声明的额外权限；同一插件的功能页调用自身函数不需要 `expose`。实际执行时 `PluginLuaRuntimeService` 会根据授予权限裁剪沙箱 API。内置 `mobile-agent-skills` 是纯 Skill 插件，不声明权限，不执行工具，只为 Agent 提供工作流说明。当前 15 个 skill：`android_accessibility`（无障碍原语）、`messaging`（消息应用通用流程）、`qq`（QQ 自动回复）、`wechat`（微信会话自动化）、`system_settings`（系统设置开关）、`camera_ocr_scan`（拍照与 OCR 扫描）、`contacts_phone`（通讯录与电话）、`clock_alarm`（系统闹钟与倒计时）、`map_navigation`（地图导航）、`media_share`（系统分享与跨应用转发）、`study_problem_solving`（题目解答与错题本沉淀）、`study_research_qa`（开放问题检索综述）、`note_taking`（笔记方法论与新建/编辑/归档）、`note_capture_to_kb`（对话沉淀到知识库）、`memory_card_generation`（记忆卡片生成）。内置 `plugin-authoring` 同为纯 Skill 插件，承载插件创作 Skill 集：`plugin_authoring`（插件创作工作流）、`web_design`（前端设计）、`motion_design`（动效设计），供 Agent 在生成/修改插件与 Web 产物时按需加载。Skill 正文可编辑性由 `PluginSkillDefinition.editable` 和 `editableFiles/defaultPath` overlay 决定；内置 Skill 的模板放在 `defaults/skills/`，用户/模型写入的 `skills/` 文件会在同步内置插件时保留。
 
 | 权限 | 控制的能力 |
 |------|-----------|
@@ -436,3 +436,25 @@ rolls back to the previous dataset and leaves the target user unpublished.
 文件：`lib/providers/jotting_provider.dart`
 
 `JottingProvider` 是随记的唯一内存所有者，`ChangeNotifier with SerializedSaveQueue`。它持有按 `createdAt DESC, id` 排序的 `List<Jotting>`，提供 `add/update/delete/restorePayload` 与 `search/onThisDay/tagCounts`。变更先更新内存并通知 UI，再 `enqueueSave` 全量快照到 `jottings.json`；`load()` 使用 mutation generation 防竞态。删除先写入 `RecycleBinRepository`，再从内存移除。`add`/`update` 持久化失败时会回滚内存中的乐观状态并重新抛出，页面依赖该语义保留编辑内容。
+
+## WorkspaceProvider
+
+`WorkspaceProvider` 管理 `workspaces.json` 的本机工作区列表、当前工作区
+（`activeWorkspaceId`）与退出前最后一个工作区（`lastWorkspaceId`）。变更先
+更新内存并通知 UI，再经 `SerializedSaveQueue` 落盘；启动由 `LynAIApp` 加载。
+
+关键入口：
+
+- `createWorkspace` / `updateWorkspace` / `deleteWorkspace`；
+- `selectWorkspace` / `exitWorkspace`；
+- `addDevPlugin`（幂等挂载开发插件）、`setMountedFolderPath`；
+- `importWorkspaceFile` / `createWorkspaceFile` / `writeWorkspaceFile`：
+  写入走 `StorageV2Service.importResourceBytes`，编辑保存替换 Resource 引用；
+- `listMountedDirectory` / `readMountedFile` / `writeMountedFile`：委托
+  `WorkspaceFileService`；
+- `effectiveVisiblePlugins`：按工作区插件策略收窄 Agent 可见插件，并保留
+  绑定中的插件创作目标（若全局启用）。
+
+`ConversationProvider` 增加 `bindConversationToWorkspace`（幂等，已绑定
+其他工作区返回 `already_bound`）、`detachWorkspaceFromConversations` 与
+`searchConversationsInScope`。

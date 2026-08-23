@@ -21,6 +21,7 @@ import 'package:lynai/providers/roleplay_provider.dart';
 import 'package:lynai/providers/settings_provider.dart';
 import 'package:lynai/providers/sync_provider.dart';
 import 'package:lynai/providers/task_provider.dart';
+import 'package:lynai/providers/workspace_provider.dart';
 import 'package:lynai/services/backend_client.dart';
 import 'package:lynai/services/calendar_platform_bridge.dart';
 import 'package:lynai/services/calendar_platform_projection_coordinator.dart';
@@ -48,6 +49,7 @@ void main() {
           ChangeNotifierProvider<ConversationProvider>(
             create: (_) => conversations,
           ),
+          ChangeNotifierProvider(create: (_) => WorkspaceProvider()),
           ChangeNotifierProvider(create: (_) => FeatureProvider()),
           ChangeNotifierProvider(create: (_) => KnowledgeProvider()),
           ChangeNotifierProvider(create: (_) => MemoryCardProvider()),

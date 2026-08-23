@@ -379,3 +379,23 @@ firewall prompt.
 编辑统一使用全屏 `JottingEditorPage` Route，不替换 `FeaturePage` 的 body：新建与编辑共用该页面，顶部提供“完成”，底部为 Markdown 快捷工具栏（粗体、斜体、标题、列表、任务、引用、行内代码、链接、LaTeX）和标签入口；编辑/预览切换不会丢失光标或正文。保存等待 `JottingProvider` 持久化成功后 pop 并返回时间线，失败时留在编辑器并保留输入。取消/返回根据脏状态确认，无修改时直接返回。阅读态 `JottingDetail` 不再包含编辑器，只在顶部保留一个编辑入口。
 
 “插入引用”在底部弹窗中复用对话页的 `ComposerReferencePalette`，注册表按随记引用类型裁剪为笔记/待办事项/知识条目，保留笔记文件夹、待办清单、知识库的文件夹分层导航与搜索；选中后转换为 `JottingReference` 卡片。
+
+## 工作区入口
+
+对话页左上角并排两个按钮：历史记录与工作区，二者共用左侧 Scaffold drawer。
+
+- 历史抽屉：`对话历史 / 工作区对话历史` 双 Tab；普通域显示
+  `workspaceId == null` 的会话，工作区域显示工作区会话并按
+  工作区名 → 角色 → 会话分组；工作区域无会话时不渲染空态。
+- 工作区抽屉（`lib/pages/chat/workspace_drawer.dart`）：未选择工作区时显示
+  工作区列表，点名称即选中；选中后展示挂载本地文件夹、添加文件、功能页与
+  开发插件，点文件关闭抽屉并打开全屏编辑器。
+- 新建工作区：`lib/pages/workspace_create_page.dart`，收集名称、插件策略、
+  开发插件、功能页、挂载本地文件夹与添加文件。
+- 编辑器复用：`lib/widgets/code_file_editor.dart` 为通用代码编辑器，
+  `PluginFileEditorPage` 与 `WorkspaceFileEditorPage` 共用；退出编辑器回到
+  对话页。
+- 功能页的「对话历史」（`feature_shell.dart`）同样提供两个历史域 Tab。
+
+权限不在工作区抽屉表达；Agent 能否读写工作区由「对话设置 → 对话权限」中的
+`workspace:read` / `workspace:write` 决定。

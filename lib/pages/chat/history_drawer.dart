@@ -7,24 +7,35 @@ import '../../models/chat_role.dart';
 import '../../models/conversation.dart';
 import '../../providers/conversation_provider.dart';
 import '../../providers/settings_provider.dart';
+import '../../providers/workspace_provider.dart';
 import '../../utils/chat_search_matcher.dart';
+
+/// 历史抽屉展示的历史域。
+enum HistoryDomain { normal, workspace }
 
 /// 对话历史抽屉。
 ///
-/// 按角色分组展示对话记录，支持搜索、置顶和管理操作。
+/// 两个 Tab 分别展示普通对话与工作区对话；工作区对话按
+/// 工作区 → 角色 → 会话分组。
 class HistoryDrawer extends StatefulWidget {
   final ValueChanged<String> onSelect;
   final String? currentConvId;
   final ScrollController scrollController;
   final Set<String> collapsedRoleIds;
+  final Set<String> collapsedWorkspaceRoleIds;
   final ValueChanged<String> onToggleRole;
+  final HistoryDomain domain;
+  final ValueChanged<HistoryDomain> onDomainChanged;
 
   const HistoryDrawer({
     super.key,
     required this.onSelect,
     required this.scrollController,
     required this.collapsedRoleIds,
+    required this.collapsedWorkspaceRoleIds,
     required this.onToggleRole,
+    required this.domain,
+    required this.onDomainChanged,
     this.currentConvId,
   });
 
@@ -54,6 +65,13 @@ class _HistoryEmptyItem extends _HistoryListItem {
   final String text;
 
   _HistoryEmptyItem(this.text);
+}
+
+class _HistoryWorkspaceHeaderItem extends _HistoryListItem {
+  final String workspaceId;
+  final String name;
+
+  _HistoryWorkspaceHeaderItem({required this.workspaceId, required this.name});
 }
 
 class _HistoryConversationItem extends _HistoryListItem {
@@ -103,63 +121,21 @@ class _HistoryDrawerState extends State<HistoryDrawer> {
   Widget build(BuildContext context) {
     final p = context.watch<ConversationProvider>();
     final sp = context.watch<SettingsProvider>();
-    final results = p.searchConversations(_q);
+    final wp = context.watch<WorkspaceProvider>();
+    final isWorkspace = widget.domain == HistoryDomain.workspace;
+    final activeWorkspace = wp.activeWorkspace;
+    final results = isWorkspace
+        ? p.searchConversationsInScope(
+            _q,
+            workspaceOnly: true,
+            workspaceId: activeWorkspace?.id,
+          )
+        : p.searchConversationsInScope(_q, workspaceOnly: false);
     final roles = sp.settings.roles;
-    final currentRoleId = sp.settings.currentRoleId;
-    final currentRole = roles.firstWhere(
-      (role) => role.id == currentRoleId,
-      orElse: ChatRole.defaultRole,
-    );
-    final currentResults = results
-        .where((r) => r.conversation.roleId == currentRoleId)
-        .toList();
-    final otherResults = results
-        .where((r) => r.conversation.roleId != currentRoleId)
-        .toList();
-    final otherRoleIds = otherResults
-        .map((r) => r.conversation.roleId)
-        .toSet()
-        .toList();
-    final groups = <_HistoryRoleGroup>[
-      _HistoryRoleGroup(
-        roleId: currentRoleId,
-        name: currentRole.name,
-        color: currentRole.themeColor,
-        isCurrent: true,
-        results: currentResults,
-      ),
-      for (final roleId in otherRoleIds)
-        _historyRoleGroup(roles, otherResults, roleId),
-    ];
     final isSearching = _q.trim().isNotEmpty;
-    final items = <_HistoryListItem>[];
-    for (final group in groups) {
-      final isCollapsed =
-          !isSearching && widget.collapsedRoleIds.contains(group.roleId);
-      items.add(
-        _HistoryRoleHeaderItem(
-          roleId: group.roleId,
-          name: group.name,
-          color: group.color,
-          isCurrent: group.isCurrent,
-          isCollapsed: isCollapsed,
-        ),
-      );
-      if (isCollapsed) continue;
-      if (group.results.isEmpty) {
-        items.add(_HistoryEmptyItem(_q.isEmpty ? '当前角色暂无对话' : '未找到匹配的对话'));
-        continue;
-      }
-      for (final result in group.results) {
-        items.add(
-          _HistoryConversationItem(
-            result.conversation,
-            group.color,
-            result: result,
-          ),
-        );
-      }
-    }
+    final items = isWorkspace
+        ? _workspaceItems(results, roles, isSearching)
+        : _normalItems(results, roles, sp.settings.currentRoleId, isSearching);
     return Column(
       children: [
         Container(
@@ -184,6 +160,23 @@ class _HistoryDrawerState extends State<HistoryDrawer> {
                 ],
               ),
               const SizedBox(height: 12),
+              SegmentedButton<HistoryDomain>(
+                segments: const [
+                  ButtonSegment(
+                    value: HistoryDomain.normal,
+                    label: Text('对话历史'),
+                  ),
+                  ButtonSegment(
+                    value: HistoryDomain.workspace,
+                    label: Text('工作区对话历史'),
+                  ),
+                ],
+                selected: {widget.domain},
+                onSelectionChanged: (selection) =>
+                    widget.onDomainChanged(selection.single),
+                showSelectedIcon: false,
+              ),
+              const SizedBox(height: 8),
               TextField(
                 controller: _searchCtrl,
                 decoration: InputDecoration(
@@ -219,19 +212,39 @@ class _HistoryDrawerState extends State<HistoryDrawer> {
         ),
         Expanded(
           child: results.isEmpty
-              ? Center(
-                  child: Text(
-                    _q.isEmpty ? '暂无历史对话' : '无匹配结果',
-                    style: TextStyle(
-                      color: Theme.of(context).colorScheme.outline,
-                    ),
-                  ),
-                )
+              ? (isWorkspace
+                    ? const SizedBox.shrink()
+                    : Center(
+                        child: Text(
+                          _q.isEmpty ? '暂无历史对话' : '无匹配结果',
+                          style: TextStyle(
+                            color: Theme.of(context).colorScheme.outline,
+                          ),
+                        ),
+                      ))
               : ListView.builder(
                   controller: widget.scrollController,
                   itemCount: items.length,
                   itemBuilder: (context, index) {
                     final item = items[index];
+                    if (item is _HistoryWorkspaceHeaderItem) {
+                      return Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 10, 16, 2),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.folder_outlined, size: 16),
+                            const SizedBox(width: 6),
+                            Expanded(
+                              child: Text(
+                                item.name,
+                                style: Theme.of(context).textTheme.titleSmall
+                                    ?.copyWith(fontWeight: FontWeight.w700),
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    }
                     if (item is _HistoryRoleHeaderItem) {
                       return _roleHeader(context, item, enabled: !isSearching);
                     }
@@ -253,6 +266,150 @@ class _HistoryDrawerState extends State<HistoryDrawer> {
         ),
       ],
     );
+  }
+
+  List<_HistoryListItem> _normalItems(
+    List<ConversationSearchResult> results,
+    List<ChatRole> roles,
+    String currentRoleId,
+    bool isSearching,
+  ) {
+    final currentRole = roles.firstWhere(
+      (role) => role.id == currentRoleId,
+      orElse: ChatRole.defaultRole,
+    );
+    final currentResults = results
+        .where((r) => r.conversation.roleId == currentRoleId)
+        .toList();
+    final otherResults = results
+        .where((r) => r.conversation.roleId != currentRoleId)
+        .toList();
+    final otherRoleIds = otherResults
+        .map((r) => r.conversation.roleId)
+        .toSet()
+        .toList();
+    return _roleGroupsItems(
+      [
+        _HistoryRoleGroup(
+          roleId: currentRoleId,
+          name: currentRole.name,
+          color: currentRole.themeColor,
+          isCurrent: true,
+          results: currentResults,
+        ),
+        for (final roleId in otherRoleIds)
+          _historyRoleGroup(roles, otherResults, roleId),
+      ],
+      widget.collapsedRoleIds,
+      isSearching,
+      normal: true,
+    );
+  }
+
+  List<_HistoryListItem> _workspaceItems(
+    List<ConversationSearchResult> results,
+    List<ChatRole> roles,
+    bool isSearching,
+  ) {
+    final groups = <String, List<ConversationSearchResult>>{};
+    for (final result in results) {
+      final id = result.conversation.workspaceId ?? '';
+      final name = result.conversation.workspaceName ?? '工作区对话';
+      groups.putIfAbsent('$id\u0000$name', () => []).add(result);
+    }
+    final items = <_HistoryListItem>[];
+    final entries = groups.entries.toList()
+      ..sort((a, b) {
+        final nameCompare = _workspaceGroupName(
+          a.key,
+        ).compareTo(_workspaceGroupName(b.key));
+        if (nameCompare != 0) return nameCompare;
+        return a.key.compareTo(b.key);
+      });
+    for (final entry in entries) {
+      final parts = entry.key.split('\u0000');
+      items.add(
+        _HistoryWorkspaceHeaderItem(
+          workspaceId: parts.first,
+          name: _workspaceGroupName(entry.key),
+        ),
+      );
+      items.addAll(_workspaceRoleGroupsItems(roles, entry.value, isSearching));
+    }
+    return items;
+  }
+
+  List<_HistoryListItem> _workspaceRoleGroupsItems(
+    List<ChatRole> roles,
+    List<ConversationSearchResult> results,
+    bool isSearching,
+  ) {
+    final groups = <String, _HistoryRoleGroup>{};
+    for (final result in results) {
+      final roleId = result.conversation.roleId;
+      groups.putIfAbsent(
+        roleId,
+        () => _historyRoleGroup(roles, results, roleId),
+      );
+    }
+    final sorted = groups.values.toList()
+      ..sort((a, b) {
+        if (a.isCurrent != b.isCurrent) return a.isCurrent ? -1 : 1;
+        return a.name.compareTo(b.name);
+      });
+    return _roleGroupsItems(
+      sorted,
+      widget.collapsedWorkspaceRoleIds,
+      isSearching,
+      normal: false,
+    );
+  }
+
+  List<_HistoryListItem> _roleGroupsItems(
+    List<_HistoryRoleGroup> groups,
+    Set<String> collapsedIds,
+    bool isSearching, {
+    required bool normal,
+  }) {
+    final items = <_HistoryListItem>[];
+    for (final group in groups) {
+      final isCollapsed = !isSearching && collapsedIds.contains(group.roleId);
+      items.add(
+        _HistoryRoleHeaderItem(
+          roleId: group.roleId,
+          name: group.name,
+          color: group.color,
+          isCurrent: group.isCurrent,
+          isCollapsed: isCollapsed,
+        ),
+      );
+      if (isCollapsed) continue;
+      if (group.results.isEmpty) {
+        items.add(
+          _HistoryEmptyItem(
+            _q.isEmpty ? (normal ? '当前角色暂无对话' : '该角色暂无工作区对话') : '未找到匹配的对话',
+          ),
+        );
+        continue;
+      }
+      for (final result in group.results) {
+        items.add(
+          _HistoryConversationItem(
+            result.conversation,
+            group.color,
+            result: result,
+          ),
+        );
+      }
+    }
+    return items;
+  }
+
+  static String _workspaceGroupName(String key) {
+    final index = key.indexOf('\u0000');
+    if (index == -1) return '工作区对话';
+    final name = key.substring(index + 1);
+    return name.isEmpty ? '工作区对话' : name;
   }
 
   _HistoryRoleGroup _historyRoleGroup(
@@ -376,6 +533,10 @@ class _HistoryDrawerState extends State<HistoryDrawer> {
       onLongPress: () => _renameDialog(context, c),
       onTap: () {
         context.read<SettingsProvider>().selectRole(c.roleId);
+        final workspaceId = c.workspaceId;
+        if (workspaceId != null && workspaceId.isNotEmpty) {
+          context.read<WorkspaceProvider>().selectWorkspace(workspaceId);
+        }
         widget.onSelect(c.id);
       },
     );

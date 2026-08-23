@@ -509,6 +509,33 @@ class StorageV2Service {
     });
   }
 
+  /// 以内存字节导入 Resource，和 [importResourceFile] 共享哈希去重与落盘逻辑。
+  ///
+  /// 用于把编辑器内存内容写回工作区文件等场景；调用方负责控制字节大小。
+  Future<StorageV2Resource> importResourceBytes(
+    Uint8List bytes, {
+    required String originalName,
+    required String mimeType,
+    required String role,
+  }) {
+    return _runResourceMutation(() async {
+      final resources = await loadResources();
+      final resource = await _importExistingBytes(
+        bytes,
+        resources,
+        originalName,
+        mimeType,
+        role,
+        originalPath: '',
+      );
+      if (resources.any((item) => item.id == resource.id)) return resource;
+      await writeDataFile('resources.json', {
+        'resources': [...resources.map((e) => e.toJson()), resource.toJson()],
+      });
+      return resource;
+    });
+  }
+
   Future<T> _runResourceMutation<T>(Future<T> Function() action) {
     // Resource imports append to a read-modify-write snapshot, so keep one
     // mutation active per service instance to avoid dropping concurrent rows.
@@ -658,6 +685,24 @@ class StorageV2Service {
     String role,
   ) async {
     final bytes = await file.readAsBytes();
+    return _importExistingBytes(
+      bytes,
+      resources,
+      originalName,
+      mimeType,
+      role,
+      originalPath: file.path,
+    );
+  }
+
+  Future<StorageV2Resource> _importExistingBytes(
+    Uint8List bytes,
+    List<StorageV2Resource> resources,
+    String originalName,
+    String mimeType,
+    String role, {
+    required String originalPath,
+  }) async {
     final hash = sha256.convert(bytes).toString();
     for (final resource in resources) {
       if (!resource.missing &&
@@ -678,8 +723,7 @@ class StorageV2Service {
     final target = await _file(relativePath);
     final parent = target.parent;
     if (!await parent.exists()) await parent.create(recursive: true);
-    if (_normalizePath(file.absolute.path) !=
-        _normalizePath(target.absolute.path)) {
+    if (_normalizePath(originalPath) != _normalizePath(target.absolute.path)) {
       await target.writeAsBytes(bytes, flush: true);
     }
 
@@ -687,7 +731,7 @@ class StorageV2Service {
       id: location.resourceId,
       kind: location.kind,
       role: role,
-      originalPath: file.path,
+      originalPath: originalPath,
       originalName: originalName,
       relativePath: relativePath,
       mimeType: mimeType,

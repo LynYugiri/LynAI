@@ -21,6 +21,7 @@ import '../models/jotting.dart';
 import '../models/local_date.dart';
 import '../models/memory_card.dart';
 import '../models/plugin.dart';
+import '../models/workspace.dart';
 import '../providers/feature_provider.dart';
 import '../providers/jotting_provider.dart';
 import '../providers/calendar_provider.dart';
@@ -30,6 +31,7 @@ import '../providers/model_config_provider.dart';
 import '../providers/plugin_provider.dart';
 import '../providers/settings_provider.dart';
 import '../providers/task_provider.dart';
+import '../providers/workspace_provider.dart';
 import '../repositories/plugin_repository.dart';
 import 'backend_client.dart';
 import '../providers/conversation_provider.dart';
@@ -61,6 +63,7 @@ import 'plugin_scaffold_service.dart';
 import 'plugin_tool_importer.dart';
 import 'storage_v2_service.dart';
 import 'web_search_service.dart';
+import 'workspace_file_service.dart';
 import 'bounded_outbound_http_client.dart';
 import 'code_syntax_service.dart';
 
@@ -132,6 +135,7 @@ class ToolCallService {
     ModelConfigProvider? modelConfigs,
     SettingsProvider? settings,
     ConversationProvider? conversations,
+    WorkspaceProvider? workspaces,
     BackendClient? backend,
     String? conversationId,
     LynAICallIdentity? agentIdentity,
@@ -168,6 +172,7 @@ class ToolCallService {
        _modelConfigs = modelConfigs,
        _settings = settings,
        _conversations = conversations,
+       _workspaces = workspaces,
        _backend = backend,
        _conversationId = conversationId,
        _providedAgentIdentity = agentIdentity,
@@ -237,6 +242,7 @@ class ToolCallService {
   final ModelConfigProvider? _modelConfigs;
   final SettingsProvider? _settings;
   final ConversationProvider? _conversations;
+  final WorkspaceProvider? _workspaces;
   final BackendClient? _backend;
   final String? _conversationId;
   final LynAICallIdentity? _providedAgentIdentity;
@@ -347,6 +353,47 @@ Agent 专用工具成功时返回 {ok:true,result:{...}}，失败时返回 {ok:f
     return '''$prompt
 可用插件 Skills（按需调用 load_plugin_skill 加载正文）：
 ${lines.join('\n')}$more''';
+  }
+
+  /// 生成本地工作区系统提示词。
+  ///
+  /// [manageAvailable] 为真时说明本轮会注册工作区管理工具；[fileAvailable]
+  /// 为真时说明会话已绑定工作区且会注册 workspace_file_* 工具。
+  static String workspaceSystemPrompt(
+    Workspace? workspace, {
+    required bool readAllowed,
+    required bool writeAllowed,
+    required bool fileAvailable,
+  }) {
+    final lines = <String>[];
+    if (readAllowed || writeAllowed) {
+      final manageTools = <String>[
+        if (readAllowed) 'list_workspaces 查看工作区',
+        if (writeAllowed) 'create_workspace 新建工作区；bind_workspace 把当前对话绑定到已有工作区',
+      ];
+      final workflow = writeAllowed
+          ? '''
+；\n- 用户要求“从零创建插件并归入工作区”时，create_plugin 成功后调用
+  create_workspace(sourcePluginId=<新插件id>, bindCurrentConversation=true)，
+  或 create_workspace 后再 bind_workspace；
+- 绑定后当前对话历史归入该工作区；不要代用户设置挂载本地文件夹。'''
+          : '';
+      lines.add('可用工作区能力：\n- ${manageTools.join('；')}$workflow');
+    }
+    if (fileAvailable && workspace != null) {
+      final fileTools = <String>[
+        if (readAllowed) 'workspace_file_list / workspace_file_read',
+        if (writeAllowed) 'workspace_file_write',
+      ];
+      lines.add('''
+当前对话绑定工作区：${workspace.name}。
+可用文件工具：${fileTools.join('、')}。
+工作区文件根目录：
+- files/：用户添加到工作区的文件；
+- mount/：挂载的本地文件夹（若可用）。
+插件源码请使用 plugin_file_* 工具；笔记/日程/知识库请使用各自功能工具。''');
+    }
+    return lines.join('\n\n');
   }
 
   /// 生成当前对话插件工作区的系统提示词。
@@ -1680,8 +1727,10 @@ plugin_file_* / plugin_manifest_* 工具不传 pluginId 时默认操作该插件
     bool webSearchConfigured,
     bool knowledgeAvailable,
     bool memoryCardsAvailable,
-    bool jottingsAvailable,
-  ) {
+    bool jottingsAvailable, {
+    bool workspaceManageAvailable = false,
+    bool workspaceFileAvailable = false,
+  }) {
     final names = tools
         .map((tool) => tool['function']?['name']?.toString())
         .whereType<String>()
@@ -1845,6 +1894,74 @@ plugin_file_* / plugin_manifest_* 工具不传 pluginId 时默认操作该插件
         'required': ['content'],
       });
     }
+    if (workspaceManageAvailable) {
+      add('list_workspaces', '列出本地工作区（不返回挂载文件夹的绝对路径）。', {
+        'type': 'object',
+        'properties': {
+          'limit': {'type': 'integer', 'minimum': 1, 'maximum': 50},
+        },
+      });
+      add('create_workspace', '新建本地工作区；可同时把当前对话绑定到新工作区。', {
+        'type': 'object',
+        'properties': {
+          'name': {'type': 'string', 'minLength': 1, 'maxLength': 40},
+          'sourcePluginId': {
+            'type': 'string',
+            'description': '可选：以该插件名称作为默认名称并挂入开发插件列表。',
+          },
+          'featurePages': {
+            'type': 'array',
+            'maxItems': 6,
+            'items': {'type': 'string'},
+          },
+          'pluginPolicy': {
+            'type': 'string',
+            'enum': ['followGlobal', 'custom'],
+          },
+          'enabledPluginIds': {
+            'type': 'array',
+            'items': {'type': 'string'},
+          },
+          'devPluginIds': {
+            'type': 'array',
+            'items': {'type': 'string'},
+          },
+          'bindCurrentConversation': {'type': 'boolean'},
+        },
+        'required': ['name'],
+      });
+      add('bind_workspace', '把当前对话绑定到已有工作区；对话历史将归入该工作区。', {
+        'type': 'object',
+        'properties': {
+          'workspaceId': {'type': 'string', 'minLength': 1},
+        },
+        'required': ['workspaceId'],
+      });
+    }
+    if (workspaceFileAvailable) {
+      add('workspace_file_list', '列出当前工作区文件：files/ 为添加文件，mount/ 为挂载本地文件夹。', {
+        'type': 'object',
+        'properties': {
+          'path': {'type': 'string'},
+        },
+      });
+      add('workspace_file_read', '读取当前工作区的文本文件（二进制文件会被拒绝）。', {
+        'type': 'object',
+        'properties': {
+          'path': {'type': 'string'},
+          'maxChars': {'type': 'integer', 'minimum': 1, 'maximum': 200000},
+        },
+        'required': ['path'],
+      });
+      add('workspace_file_write', '写入当前工作区的文本文件；写 files/<name> 会替换该文件内容。', {
+        'type': 'object',
+        'properties': {
+          'path': {'type': 'string'},
+          'content': {'type': 'string', 'minLength': 1, 'maxLength': 5000000},
+        },
+        'required': ['path', 'content'],
+      });
+    }
     add('read_attachment', '按当前对话的 messageId 和附件序号安全读取附件。', {
       'type': 'object',
       'properties': {
@@ -1945,6 +2062,12 @@ plugin_file_* / plugin_manifest_* 工具不传 pluginId 时默认操作该插件
       'execute_lua' => const [LynAIPermissions.luaExecute],
       'call_plugin_function' => const [LynAIPermissions.pluginCallFunction],
       'propose_note_edit' => const [LynAIPermissions.notesPropose],
+      'list_workspaces' ||
+      'workspace_file_list' ||
+      'workspace_file_read' => const [LynAIPermissions.workspaceRead],
+      'create_workspace' ||
+      'bind_workspace' ||
+      'workspace_file_write' => const [LynAIPermissions.workspaceWrite],
       'resource' ||
       'read_attachment' ||
       'knowledge_search' ||
@@ -1999,6 +2122,12 @@ plugin_file_* / plugin_manifest_* 工具不传 pluginId 时默认操作该插件
     if (name == 'plugin_validate') {
       return AgentToolOperation.read;
     }
+    if (name == 'workspace_file_list' || name == 'workspace_file_read') {
+      return AgentToolOperation.read;
+    }
+    if (name == 'workspace_file_write' || name == 'bind_workspace') {
+      return AgentToolOperation.update;
+    }
     if (name.startsWith('list_') ||
         name.startsWith('read_') ||
         name.startsWith('get_') ||
@@ -2024,7 +2153,7 @@ plugin_file_* / plugin_manifest_* 工具不传 pluginId 时默认操作该插件
   bool _isPluginTool(String name) => _pluginToolBinding(name) != null;
 
   (InstalledPlugin, PluginToolDefinition)? _pluginToolBinding(String name) {
-    for (final plugin in _plugins?.plugins ?? const <InstalledPlugin>[]) {
+    for (final plugin in _agentVisiblePlugins) {
       for (final tool in plugin.manifest.tools) {
         if (canonicalPluginToolName(plugin.id, tool.name) == name) {
           return (plugin, tool);
@@ -2032,6 +2161,35 @@ plugin_file_* / plugin_manifest_* 工具不传 pluginId 时默认操作该插件
       }
     }
     return null;
+  }
+
+  /// 旧版插件工具名兼容：只有恰好一个插件声明了该裸名时才可解析。
+  bool _hasSingleRawPluginTool(String name) {
+    var matches = 0;
+    for (final plugin in _agentVisiblePlugins) {
+      for (final tool in plugin.manifest.tools) {
+        if (tool.name == name) {
+          matches++;
+          if (matches > 1) return false;
+        }
+      }
+    }
+    return matches == 1;
+  }
+
+  List<(InstalledPlugin, PluginToolDefinition)> _rawPluginToolBindings(
+    String name,
+  ) {
+    final matches = <(InstalledPlugin, PluginToolDefinition)>[];
+    for (final plugin in _agentVisiblePlugins) {
+      if (!plugin.enabled || plugin.hasError) continue;
+      for (final tool in plugin.manifest.tools) {
+        if (tool.name == name && plugin.enabledTools.contains(tool.name)) {
+          matches.add((plugin, tool));
+        }
+      }
+    }
+    return matches;
   }
 
   static Map<String, dynamic> _skillSummaryJson(
@@ -2081,7 +2239,7 @@ plugin_file_* / plugin_manifest_* 工具不传 pluginId 时默认操作该插件
         AgentPermissionSnapshot(permissions: const []);
     final registry = AgentToolRegistry();
     final definitions = openAITools(
-      _plugins?.plugins ?? const [],
+      _agentVisiblePlugins,
       agentEnabled,
       permissions.permissions,
       imageGenerationEnabled,
@@ -2094,6 +2252,8 @@ plugin_file_* / plugin_manifest_* 工具不传 pluginId 时默认操作该插件
       _knowledge != null,
       _memoryCards != null,
       _jottings != null,
+      workspaceManageAvailable: _workspaces != null,
+      workspaceFileAvailable: _conversationWorkspace != null,
     );
     for (final definition in definitions) {
       final function = definition['function'];
@@ -2471,6 +2631,7 @@ plugin_file_* / plugin_manifest_* 工具不传 pluginId 时默认操作该插件
       modelConfigs: _modelConfigs,
       settings: _settings,
       conversations: _conversations,
+      workspaces: _workspaces,
       backend: _backend,
       conversationId: _conversationId,
       agentIdentity:
@@ -2646,6 +2807,18 @@ plugin_file_* / plugin_manifest_* 工具不传 pluginId 时默认操作该插件
           return _pluginManifestGetForAgent(call.arguments);
         case 'plugin_manifest_update':
           return await _pluginManifestUpdateForAgent(call.arguments);
+        case 'list_workspaces':
+          return _listWorkspaces(call.arguments);
+        case 'create_workspace':
+          return await _createWorkspace(call.arguments);
+        case 'bind_workspace':
+          return _bindWorkspace(call.arguments);
+        case 'workspace_file_list':
+          return await _workspaceFileList(call.arguments);
+        case 'workspace_file_read':
+          return await _workspaceFileRead(call.arguments);
+        case 'workspace_file_write':
+          return await _workspaceFileWrite(call.arguments);
         case 'create_plugin':
           return await _createPlugin(call.arguments);
         case 'plugin_run_handler':
@@ -3670,6 +3843,7 @@ plugin_file_* / plugin_manifest_* 工具不传 pluginId 时默认操作该插件
       modelConfigs: _modelConfigs,
       settings: _settings,
       conversations: _conversations,
+      workspaces: _workspaces,
       backend: _backend,
       conversationId: _conversationId,
       agentIdentity: identity ?? _identityForToolCall(call),
@@ -4007,7 +4181,9 @@ ${ToolCallService.currentTimeContext()}${sharedContext.isEmpty ? '' : '\n\n$shar
 
   Map<String, dynamic> _listPluginFunctionsForAgent() {
     _appendAgentTrace(AgentTraceEvent.toolCall, '查看插件函数');
-    final result = listPluginFunctions(_plugins?.plugins ?? const []);
+    final result = listPluginFunctions(
+      _agentVisiblePlugins.toList(growable: false),
+    );
     final count = (result['functions'] as List?)?.length ?? 0;
     _appendAgentTrace(
       AgentTraceEvent.toolResult,
@@ -4033,7 +4209,7 @@ ${ToolCallService.currentTimeContext()}${sharedContext.isEmpty ? '' : '\n\n$shar
       },
     );
     final result = listPluginSkills(
-      _plugins?.plugins ?? const [],
+      _agentVisiblePlugins.toList(growable: false),
       pluginId: pluginId,
       query: query,
     );
@@ -4308,6 +4484,377 @@ ${ToolCallService.currentTimeContext()}${sharedContext.isEmpty ? '' : '\n\n$shar
     }
   }
 
+  Map<String, dynamic> _listWorkspaces(Map<String, dynamic> args) {
+    if (!_agentEnabled) {
+      return _agentError('agent_disabled', '当前对话未启用 Agent 模式');
+    }
+    final workspaces = _workspaces;
+    if (workspaces == null) {
+      return _agentError('workspace_unavailable', '工作区服务不可用');
+    }
+    final limit = ((args['limit'] as num?)?.toInt() ?? 50).clamp(1, 50);
+    final items = workspaces.workspaces
+        .take(limit)
+        .map((workspace) {
+          return {
+            'id': workspace.id,
+            'name': workspace.name,
+            'featurePages': workspace.featureIds,
+            'pluginPolicy': workspace.pluginPolicyMode.wire,
+            'enabledPluginIds': workspace.enabledPluginIds,
+            'devPluginIds': workspace.devPluginIds,
+            'fileCount': workspace.files.length,
+            'hasMountedFolder': workspace.mountedFolderPath != null,
+          };
+        })
+        .toList(growable: false);
+    return _agentOk({'workspaces': items});
+  }
+
+  Future<Map<String, dynamic>> _createWorkspace(
+    Map<String, dynamic> args,
+  ) async {
+    if (!_agentEnabled) {
+      return _agentError('agent_disabled', '当前对话未启用 Agent 模式');
+    }
+    final workspaces = _workspaces;
+    final conversations = _conversations;
+    final plugins = _plugins;
+    if (workspaces == null || conversations == null) {
+      return _agentError('workspace_unavailable', '工作区服务不可用');
+    }
+    final cid = _conversationId;
+    final bindCurrent = args['bindCurrentConversation'] == true;
+    if (bindCurrent && (cid == null || cid.isEmpty)) {
+      return _agentError('missing_context', '当前没有可绑定的对话');
+    }
+    final currentConv = cid == null ? null : conversations.getConversation(cid);
+    if (bindCurrent &&
+        currentConv?.workspaceId != null &&
+        currentConv!.workspaceId!.isNotEmpty) {
+      return _agentError(
+        'already_bound',
+        '当前对话已绑定工作区 ${currentConv.workspaceId}',
+      );
+    }
+
+    var name = (args['name'] as String? ?? '').trim();
+    final sourcePluginId = (args['sourcePluginId'] as String? ?? '').trim();
+    InstalledPlugin? sourcePlugin;
+    if (sourcePluginId.isNotEmpty) {
+      sourcePlugin = plugins?.pluginById(sourcePluginId);
+      if (sourcePlugin == null) {
+        return _agentError('plugin_not_found', '插件不存在: $sourcePluginId');
+      }
+      if (name.isEmpty) name = sourcePlugin.displayName;
+    }
+    if (name.isEmpty || name.length > 40) {
+      return _agentError('invalid_arguments', '工作区名称不能为空且不能超过 40 个字符');
+    }
+
+    final rawFeaturePages = (args['featurePages'] as List<dynamic>? ?? const [])
+        .map((item) => item.toString())
+        .toList();
+    final unsupportedFeatures = rawFeaturePages
+        .where((id) => !supportedWorkspaceFeatureIds.contains(id))
+        .toList();
+    if (unsupportedFeatures.isNotEmpty) {
+      return _agentError(
+        'invalid_arguments',
+        '不支持的功能页: ${unsupportedFeatures.join(', ')}',
+      );
+    }
+
+    final rawEnabledIds =
+        (args['enabledPluginIds'] as List<dynamic>? ?? const [])
+            .map((item) => item.toString().trim())
+            .where((id) => id.isNotEmpty)
+            .toSet()
+            .toList();
+    final enabledProblems = <String>[];
+    final enabledIds = <String>[];
+    for (final id in rawEnabledIds) {
+      final plugin = plugins?.pluginById(id);
+      if (plugin == null) {
+        enabledProblems.add('插件不存在: $id');
+        continue;
+      }
+      if (!plugin.enabled || plugin.hasError) {
+        enabledProblems.add('插件未全局启用或加载失败: ${plugin.displayName}');
+        continue;
+      }
+      enabledIds.add(id);
+    }
+    if (enabledProblems.isNotEmpty) {
+      return _agentError('invalid_arguments', enabledProblems.join('；'));
+    }
+    final policy =
+        (args['pluginPolicy'] as String? ?? 'followGlobal') == 'custom'
+        ? WorkspacePluginPolicyMode.custom
+        : WorkspacePluginPolicyMode.followGlobal;
+    if (policy == WorkspacePluginPolicyMode.custom) {
+      for (final id in enabledIds) {
+        final plugin = plugins!.pluginById(id)!;
+        final dependencyError = plugins.dependencyError(plugin);
+        if (dependencyError != null) {
+          return _agentError(
+            'plugin_dependency_error',
+            '${plugin.displayName}: $dependencyError',
+          );
+        }
+      }
+    }
+
+    final devIds = <String>[];
+    if (sourcePlugin != null) devIds.add(sourcePlugin.id);
+    for (final raw in args['devPluginIds'] as List<dynamic>? ?? const []) {
+      final id = raw.toString().trim();
+      if (id.isEmpty || devIds.contains(id)) continue;
+      if (plugins?.pluginById(id) == null) {
+        return _agentError('plugin_not_found', '插件不存在: $id');
+      }
+      devIds.add(id);
+    }
+
+    final workspace = workspaces.createWorkspace(
+      name: name,
+      featureIds: rawFeaturePages,
+      pluginPolicyMode: policy,
+      enabledPluginIds: enabledIds,
+      devPluginIds: devIds,
+    );
+    var boundConversationId = '';
+    if (bindCurrent) {
+      final result = conversations.bindConversationToWorkspace(
+        cid!,
+        workspace.id,
+        workspace.name,
+      );
+      if (result != 'ok') {
+        return _agentError(result, '绑定当前对话失败');
+      }
+      boundConversationId = cid;
+    }
+    workspaces.selectWorkspace(workspace.id);
+    return _agentOk({
+      'workspaceId': workspace.id,
+      'name': workspace.name,
+      'devPluginIds': workspace.devPluginIds,
+      if (boundConversationId.isNotEmpty)
+        'boundConversationId': boundConversationId,
+    });
+  }
+
+  Map<String, dynamic> _bindWorkspace(Map<String, dynamic> args) {
+    if (!_agentEnabled) {
+      return _agentError('agent_disabled', '当前对话未启用 Agent 模式');
+    }
+    final workspaces = _workspaces;
+    final conversations = _conversations;
+    if (workspaces == null || conversations == null) {
+      return _agentError('workspace_unavailable', '工作区服务不可用');
+    }
+    final cid = _conversationId;
+    if (cid == null || cid.isEmpty) {
+      return _agentError('missing_context', '当前没有可绑定的对话');
+    }
+    final workspaceId = (args['workspaceId'] as String? ?? '').trim();
+    final workspace = workspaces.workspaceById(workspaceId);
+    if (workspace == null) {
+      return _agentError('workspace_not_found', '工作区不存在: $workspaceId');
+    }
+    final result = conversations.bindConversationToWorkspace(
+      cid,
+      workspace.id,
+      workspace.name,
+    );
+    if (result != 'ok') {
+      return _agentError(result, '绑定当前对话失败');
+    }
+    final addedDevPluginIds = <String>[];
+    final pluginId = _workspacePluginId;
+    if (pluginId != null && !workspace.devPluginIds.contains(pluginId)) {
+      workspaces.addDevPlugin(workspace.id, pluginId);
+      addedDevPluginIds.add(pluginId);
+    }
+    workspaces.selectWorkspace(workspace.id);
+    return _agentOk({
+      'workspaceId': workspace.id,
+      'name': workspace.name,
+      'conversationId': cid,
+      'addedDevPluginIds': addedDevPluginIds,
+    });
+  }
+
+  Future<Map<String, dynamic>> _workspaceFileList(
+    Map<String, dynamic> args,
+  ) async {
+    if (!_agentEnabled) {
+      return _agentError('agent_disabled', '当前对话未启用 Agent 模式');
+    }
+    final workspace = _conversationWorkspace;
+    final provider = _workspaces;
+    if (workspace == null || provider == null) {
+      return _agentError('workspace_not_bound', '当前对话未绑定工作区');
+    }
+    final rawPath = (args['path'] as String? ?? '').trim();
+    final normalized = WorkspaceFileService.normalizeRelative(rawPath);
+    if (normalized == null) {
+      return _agentError('invalid_arguments', '工作区路径不安全: $rawPath');
+    }
+    if (normalized.isEmpty || normalized == 'files') {
+      return _agentOk({
+        'path': normalized,
+        'entries': workspace.files
+            .map(
+              (ref) => {
+                'name': ref.originalName,
+                'path': 'files/${ref.originalName}',
+                'isDirectory': false,
+                'size': ref.size,
+              },
+            )
+            .toList(growable: false),
+      });
+    }
+    if (normalized == 'mount') {
+      final entries = await provider.listMountedDirectory(workspace, '');
+      return _agentOk({
+        'path': normalized,
+        'entries': entries
+            .map(
+              (entry) => {
+                'name': entry.name,
+                'path': 'mount/${entry.path}',
+                'isDirectory': entry.isDirectory,
+                'size': entry.size,
+              },
+            )
+            .toList(growable: false),
+      });
+    }
+    if (normalized.startsWith('mount/')) {
+      final relative = normalized.substring('mount/'.length);
+      final entries = await provider.listMountedDirectory(workspace, relative);
+      return _agentOk({
+        'path': normalized,
+        'entries': entries
+            .map(
+              (entry) => {
+                'name': entry.name,
+                'path': 'mount/${entry.path}',
+                'isDirectory': entry.isDirectory,
+                'size': entry.size,
+              },
+            )
+            .toList(growable: false),
+      });
+    }
+    return _agentError('invalid_arguments', '只支持 files/ 与 mount/ 目录');
+  }
+
+  Future<Map<String, dynamic>> _workspaceFileRead(
+    Map<String, dynamic> args,
+  ) async {
+    if (!_agentEnabled) {
+      return _agentError('agent_disabled', '当前对话未启用 Agent 模式');
+    }
+    final workspace = _conversationWorkspace;
+    final provider = _workspaces;
+    if (workspace == null || provider == null) {
+      return _agentError('workspace_not_bound', '当前对话未绑定工作区');
+    }
+    final rawPath = (args['path'] as String? ?? '').trim();
+    final normalized = WorkspaceFileService.normalizeRelative(rawPath);
+    if (normalized == null || normalized.isEmpty) {
+      return _agentError('invalid_arguments', '工作区路径不安全: $rawPath');
+    }
+    final maxChars =
+        ((args['maxChars'] as num?)?.toInt() ??
+                WorkspaceFileService.maxReadChars)
+            .clamp(1, WorkspaceFileService.maxReadChars);
+    try {
+      if (normalized.startsWith('files/')) {
+        final name = normalized.substring('files/'.length);
+        final ref = workspace.files
+            .where((item) => item.originalName == name)
+            .firstOrNull;
+        if (ref == null) {
+          return _agentError('file_not_found', '工作区文件不存在: $name');
+        }
+        final content = await provider.readWorkspaceFile(ref);
+        final truncated = content.length > maxChars;
+        return _agentOk({
+          'path': normalized,
+          'content': truncated ? content.substring(0, maxChars) : content,
+          'truncated': truncated,
+        });
+      }
+      if (normalized.startsWith('mount/')) {
+        final relative = normalized.substring('mount/'.length);
+        final content = await provider.readMountedFile(workspace, relative);
+        final truncated = content.length > maxChars;
+        return _agentOk({
+          'path': normalized,
+          'content': truncated ? content.substring(0, maxChars) : content,
+          'truncated': truncated,
+        });
+      }
+      return _agentError(
+        'invalid_arguments',
+        '只支持 files/<name> 与 mount/<path>',
+      );
+    } catch (e) {
+      return _agentError('workspace_file_read_failed', '$e');
+    }
+  }
+
+  Future<Map<String, dynamic>> _workspaceFileWrite(
+    Map<String, dynamic> args,
+  ) async {
+    if (!_agentEnabled) {
+      return _agentError('agent_disabled', '当前对话未启用 Agent 模式');
+    }
+    final workspace = _conversationWorkspace;
+    final provider = _workspaces;
+    if (workspace == null || provider == null) {
+      return _agentError('workspace_not_bound', '当前对话未绑定工作区');
+    }
+    final rawPath = (args['path'] as String? ?? '').trim();
+    final normalized = WorkspaceFileService.normalizeRelative(rawPath);
+    final content = args['content'] as String? ?? '';
+    if (normalized == null ||
+        normalized.isEmpty ||
+        content.length > WorkspaceFileService.maxWriteChars) {
+      return _agentError('invalid_arguments', '工作区路径不安全或内容超限');
+    }
+    try {
+      if (normalized.startsWith('files/')) {
+        final name = normalized.substring('files/'.length);
+        if (name.isEmpty || name.contains('/')) {
+          return _agentError('invalid_arguments', '文件名不合法: $name');
+        }
+        final ref = await provider.createWorkspaceFile(
+          workspace.id,
+          name,
+          content,
+        );
+        return _agentOk({'path': normalized, 'size': ref.size});
+      }
+      if (normalized.startsWith('mount/')) {
+        final relative = normalized.substring('mount/'.length);
+        await provider.writeMountedFile(workspace, relative, content);
+        return _agentOk({'path': normalized, 'size': content.length});
+      }
+      return _agentError(
+        'invalid_arguments',
+        '只支持 files/<name> 与 mount/<path>',
+      );
+    } catch (e) {
+      return _agentError('workspace_file_write_failed', '$e');
+    }
+  }
+
   Future<Map<String, dynamic>> _createPlugin(Map<String, dynamic> args) async {
     if (!_agentEnabled) {
       return _agentError('agent_disabled', '当前对话未启用 Agent 模式');
@@ -4352,6 +4899,16 @@ ${ToolCallService.currentTimeContext()}${sharedContext.isEmpty ? '' : '\n\n$shar
       if (cid != null && cid.isNotEmpty) {
         _conversations?.setPluginWorkspace(cid, plugin.id);
       }
+      final boundWorkspace = _conversationWorkspace;
+      final canMutateWorkspace =
+          (_effectivePermissionSnapshot()?.permissions ?? const []).contains(
+            LynAIPermissions.workspaceWrite,
+          );
+      var workspaceMounted = false;
+      if (boundWorkspace != null && canMutateWorkspace) {
+        _workspaces?.addDevPlugin(boundWorkspace.id, plugin.id);
+        workspaceMounted = true;
+      }
       return _agentOk({
         'pluginId': plugin.id,
         'name': plugin.displayName,
@@ -4360,6 +4917,8 @@ ${ToolCallService.currentTimeContext()}${sharedContext.isEmpty ? '' : '\n\n$shar
         'devState': plugin.devState.toJson(),
         'writtenFiles': writtenFiles,
         'created': true,
+        'workspaceMounted': workspaceMounted,
+        'workspaceId': boundWorkspace?.id,
       });
     } catch (e) {
       return _agentError('plugin_create_failed', '$e');
@@ -4459,7 +5018,10 @@ ${ToolCallService.currentTimeContext()}${sharedContext.isEmpty ? '' : '\n\n$shar
             deadline: deadline,
           );
         default:
-          return _agentError('invalid_arguments', 'kind 必须是 tool、function 或 command');
+          return _agentError(
+            'invalid_arguments',
+            'kind 必须是 tool、function 或 command',
+          );
       }
       stopwatch.stop();
       return _agentOk({
@@ -4575,7 +5137,9 @@ ${ToolCallService.currentTimeContext()}${sharedContext.isEmpty ? '' : '\n\n$shar
   }
 
   /// 静态校验插件：manifest 与各文件语法，不执行任何插件代码。
-  Future<Map<String, dynamic>> _pluginValidate(Map<String, dynamic> args) async {
+  Future<Map<String, dynamic>> _pluginValidate(
+    Map<String, dynamic> args,
+  ) async {
     if (!_agentEnabled) {
       return _agentError('agent_disabled', '当前对话未启用 Agent 模式');
     }
@@ -4853,6 +5417,34 @@ ${ToolCallService.currentTimeContext()}${sharedContext.isEmpty ? '' : '\n\n$shar
         : workspace.trim();
   }
 
+  /// 当前会话绑定的本地工作区（以会话快照为准，不用全局 active）。
+  Workspace? get _conversationWorkspace {
+    final cid = _conversationId;
+    final conversations = _conversations;
+    final workspaces = _workspaces;
+    if (cid == null || conversations == null || workspaces == null) {
+      return null;
+    }
+    final workspaceId = conversations.getConversation(cid)?.workspaceId;
+    return workspaces.workspaceById(workspaceId);
+  }
+
+  /// Agent 可见插件集合。
+  ///
+  /// 无工作区/跟从全局时与现状一致；自定义策略时按工作区收窄，并保留
+  /// 插件创作绑定插件（若全局启用）。
+  Iterable<InstalledPlugin> get _agentVisiblePlugins {
+    final all = _plugins?.plugins ?? const <InstalledPlugin>[];
+    final workspace = _conversationWorkspace;
+    final workspaces = _workspaces;
+    if (workspace == null || workspaces == null) return all;
+    return workspaces.effectiveVisiblePlugins(
+      workspace.id,
+      allPlugins: all,
+      boundPluginId: _workspacePluginId,
+    );
+  }
+
   /// 解析插件文件工具的参数：显式 pluginId 优先，否则使用对话工作区。
   String _resolvePluginId(Object? raw) {
     final explicit = (raw as String? ?? '').trim();
@@ -4964,16 +5556,19 @@ ${ToolCallService.currentTimeContext()}${sharedContext.isEmpty ? '' : '\n\n$shar
           'search_jottings',
           'read_jotting',
           'save_jotting',
+          'list_workspaces',
+          'create_workspace',
+          'bind_workspace',
+          'workspace_file_list',
+          'workspace_file_read',
+          'workspace_file_write',
         }.contains(call.name) ||
-        (_plugins?.plugins.any(
-              (plugin) =>
-                  plugin.manifest.tools.any((tool) => tool.name == call.name),
-            ) ??
-            false);
+        _isPluginTool(call.name) ||
+        _hasSingleRawPluginTool(call.name);
     if (!validatesAtDispatch) return null;
     Map<String, dynamic>? schema;
     for (final tool in openAITools(
-      _plugins?.plugins ?? const [],
+      _agentVisiblePlugins,
       true,
       const [
         LynAICapabilities.pluginCallFunction,
@@ -4997,9 +5592,24 @@ ${ToolCallService.currentTimeContext()}${sharedContext.isEmpty ? '' : '\n\n$shar
           'search_jottings',
           'read_jotting',
           'save_jotting',
+          'list_workspaces',
+          'create_workspace',
+          'bind_workspace',
+          'workspace_file_list',
+          'workspace_file_read',
+          'workspace_file_write',
         }.contains(call.name)) {
       final tools = <Map<String, dynamic>>[];
-      _appendFoundationTools(tools, true, true, true, true, true);
+      _appendFoundationTools(
+        tools,
+        true,
+        true,
+        true,
+        true,
+        true,
+        workspaceManageAvailable: true,
+        workspaceFileAvailable: true,
+      );
       final function = tools
           .map((tool) => tool['function'])
           .whereType<Map>()
@@ -5311,31 +5921,56 @@ ${ToolCallService.currentTimeContext()}${sharedContext.isEmpty ? '' : '\n\n$shar
     ChatToolCall call,
     AgentCancellationToken? cancellationToken,
   ) async {
-    final plugins = _plugins;
-    if (plugins == null) return null;
-    for (final plugin in plugins.plugins) {
-      if (!plugin.enabled || plugin.hasError) continue;
-      for (final tool in plugin.manifest.tools) {
-        if (tool.name != call.name) continue;
-        if (!plugin.enabledTools.contains(tool.name)) continue;
-        if (!plugin.hasAllPermissionsGranted) {
-          return _error('插件 ${plugin.manifest.name} 权限不足，无法执行 ${call.name}');
-        }
-        return PluginLuaRuntimeService().executeTool(
-          plugin: plugin,
-          tool: tool,
-          arguments: call.arguments,
-          cancellationToken: cancellationToken,
-          features: _features,
-          tasks: _tasks,
-          calendar: _calendar,
-          modelConfigs: _modelConfigs,
-          plugins: _plugins,
-          settings: _settings,
-        );
-      }
+    // 规范路径：模型看到的是 pluginId 编码后的 canonical 工具名。
+    final canonicalBinding = _pluginToolBinding(call.name);
+    if (canonicalBinding != null) {
+      return _executePluginToolBinding(
+        call,
+        canonicalBinding,
+        cancellationToken,
+      );
     }
-    return null;
+
+    // 旧版兼容：只接受裸工具名；多个启用插件声明同一裸名时 fail closed，
+    // 避免把调用错误路由到另一个插件。
+    final rawBindings = _rawPluginToolBindings(call.name);
+    if (rawBindings.isEmpty) return null;
+    if (rawBindings.length > 1) {
+      return _error('插件工具名 ${call.name} 在多个启用插件中存在，请使用带插件标识的工具名');
+    }
+    return _executePluginToolBinding(
+      call,
+      rawBindings.single,
+      cancellationToken,
+    );
+  }
+
+  Future<Map<String, dynamic>> _executePluginToolBinding(
+    ChatToolCall call,
+    (InstalledPlugin, PluginToolDefinition) binding,
+    AgentCancellationToken? cancellationToken,
+  ) async {
+    final (plugin, tool) = binding;
+    if (!plugin.enabled ||
+        plugin.hasError ||
+        !plugin.enabledTools.contains(tool.name)) {
+      return _error('插件 ${plugin.manifest.name} 当前不可执行 ${tool.name}');
+    }
+    if (!plugin.hasAllPermissionsGranted) {
+      return _error('插件 ${plugin.manifest.name} 权限不足，无法执行 ${call.name}');
+    }
+    return PluginLuaRuntimeService().executeTool(
+      plugin: plugin,
+      tool: tool,
+      arguments: call.arguments,
+      cancellationToken: cancellationToken,
+      features: _features,
+      tasks: _tasks,
+      calendar: _calendar,
+      modelConfigs: _modelConfigs,
+      plugins: _plugins,
+      settings: _settings,
+    );
   }
 
   Future<Map<String, dynamic>> _webFetch(
