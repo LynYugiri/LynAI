@@ -55,7 +55,7 @@
 
 文件：`lib/models/composer_reference.dart`
 
-`ComposerReference` 是命令面板选中的类型化引用，仅携带 `type`（`note`/`note_page`/`task`/`task_list`/`plugin_resource`/`plugin_skill`）、稳定 `id`、本地显示标题与 `qualifiers`。`ComposerReferenceCodec` 唯一负责生成/解析 `<lynai_ref type="..." id="..." .../>`：发送给模型的正文只包含 type/id 与稳定限定字段，不含标题或正文。`ComposerSegment` 区分 `ComposerTextSegment` 与 `ComposerReferenceSegment`，`encodeComposerSegments`/`decodeComposerSegments` 负责消息持久化的序列化。
+`ComposerReference` 是引用面板选中的类型化引用，仅携带 `type`（`note`/`note_page`/`task`/`task_list`/`plugin_resource`/`plugin_skill`）、稳定 `id`、本地显示标题与 `qualifiers`。`ComposerReferenceCodec` 唯一负责生成/解析 `<lynai_ref type="..." id="..." .../>`：发送给模型的正文只包含 type/id 与稳定限定字段，不含标题或正文。`ComposerSegment` 区分 `ComposerTextSegment` 与 `ComposerReferenceSegment`，`encodeComposerSegments`/`decodeComposerSegments` 负责消息持久化的序列化。
 
 ## Conversation 与设置快照
 
@@ -301,7 +301,7 @@ storage_v2 下，笔记分页元数据由存储层的 `StorageV2NotePage` 表达
 | `tools` | `List<PluginToolDefinition>` | 注册给 AI 模型调用的工具列表。 |
 | `skills` | `List<PluginSkillDefinition>` | Agent 可按需加载的 Markdown 工作流说明；`editable` 默认 true，允许用户和模型通过插件文件 overlay 修改 `skills/<name>.md`。 |
 | `functions` | `List<PluginFunctionDefinition>` | 注册给功能页 WebView 的内部函数列表。 |
-| `commands` | `List<PluginCommandDefinition>` | 命令面板选项源：`handler` 是返回面板选项的 Lua 函数，`model` 可指定选中后本次发送覆盖的模型 ID。 |
+| `commands` | `List<PluginCommandDefinition>` | 引用面板选项源：`handler` 是返回面板选项的 Lua 函数，`model` 可指定选中后本次发送覆盖的模型 ID。 |
 | `feature` | `String?` | 可选功能页 HTML 入口路径。没有则功能页入口不可见。 |
 | `permissions` | `List<String>` | 声明的权限列表，例如 `network`、`file_read`、`file_write`。 |
 | `config` | `PluginConfigSchema?` | 可选配置表单 schema，插件管理页据此渲染配置 UI。 |

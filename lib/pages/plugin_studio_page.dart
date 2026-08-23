@@ -624,7 +624,7 @@ class _PluginStudioPageState extends State<PluginStudioPage> {
         title: '能力速览',
         child: Text(
           '工具(tools) 是模型可调用的能力；函数(functions) 供插件内部或跨插件调用；'
-          '命令(commands) 是命令面板选项源；Skill 是按需加载的方法论正文；'
+          '命令(commands) 是引用面板选项源；Skill 是按需加载的方法论正文；'
           '功能页(featurePages) 是 WebView 界面；设置项(settings) 渲染为插件配置表单。',
           style: Theme.of(context).textTheme.bodySmall?.copyWith(
             color: Theme.of(context).colorScheme.onSurfaceVariant,

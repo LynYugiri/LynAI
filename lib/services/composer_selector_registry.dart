@@ -9,12 +9,25 @@ import '../providers/task_provider.dart';
 /// 选择器条目类型：实体或文件夹。
 enum ComposerSelectorItemKind { item, folder }
 
-/// 选择器返回的稳定值：只含类型与稳定 ID，不含正文。
+/// 内置选择器种类，供 [buildBuiltInSelectorRegistry] 按使用场景裁剪。
+enum BuiltInComposerSelector {
+  notes,
+  notePages,
+  taskLists,
+  tasks,
+  knowledgeBases,
+  knowledgeEntries,
+}
+
+/// 选择器返回的稳定值：含类型、稳定 ID 与展示摘要，不含正文。
 class ComposerSelectorValue {
   final ComposerReferenceType type;
   final String id;
   final String title;
   final String? subtitle;
+
+  /// 内容摘要（如正文首行），供随记等非对话场景生成引用卡片快照。
+  final String? snippet;
   final Map<String, String> qualifiers;
 
   const ComposerSelectorValue({
@@ -22,6 +35,7 @@ class ComposerSelectorValue {
     required this.id,
     required this.title,
     this.subtitle,
+    this.snippet,
     this.qualifiers = const {},
   });
 }
@@ -90,46 +104,60 @@ class ComposerSelectorRegistry {
   Iterable<ComposerSelector> get selectors => _selectors.values;
 }
 
-/// 构建内置选择器注册表（笔记、笔记页面、待办清单、待办项）。
+/// 构建内置选择器注册表（笔记、笔记页面、待办清单、待办项、知识库）。
+///
+/// [include] 为空时注册全部内置选择器；随记等场景可只注册能映射到自身引用
+/// 类型的子集，同时保留文件夹分层导航。
 ComposerSelectorRegistry buildBuiltInSelectorRegistry({
   required FeatureProvider features,
   required TaskProvider tasks,
   KnowledgeProvider? knowledge,
+  Set<BuiltInComposerSelector>? include,
 }) {
+  final wanted = include ?? BuiltInComposerSelector.values.toSet();
   final registry = ComposerSelectorRegistry();
-  registry.register(
-    ComposerSelector(
-      name: 'notes',
-      title: '笔记',
-      description: '引用一篇笔记',
-      load: (query, path) async => _loadNotes(features, query, path),
-    ),
-  );
-  registry.register(
-    ComposerSelector(
-      name: 'note-pages',
-      title: '笔记页面',
-      description: '引用笔记中的某一页',
-      load: (query, path) async => _loadNotePages(features, query, path),
-    ),
-  );
-  registry.register(
-    ComposerSelector(
-      name: 'task-lists',
-      title: '待办清单',
-      description: '引用一个待办清单',
-      load: (query, path) async => _loadTaskLists(tasks, query),
-    ),
-  );
-  registry.register(
-    ComposerSelector(
-      name: 'tasks',
-      title: '待办事项',
-      description: '引用一个待办事项',
-      load: (query, path) async => _loadTasks(tasks, query, path),
-    ),
-  );
-  if (knowledge != null) {
+  if (wanted.contains(BuiltInComposerSelector.notes)) {
+    registry.register(
+      ComposerSelector(
+        name: 'notes',
+        title: '笔记',
+        description: '引用一篇笔记',
+        load: (query, path) async => _loadNotes(features, query, path),
+      ),
+    );
+  }
+  if (wanted.contains(BuiltInComposerSelector.notePages)) {
+    registry.register(
+      ComposerSelector(
+        name: 'note-pages',
+        title: '笔记页面',
+        description: '引用笔记中的某一页',
+        load: (query, path) async => _loadNotePages(features, query, path),
+      ),
+    );
+  }
+  if (wanted.contains(BuiltInComposerSelector.taskLists)) {
+    registry.register(
+      ComposerSelector(
+        name: 'task-lists',
+        title: '待办清单',
+        description: '引用一个待办清单',
+        load: (query, path) async => _loadTaskLists(tasks, query),
+      ),
+    );
+  }
+  if (wanted.contains(BuiltInComposerSelector.tasks)) {
+    registry.register(
+      ComposerSelector(
+        name: 'tasks',
+        title: '待办事项',
+        description: '引用一个待办事项',
+        load: (query, path) async => _loadTasks(tasks, query, path),
+      ),
+    );
+  }
+  if (knowledge != null &&
+      wanted.contains(BuiltInComposerSelector.knowledgeBases)) {
     registry.register(
       ComposerSelector(
         name: 'knowledge-bases',
@@ -138,6 +166,9 @@ ComposerSelectorRegistry buildBuiltInSelectorRegistry({
         load: (query, path) async => _loadKnowledgeBases(knowledge, query),
       ),
     );
+  }
+  if (knowledge != null &&
+      wanted.contains(BuiltInComposerSelector.knowledgeEntries)) {
     registry.register(
       ComposerSelector(
         name: 'knowledge-entries',
@@ -163,6 +194,13 @@ String _noteSubtitle(Note note) {
   return collapsed.length > 80 ? '${collapsed.substring(0, 80)}…' : collapsed;
 }
 
+String _firstNonEmptyLine(String content) {
+  return content
+      .split('\n')
+      .map((line) => line.trim())
+      .firstWhere((line) => line.isNotEmpty, orElse: () => '');
+}
+
 List<ComposerSelectorItem> _noteItem(Note note) => [
   ComposerSelectorItem(
     key: 'note:${note.id}',
@@ -174,6 +212,7 @@ List<ComposerSelectorItem> _noteItem(Note note) => [
       id: note.id,
       title: note.title,
       subtitle: _noteSubtitle(note),
+      snippet: _firstNonEmptyLine(note.content),
     ),
   ),
 ];
@@ -269,6 +308,7 @@ ComposerSelectorItem _taskItem(Task task) {
       id: task.id,
       title: task.title,
       subtitle: state,
+      snippet: _firstNonEmptyLine(task.note ?? ''),
     ),
   );
 }
@@ -360,6 +400,7 @@ List<ComposerSelectorItem> _loadKnowledgeEntries(
               id: entry.id,
               title: entry.title,
               subtitle: _knowledgeEntrySubtitle(entry),
+              snippet: _firstNonEmptyLine(entry.content),
             ),
           ),
         )

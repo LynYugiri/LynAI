@@ -1,18 +1,22 @@
 import 'package:flutter/material.dart';
 
-import '../../models/composer_reference.dart';
-import '../../services/composer_selector_registry.dart';
+import '../models/composer_reference.dart';
+import '../services/composer_selector_registry.dart';
 
-/// 命令面板：从选择器注册表选取实体，生成类型化引用。
+/// 引用面板：从选择器注册表选取实体，生成类型化引用。
 ///
-/// 首层列出所有选择器（内置笔记/待办与插件命令）；进入选择器后按文件夹分层
-/// 导航，最终选中实体后通过 [onSelected] 回调产生 `ComposerSelectorValue` 与
-/// 可选的模型覆盖 ID。
-class ChatCommandPalette extends StatefulWidget {
-  const ChatCommandPalette({
+/// 首层列出所有选择器（内置笔记/待办/知识库与插件提供的引用选项）；进入
+/// 选择器后按文件夹分层导航，最终选中实体后通过 [onSelected] 回调产生
+/// `ComposerSelectorValue` 与可选的模型覆盖 ID。
+///
+/// 对话页把该面板作为输入区浮层使用；随记编辑器在底部弹窗中复用同一面板，
+/// 保证“像文件夹一样打开”的引用选择体验一致。
+class ComposerReferencePalette extends StatefulWidget {
+  const ComposerReferencePalette({
     super.key,
     required this.registry,
     required this.onSelected,
+    this.onClose,
   });
 
   final ComposerSelectorRegistry registry;
@@ -20,11 +24,15 @@ class ChatCommandPalette extends StatefulWidget {
   /// 选中一个实体；[modelId] 来自 selector 声明的模型覆盖（可空）。
   final void Function(ComposerSelectorValue value, String? modelId) onSelected;
 
+  /// 点击搜索栏关闭按钮时调用；为 null 时保留对话页浮层的重置行为。
+  final VoidCallback? onClose;
+
   @override
-  State<ChatCommandPalette> createState() => _ChatCommandPaletteState();
+  State<ComposerReferencePalette> createState() =>
+      _ComposerReferencePaletteState();
 }
 
-class _ChatCommandPaletteState extends State<ChatCommandPalette> {
+class _ComposerReferencePaletteState extends State<ComposerReferencePalette> {
   String? _activeSelector;
   final List<String> _path = [];
   final TextEditingController _searchCtrl = TextEditingController();
@@ -83,7 +91,9 @@ class _ChatCommandPaletteState extends State<ChatCommandPalette> {
               style: const TextStyle(fontSize: 14),
               decoration: InputDecoration(
                 isDense: true,
-                hintText: selector == null ? '搜索或选择类型' : '搜索${selector.title}',
+                hintText: selector == null
+                    ? '搜索或选择引用类型'
+                    : '搜索${selector.title}',
                 border: InputBorder.none,
               ),
               onChanged: (_) => setState(() {}),
@@ -92,7 +102,14 @@ class _ChatCommandPaletteState extends State<ChatCommandPalette> {
           IconButton(
             tooltip: '关闭',
             icon: Icon(Icons.close, size: 18, color: scheme.outline),
-            onPressed: _close,
+            onPressed: () {
+              final onClose = widget.onClose;
+              if (onClose != null) {
+                onClose();
+              } else {
+                _close();
+              }
+            },
           ),
         ],
       ),

@@ -70,7 +70,7 @@ import '../widgets/reference_composer.dart';
 import 'plugin_studio_page.dart';
 import 'chat/agent_plan_panel.dart';
 import 'chat/chat_image_exporter.dart';
-import 'chat/command_palette.dart';
+import '../widgets/reference_palette.dart';
 import 'chat/dialog_settings_content.dart';
 import 'chat/history_drawer.dart';
 import 'chat/share_conversation_image.dart';
@@ -351,7 +351,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
   bool _preparingSend = false;
   bool _showAttach = false;
   bool _showModelMenu = false;
-  bool _showCommandPalette = false;
+  bool _showReferencePalette = false;
   int _refSeq = 0;
   bool _recording = false;
   bool _transcribingSpeech = false;
@@ -1676,7 +1676,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     }
     _inputRevision.value++;
     setState(() {
-      _showCommandPalette = false;
+      _showReferencePalette = false;
     });
     if (!_isMobilePlatform) _focusNode.requestFocus();
   }
@@ -3450,7 +3450,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
                     ),
               if (_showScrollToBottom) _scrollToBottomButton(),
               if (_showModelMenu) _floatingModelList(mp),
-              if (_showCommandPalette) _floatingCommandPalette(),
+              if (_showReferencePalette) _floatingReferencePalette(),
             ],
           ),
         ),
@@ -3522,7 +3522,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
         ? '继续完善插件 $pluginId：'
         : '继续完善插件 ${plugin.displayName}：';
     _focusNode.requestFocus();
-    setState(() => _showCommandPalette = false);
+    setState(() => _showReferencePalette = false);
   }
 
   void _dismissPluginArtifact(ConversationPluginArtifact artifact) {
@@ -5084,7 +5084,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
                     children: [
                       _modelSel(model, mp),
                       const SizedBox(width: 4),
-                      _commandBtn(),
+                      _referenceBtn(),
                       const SizedBox(width: 4),
                       _dialogSetBtn(),
                       const SizedBox(width: 4),
@@ -5355,7 +5355,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     );
   }
 
-  Widget _floatingCommandPalette() {
+  Widget _floatingReferencePalette() {
     return Positioned(
       left: 12,
       right: 12,
@@ -5364,7 +5364,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
         elevation: 8,
         borderRadius: BorderRadius.circular(12),
         color: Colors.transparent,
-        child: ChatCommandPalette(
+        child: ComposerReferencePalette(
           registry: _selectorRegistryOf(),
           onSelected: _insertComposerReference,
         ),
@@ -5372,30 +5372,33 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     );
   }
 
-  Widget _commandBtn() {
+  Widget _referenceBtn() {
     final scheme = Theme.of(context).colorScheme;
-    final active = _showCommandPalette;
-    return InkWell(
-      borderRadius: BorderRadius.circular(8),
-      onTap: () => setState(() {
-        _showCommandPalette = !_showCommandPalette;
-        if (_showCommandPalette) _showModelMenu = false;
-      }),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(8),
-          color: active ? scheme.primary.withValues(alpha: 0.1) : null,
-          border: Border.all(
-            color: active
-                ? scheme.primary.withValues(alpha: 0.3)
-                : scheme.outlineVariant,
+    final active = _showReferencePalette;
+    return Tooltip(
+      message: '插入引用',
+      child: InkWell(
+        borderRadius: BorderRadius.circular(8),
+        onTap: () => setState(() {
+          _showReferencePalette = !_showReferencePalette;
+          if (_showReferencePalette) _showModelMenu = false;
+        }),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(8),
+            color: active ? scheme.primary.withValues(alpha: 0.1) : null,
+            border: Border.all(
+              color: active
+                  ? scheme.primary.withValues(alpha: 0.3)
+                  : scheme.outlineVariant,
+            ),
           ),
-        ),
-        child: Icon(
-          Icons.tag,
-          size: 16,
-          color: active ? scheme.primary : scheme.outline,
+          child: Icon(
+            Icons.tag,
+            size: 16,
+            color: active ? scheme.primary : scheme.outline,
+          ),
         ),
       ),
     );
@@ -5483,7 +5486,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     return InkWell(
       onTap: () => setState(() {
         _showModelMenu = true;
-        _showCommandPalette = false;
+        _showReferencePalette = false;
       }),
       child: ConstrainedBox(
         constraints: BoxConstraints(maxWidth: hideName ? 38 : maxWidth),

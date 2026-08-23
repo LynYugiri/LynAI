@@ -10,7 +10,7 @@
 | --- | --- | --- |
 | `tools` | 模型可调用的工具 | 声明参数 schema，由 main.lua 里的 handler 执行；通过工具调用进入模型上下文 |
 | `functions` | 宿主/其他插件可调用的函数 | 不进模型工具列表，`expose: true` 可被其他插件依赖调用 |
-| `commands` | 命令面板选项源 | 用户手动触发的快捷入口 |
+| `commands` | 引用面板选项源 | 用户手动触发的快捷入口 |
 | `skills` | 可编辑工作流知识 | 模型按需 `load_plugin_skill` 加载正文，正文是 `skills/<name>.md` |
 | `featurePages` | WebView 功能页 | `index.html/css/js` 或 HTML 单文件，通过 `PluginFeatureWebView` 渲染 |
 

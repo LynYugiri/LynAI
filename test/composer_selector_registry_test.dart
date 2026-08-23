@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:lynai/models/composer_reference.dart';
 import 'package:lynai/providers/feature_provider.dart';
+import 'package:lynai/providers/knowledge_provider.dart';
 import 'package:lynai/providers/task_provider.dart';
 import 'package:lynai/services/composer_selector_registry.dart';
 import 'package:lynai/services/storage_v2_service.dart';
@@ -53,6 +54,7 @@ void main() {
       final value = inFolder.first.value!;
       expect(value.type, ComposerReferenceType.note);
       expect(value.id, isNotEmpty);
+      expect(value.snippet, '本周需要完成版本发布准备，包括回归测试。');
     } finally {
       await storage.close();
       await root.delete(recursive: true);
@@ -108,6 +110,31 @@ void main() {
       ]);
       expect(inList.map((i) => i.title), contains('完成发布说明'));
       expect(inList.first.value!.type, ComposerReferenceType.task);
+    } finally {
+      await storage.close();
+      await root.delete(recursive: true);
+    }
+  });
+
+  test('registry can be trimmed to jotting-compatible selectors', () async {
+    SharedPreferences.setMockInitialValues({});
+    final root = await Directory.systemTemp.createTemp('lynai_sel_trim_');
+    final storage = await _readyStorage(root);
+    try {
+      final registry = buildBuiltInSelectorRegistry(
+        features: FeatureProvider(storageV2: storage),
+        tasks: TaskProvider(storageV2: storage),
+        knowledge: KnowledgeProvider(storageV2: storage),
+        include: const {
+          BuiltInComposerSelector.notes,
+          BuiltInComposerSelector.tasks,
+          BuiltInComposerSelector.knowledgeEntries,
+        },
+      );
+      expect(registry.names.toList(), ['notes', 'tasks', 'knowledge-entries']);
+      expect(registry.selector('note-pages'), isNull);
+      expect(registry.selector('task-lists'), isNull);
+      expect(registry.selector('knowledge-bases'), isNull);
     } finally {
       await storage.close();
       await root.delete(recursive: true);

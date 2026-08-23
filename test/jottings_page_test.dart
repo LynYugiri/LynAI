@@ -1,6 +1,9 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:lynai/models/jotting.dart';
 import 'package:lynai/pages/feature_page.dart';
@@ -8,9 +11,14 @@ import 'package:lynai/pages/features/jotting_detail_page.dart';
 import 'package:lynai/pages/features/jottings_page.dart';
 import 'package:lynai/providers/feature_provider.dart';
 import 'package:lynai/providers/jotting_provider.dart';
+import 'package:lynai/providers/knowledge_provider.dart';
 import 'package:lynai/providers/plugin_provider.dart';
+import 'package:lynai/providers/task_provider.dart';
 import 'package:lynai/repositories/jotting_repository.dart';
+import 'package:lynai/services/storage_v2_service.dart';
+import 'package:lynai/services/storage_v2_upgrade_service.dart';
 import 'package:lynai/widgets/latex_renderer.dart';
+import 'package:lynai/widgets/reference_palette.dart';
 
 import 'support/memory_repositories.dart';
 
@@ -40,6 +48,84 @@ void main() {
       expect(find.byIcon(Icons.add), findsNothing);
       expect(find.text('记下此刻的想法…'), findsOneWidget);
       expect(find.textContaining('点击右上角 +'), findsNothing);
+    });
+  });
+
+  testWidgets('随记编辑器复用文件夹式引用面板且只列支持类型', (tester) async {
+    final jottings = _provider(_MemoryJottingRepository());
+
+    await _withPhoneSurface(tester, () async {
+      await tester.pumpWidget(
+        MultiProvider(
+          providers: [
+            ChangeNotifierProvider.value(value: jottings),
+            ChangeNotifierProvider(create: (_) => FeatureProvider()),
+            ChangeNotifierProvider(create: (_) => TaskProvider()),
+            ChangeNotifierProvider(create: (_) => KnowledgeProvider()),
+          ],
+          child: const MaterialApp(home: JottingEditorPage()),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byTooltip('插入引用'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('笔记'), findsOneWidget);
+      expect(find.text('待办事项'), findsOneWidget);
+      expect(find.text('知识条目'), findsOneWidget);
+      expect(find.text('笔记页面'), findsNothing);
+      expect(find.text('待办清单'), findsNothing);
+      expect(find.text('知识库'), findsNothing);
+    });
+  });
+
+  testWidgets('随记编辑器沿文件夹导航选中笔记引用', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    late Directory root;
+    late StorageV2Service storage;
+    late FeatureProvider features;
+    await tester.runAsync(() async {
+      root = await Directory.systemTemp.createTemp('lynai_jotting_ref_');
+      storage = StorageV2Service(rootDirectory: root);
+      await StorageV2UpgradeService(storageV2: storage).ensureReady();
+      features = FeatureProvider(storageV2: storage);
+      await features.load();
+      final folderId = await features.addNoteFolder('工作');
+      await features.addNoteWithContent('项目规划', '本周发布', folderId: folderId);
+    });
+    final jottings = _provider(_MemoryJottingRepository());
+
+    await _withPhoneSurface(tester, () async {
+      await tester.pumpWidget(
+        MultiProvider(
+          providers: [
+            ChangeNotifierProvider.value(value: jottings),
+            ChangeNotifierProvider.value(value: features),
+            ChangeNotifierProvider(create: (_) => TaskProvider()),
+            ChangeNotifierProvider(create: (_) => KnowledgeProvider()),
+          ],
+          child: const MaterialApp(home: JottingEditorPage()),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byTooltip('插入引用'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('笔记'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('工作'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('项目规划'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(ComposerReferencePalette), findsNothing);
+      expect(find.text('项目规划'), findsOneWidget);
+    });
+
+    await tester.runAsync(() async {
+      await storage.close();
+      await root.delete(recursive: true);
     });
   });
 

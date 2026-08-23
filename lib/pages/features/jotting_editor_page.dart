@@ -4,13 +4,16 @@ import 'package:file_picker/file_picker.dart' show FileType;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../models/composer_reference.dart';
 import '../../models/jotting.dart';
 import '../../providers/feature_provider.dart';
 import '../../providers/jotting_provider.dart';
 import '../../providers/knowledge_provider.dart';
 import '../../providers/task_provider.dart';
+import '../../services/composer_selector_registry.dart';
 import '../../services/storage_v2_service.dart';
 import '../../utils/file_picker_io_utils.dart';
+import '../../widgets/reference_palette.dart';
 
 /// Result returned by [JottingEditorPage] after a durable local save.
 class JottingEditorResult {
@@ -386,13 +389,61 @@ class JottingEditorPageState extends State<JottingEditorPage> {
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
-      builder: (context) => const _JottingReferencePicker(),
+      builder: (sheetContext) {
+        return Padding(
+          padding: EdgeInsets.only(
+            left: 12,
+            right: 12,
+            bottom: 12 + MediaQuery.viewInsetsOf(sheetContext).bottom,
+          ),
+          child: ComposerReferencePalette(
+            registry: _jottingSelectorRegistry(sheetContext),
+            onSelected: (value, modelId) {
+              final reference = _jottingReferenceFor(value);
+              if (reference == null) return;
+              Navigator.pop(sheetContext, reference);
+            },
+            onClose: () => Navigator.pop(sheetContext),
+          ),
+        );
+      },
     );
     if (!mounted || reference == null) return;
     setState(() {
       _references = List.of(_references)..add(reference);
     });
     _contentFocus.requestFocus();
+  }
+
+  /// 复用对话页的引用面板，但只注册随记引用支持的类型。
+  ComposerSelectorRegistry _jottingSelectorRegistry(BuildContext context) {
+    return buildBuiltInSelectorRegistry(
+      features: context.read<FeatureProvider>(),
+      tasks: context.read<TaskProvider>(),
+      knowledge: context.read<KnowledgeProvider>(),
+      include: const {
+        BuiltInComposerSelector.notes,
+        BuiltInComposerSelector.tasks,
+        BuiltInComposerSelector.knowledgeEntries,
+      },
+    );
+  }
+
+  JottingReference? _jottingReferenceFor(ComposerSelectorValue value) {
+    final type = switch (value.type) {
+      ComposerReferenceType.note => JottingReferenceType.note,
+      ComposerReferenceType.task => JottingReferenceType.task,
+      ComposerReferenceType.knowledgeEntry =>
+        JottingReferenceType.knowledgeEntry,
+      _ => null,
+    };
+    if (type == null) return null;
+    return JottingReference(
+      type: type,
+      id: value.id,
+      title: value.title,
+      snippet: value.snippet ?? value.subtitle ?? '',
+    );
   }
 
   Future<void> _pickAttachment() async {
@@ -721,179 +772,5 @@ class _EditorAttachmentCardState extends State<_EditorAttachmentCard> {
         ),
       ),
     );
-  }
-}
-
-class _JottingReferencePicker extends StatefulWidget {
-  const _JottingReferencePicker();
-
-  @override
-  State<_JottingReferencePicker> createState() =>
-      _JottingReferencePickerState();
-}
-
-class _JottingReferencePickerState extends State<_JottingReferencePicker> {
-  final _searchController = TextEditingController();
-  JottingReferenceType _type = JottingReferenceType.note;
-  String _query = '';
-
-  @override
-  void dispose() {
-    _searchController.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final items = _items(context);
-    return SafeArea(
-      child: SizedBox(
-        height: MediaQuery.sizeOf(context).height * 0.72,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-              child: Text(
-                '插入引用',
-                style: Theme.of(
-                  context,
-                ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Wrap(
-                spacing: 6,
-                children: [
-                  for (final type in JottingReferenceType.values)
-                    ChoiceChip(
-                      label: Text(_typeLabel(type)),
-                      selected: _type == type,
-                      onSelected: (_) => setState(() => _type = type),
-                    ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 8),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: TextField(
-                autofocus: true,
-                controller: _searchController,
-                decoration: const InputDecoration(
-                  prefixIcon: Icon(Icons.search),
-                  hintText: '搜索标题或正文',
-                  isDense: true,
-                  border: OutlineInputBorder(),
-                ),
-                onChanged: (value) => setState(() => _query = value),
-              ),
-            ),
-            const SizedBox(height: 8),
-            Expanded(
-              child: items.isEmpty
-                  ? const Center(child: Text('没有可引用的内容'))
-                  : ListView.builder(
-                      itemCount: items.length,
-                      itemBuilder: (context, index) {
-                        final item = items[index];
-                        return ListTile(
-                          leading: Icon(_icon),
-                          title: Text(
-                            item.title,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          subtitle: item.snippet.isEmpty
-                              ? null
-                              : Text(
-                                  item.snippet,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                          onTap: () => Navigator.pop(
-                            context,
-                            JottingReference(
-                              type: _type,
-                              id: item.id,
-                              title: item.title,
-                              snippet: item.snippet,
-                            ),
-                          ),
-                        );
-                      },
-                    ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  String _typeLabel(JottingReferenceType type) => switch (type) {
-    JottingReferenceType.note => '笔记',
-    JottingReferenceType.task => '任务',
-    JottingReferenceType.knowledgeEntry => '知识库',
-  };
-
-  IconData get _icon => switch (_type) {
-    JottingReferenceType.note => Icons.sticky_note_2_outlined,
-    JottingReferenceType.task => Icons.checklist,
-    JottingReferenceType.knowledgeEntry => Icons.local_library_outlined,
-  };
-
-  List<({String id, String title, String snippet})> _items(
-    BuildContext context,
-  ) {
-    final query = _query.trim().toLowerCase();
-    switch (_type) {
-      case JottingReferenceType.note:
-        final notes = context.read<FeatureProvider>().notes;
-        return [
-          for (final note in notes)
-            if (_matches(query, note.title, note.content))
-              (
-                id: note.id,
-                title: note.title.trim().isEmpty ? '未命名笔记' : note.title,
-                snippet: _firstLine(note.content),
-              ),
-        ];
-      case JottingReferenceType.task:
-        final tasks = context.read<TaskProvider>().tasks;
-        return [
-          for (final task in tasks)
-            if (_matches(query, task.title, task.note ?? ''))
-              (
-                id: task.id,
-                title: task.title,
-                snippet: _firstLine(task.note ?? ''),
-              ),
-        ];
-      case JottingReferenceType.knowledgeEntry:
-        final entries = context.read<KnowledgeProvider>().entries;
-        return [
-          for (final entry in entries)
-            if (entry.enabled && _matches(query, entry.title, entry.content))
-              (
-                id: entry.id,
-                title: entry.title,
-                snippet: _firstLine(entry.content),
-              ),
-        ];
-    }
-  }
-
-  bool _matches(String query, String title, String content) {
-    if (query.isEmpty) return true;
-    return title.toLowerCase().contains(query) ||
-        content.toLowerCase().contains(query);
-  }
-
-  String _firstLine(String content) {
-    return content
-        .split('\n')
-        .map((line) => line.trim())
-        .firstWhere((line) => line.isNotEmpty, orElse: () => '');
   }
 }

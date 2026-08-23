@@ -343,7 +343,7 @@ class PluginStudioCommandsEditor extends StatelessWidget {
       count: commands.length,
       onAdd: () => _editCommand(context, null),
       child: _Items(
-        empty: '未声明命令。命令是命令面板的选项源。',
+        empty: '未声明命令。命令是引用面板的选项源。',
         children: [
           for (var i = 0; i < commands.length; i++)
             ListTile(

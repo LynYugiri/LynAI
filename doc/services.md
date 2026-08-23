@@ -347,11 +347,11 @@ Subagent 适合 QQ/消息应用这类流程：主 Agent 只描述目标，Subage
 
 插件在 manifest `functions` 中通过 `expose: true` 声明对外函数（可加 `requires` 声明调用方额外权限）。插件还可以在 manifest `dependencies` 中声明依赖插件 ID 与版本约束；该字段可选，不声明即表示没有依赖。启用插件时 `PluginProvider` 会校验已声明的依赖已安装、已启用且版本满足约束，禁用插件时会阻止关闭仍被其他已启用插件依赖的插件。`plugin.call` 是跨插件调用入口：调用方须持有 `plugins.callFunction` 以及目标函数 `requires` 中声明的额外权限，目标函数须 `expose` 且所在插件已启用；若调用方声明了对目标插件的版本约束，运行时会校验目标插件版本。函数内部再调用 `lynai.*` 时以目标插件身份执行，其 `grantedPermissions` 决定可访问的宿主能力，避免权限提升。Lua 侧经 `lynai.plugin.call(pluginId, function, args)` 触发。
 
-## 命令选择器注册表
+## 引用选择器注册表
 
 文件：`lib/services/composer_selector_registry.dart`
 
-`ComposerSelectorRegistry` 是命令面板的选项源目录，承载内置选择器（笔记、笔记页面、待办清单、待办）与插件命令。`ComposerSelector` 声明 `name`、`title`、`description`、可选的 `modelId`（选中后覆盖本次发送模型）以及异步 `load(query, path)`；`load` 返回 `ComposerSelectorItem`（`folder` 用于分层导航，`item` 携带 `ComposerSelectorValue` 稳定类型/ID，不含正文）。插件命令由 `PluginLuaRuntimeService.executeCommandHandler` 在 Lua 沙箱中执行 handler，返回选项数组经 `parsePluginCommandItems` 解析（兼容 `result`/`options`/直接数组，`ok:false` 或结构非法时 fail closed 返回空列表）。
+`ComposerSelectorRegistry` 是引用面板的选项源目录，承载内置选择器（笔记、笔记页面、待办清单、待办、知识库）与插件命令。`buildBuiltInSelectorRegistry` 可通过 `include` 按场景裁剪内置选择器（随记只保留笔记/待办事项/知识条目）。`ComposerSelector` 声明 `name`、`title`、`description`、可选的 `modelId`（选中后覆盖本次发送模型）以及异步 `load(query, path)`；`load` 返回 `ComposerSelectorItem`（`folder` 用于分层导航，`item` 携带 `ComposerSelectorValue` 稳定类型/ID，不含正文；`snippet` 携带正文首行供随记卡片快照使用）。插件命令由 `PluginLuaRuntimeService.executeCommandHandler` 在 Lua 沙箱中执行 handler，返回选项数组经 `parsePluginCommandItems` 解析（兼容 `result`/`options`/直接数组，`ok:false` 或结构非法时 fail closed 返回空列表）。
 
 ## AccountService
 

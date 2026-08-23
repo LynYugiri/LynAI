@@ -76,7 +76,7 @@ HomePage
 
 `create_plugin` 成功后，ChatPage 把结果记录为 `ConversationPluginArtifact`，在对应 assistant 消息后渲染 `PluginDraftCard`；卡片实时读取 `PluginProvider`，提供“打开插件工坊”“继续完善”“从对话移除”动作。`Conversation.pluginWorkspaceId` 绑定当前正在创作的插件后，`plugin_file_*`/`plugin_manifest_*` 工具可省略 `pluginId`，系统提示词也会注入工作区摘要。
 
-对话相关组件是独立库而非 `part`：`lib/pages/chat/` 下的 `history_drawer.dart`（历史抽屉）、`dialog_settings_content.dart`（对话设置弹窗）、`prompt_role_dialogs.dart`（系统提示词编辑）、`share_conversation_image.dart`（分享长图渲染）、`command_palette.dart`（命令面板）。长图导出流程在 `chat_image_exporter.dart` 的 `ChatImageExporter` 中（分页、捕获、剪贴板/分享/图库保存），页面只负责选择状态与结果反馈。发送给模型的 API 消息统一由 `lib/services/api_message_builder.dart` 的 `buildApiMessages` 组装，主聊天与悬浮聊天共用，避免两处 wire 语义漂移。
+对话相关组件是独立库而非 `part`：`lib/pages/chat/` 下的 `history_drawer.dart`（历史抽屉）、`dialog_settings_content.dart`（对话设置弹窗）、`prompt_role_dialogs.dart`（系统提示词编辑）、`share_conversation_image.dart`（分享长图渲染）。引用选择面板 `lib/widgets/reference_palette.dart` 是对话页与随记编辑器共用的共享组件。长图导出流程在 `chat_image_exporter.dart` 的 `ChatImageExporter` 中（分页、捕获、剪贴板/分享/图库保存），页面只负责选择状态与结果反馈。发送给模型的 API 消息统一由 `lib/services/api_message_builder.dart` 的 `buildApiMessages` 组装，主聊天与悬浮聊天共用，避免两处 wire 语义漂移。
 
 输入区的 Agent 按钮是当前对话或未发送草稿切换 Agent 模式的唯一入口。新草稿从全局“对话权限”读取默认状态，按钮修改后由草稿覆盖该初值；已有对话始终使用自己的 `ConversationSettings.agentEnabled`。当前模型不支持工具调用时 Agent 按钮禁用并提示原因，避免“开了 Agent 但实际不生效”。对话设置弹窗中的“对话权限”直接编辑全局 `AppSettings.agentGrantedPermissions`，与设置页“权限管理”指向同一份数据，修改即时作用于所有对话，不再有“跟随全局/自定义本对话”两态。
 
@@ -91,7 +91,7 @@ Agent 工具轮数上限保存为 `ConversationSettings.maxToolRounds`（新建�
 | 控件 | 作用 |
 |------|------|
 | 模型选择 | 选择当前 Chat 子模型。 |
-| 命令按钮 | 打开命令面板，选取笔记/笔记页面/待办清单/待办或插件命令，生成不可拆分的引用 Chip。 |
+| 引用按钮 | 打开引用面板，选取笔记/笔记页面/待办清单/待办或插件命令，生成不可拆分的引用 Chip。 |
 | 对话设置 | 系统提示词、语音模型、OCR 模型（含 Android 本地 OCR 选项）、文件识别模型和文件识别 prompt。 |
 | thinking 开关 | 控制当前请求是否启用思考能力。 |
 | OCR 开关 | 控制图片是否先走 OCR；识别结果以 `[图片 OCR 识别结果（来源: …，可能含识别误差）]` 标注替换原图发往模型，原图不再作为多模态附件上传。 |
@@ -101,7 +101,7 @@ Agent 工具轮数上限保存为 `ConversationSettings.maxToolRounds`（新建�
 
 主聊天和情景演绎共用 composer 键盘策略：桌面端裸 `Enter` 发送、`Shift + Enter` 换行；Android/iOS 裸 `Enter` 换行；所有平台 `Ctrl + Enter` 或 `Meta + Enter` 发送。`Alt + Enter` 和输入法 composing 期间的回车不发送。移动端只有用户主动点输入框才弹出输入法；从历史打开对话和模型输出结束不会自动唤起键盘。桌面端 `Escape` 在焦点不处于输入框时复用 Home/Feature 现有返回处理。
 
-命令面板复用模型选择按钮的浮层样式，首层列出内置选择器（笔记/笔记页面/待办清单/待办）与插件命令，进入后按文件夹分层导航并支持搜索。选中实体产生 `ComposerReference`，通过 `ReferenceComposerController`（`lib/widgets/reference_composer.dart`）渲染为行内不可拆分 Chip：每个 Chip 在文本模型中只占一个私用区码点，退格/删除整体移除，用户无法把光标切入 Chip 内部。发送时气泡显示 `@标题` 占位，模型侧只接收 `<lynai_ref .../>`（type/id 与稳定限定字段，不含标题与正文）。引用随用户消息以 `composerSegments` 持久化，撤回/编辑时还原 Chip；失效引用在编辑时标记为“已失效”。插件命令若声明 `model`，选中后写入 `_pendingModelId` 覆盖本次发送模型。
+引用面板复用模型选择按钮的浮层样式，首层列出内置选择器（笔记/笔记页面/待办清单/待办）与插件命令，进入后按文件夹分层导航并支持搜索。选中实体产生 `ComposerReference`，通过 `ReferenceComposerController`（`lib/widgets/reference_composer.dart`）渲染为行内不可拆分 Chip：每个 Chip 在文本模型中只占一个私用区码点，退格/删除整体移除，用户无法把光标切入 Chip 内部。发送时气泡显示 `@标题` 占位，模型侧只接收 `<lynai_ref .../>`（type/id 与稳定限定字段，不含标题与正文）。引用随用户消息以 `composerSegments` 持久化，撤回/编辑时还原 Chip；失效引用在编辑时标记为“已失效”。插件命令若声明 `model`，选中后写入 `_pendingModelId` 覆盖本次发送模型。
 
 ### 消息区
 
@@ -377,3 +377,5 @@ firewall prompt.
 功能总览新增“随记”入口，`FeaturePage` 以 `lastFeature == 'jottings'` 进入时间线页。时间线页不提供 AppBar 加号或 FAB，创建入口是顶部常驻“记下此刻的想法……”输入条；时间线按日期分组（今天/昨天/日期），保留关键词/正则（`FeatureSearchMatcher`）、标签和日期范围过滤，并在有筛选时提供“清除”。卡片直接渲染 `MarkdownWithLatex` 正文，长内容可展开/收起，标签和时间为元信息；点按进入只读详情页，长按唤起编辑/复制/删除操作。
 
 编辑统一使用全屏 `JottingEditorPage` Route，不替换 `FeaturePage` 的 body：新建与编辑共用该页面，顶部提供“完成”，底部为 Markdown 快捷工具栏（粗体、斜体、标题、列表、任务、引用、行内代码、链接、LaTeX）和标签入口；编辑/预览切换不会丢失光标或正文。保存等待 `JottingProvider` 持久化成功后 pop 并返回时间线，失败时留在编辑器并保留输入。取消/返回根据脏状态确认，无修改时直接返回。阅读态 `JottingDetail` 不再包含编辑器，只在顶部保留一个编辑入口。
+
+“插入引用”在底部弹窗中复用对话页的 `ComposerReferencePalette`，注册表按随记引用类型裁剪为笔记/待办事项/知识条目，保留笔记文件夹、待办清单、知识库的文件夹分层导航与搜索；选中后转换为 `JottingReference` 卡片。

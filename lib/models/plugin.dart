@@ -181,7 +181,7 @@ class PluginFunctionDefinition {
   );
 }
 
-/// 插件提供的命令面板选项源定义。
+/// 插件提供的引用面板选项源定义。
 class PluginCommandDefinition {
   /// 命令名称，用于在面板中标识该命令。
   final String name;
@@ -634,7 +634,7 @@ class PluginManifest {
   /// 插件导出的非模型调用函数列表。
   final List<PluginFunctionDefinition> functions;
 
-  /// 插件提供的命令面板选项源列表。
+  /// 插件提供的引用面板选项源列表。
   final List<PluginCommandDefinition> commands;
 
   /// 插件提供的按需加载 Skills。
