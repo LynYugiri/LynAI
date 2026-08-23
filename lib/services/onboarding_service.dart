@@ -60,11 +60,15 @@ class OnboardingService {
   // ─── 生成入口 ──────────────────────────────────────────────
 
   /// 生成配置草稿。优先使用 deepseek-v4-pro，失败或无模型时回退本地模板。
+  ///
+  /// [feedback] 是用户对当前草稿不满意的地方（可选），只在 AI 生成时使用；
+  /// 本地模板不会读取反馈。
   Future<OnboardingDraft> generate({
     required OnboardingInput input,
     OnboardingDraft? currentDraft,
+    String feedback = '',
   }) async {
-    final aiDraft = await _tryGenerateWithAi(input, currentDraft);
+    final aiDraft = await _tryGenerateWithAi(input, currentDraft, feedback);
     return aiDraft ?? buildLocalDraft(input);
   }
 
@@ -118,6 +122,7 @@ class OnboardingService {
   Future<OnboardingDraft?> _tryGenerateWithAi(
     OnboardingInput input,
     OnboardingDraft? currentDraft,
+    String feedback,
   ) async {
     final api = apiService;
     final selected = _selectModel();
@@ -136,7 +141,7 @@ class OnboardingService {
             },
             {
               'role': 'user',
-              'content': _buildAiUserPrompt(input, currentDraft),
+              'content': _buildAiUserPrompt(input, currentDraft, feedback),
             },
           ], thinking: false)
           .timeout(const Duration(seconds: 15));
@@ -170,7 +175,11 @@ class OnboardingService {
     return chatModels.first;
   }
 
-  String _buildAiUserPrompt(OnboardingInput input, OnboardingDraft? current) {
+  String _buildAiUserPrompt(
+    OnboardingInput input,
+    OnboardingDraft? current, [
+    String feedback = '',
+  ]) {
     final buffer = StringBuffer();
     if (input.userName.trim().isNotEmpty) {
       buffer.writeln('用户姓名：${input.userName.trim()}');
@@ -184,6 +193,11 @@ class OnboardingService {
     if (current != null) {
       buffer.writeln('当前用户已经编辑过的草稿如下，请在其基础上修改，而不是完全重写：');
       buffer.writeln(jsonEncode(current.toJson()));
+    }
+    if (feedback.trim().isNotEmpty) {
+      buffer
+        ..writeln('用户对当前草稿不满意，反馈：${feedback.trim()}')
+        ..writeln('请优先解决反馈中提到的问题，其他部分尽量保留。');
     }
     buffer.writeln('请输出 JSON 草稿。');
     return buffer.toString();

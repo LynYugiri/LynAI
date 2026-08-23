@@ -84,13 +84,17 @@ class OnboardingWizardController extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> generate(OnboardingService service) async {
+  Future<void> generate(OnboardingService service, {String feedback = ''}) async {
     _generating = true;
     _error = null;
     _applyResult = null;
     notifyListeners();
     try {
-      final draft = await service.generate(input: _input, currentDraft: _draft);
+      final draft = await service.generate(
+        input: _input,
+        currentDraft: _draft,
+        feedback: feedback,
+      );
       _draft = draft;
     } catch (e) {
       _error = '生成失败: $e';
@@ -100,8 +104,8 @@ class OnboardingWizardController extends ChangeNotifier {
     }
   }
 
-  Future<void> regenerate(OnboardingService service) async {
-    await generate(service);
+  Future<void> regenerate(OnboardingService service, {String feedback = ''}) async {
+    await generate(service, feedback: feedback);
   }
 
   Future<void> apply(

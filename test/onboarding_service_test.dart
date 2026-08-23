@@ -75,6 +75,7 @@ void main() {
           occupation: 'creator',
           updatedAt: DateTime.now(),
         ),
+        feedback: '笔记文件夹太多了',
       );
       expect(draft.role.name, '创作助手');
       expect(draft.noteFolders, isNotEmpty);

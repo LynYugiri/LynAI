@@ -500,7 +500,7 @@ class _OnboardingPageState extends State<OnboardingPage> {
           ),
         const SizedBox(height: 24),
         OutlinedButton.icon(
-          onPressed: () => _controller.regenerate(_ensureService()),
+          onPressed: _regenerateDraft,
           icon: const Icon(Icons.refresh),
           label: const Text('重新生成'),
         ),
@@ -845,6 +845,15 @@ class _OnboardingPageState extends State<OnboardingPage> {
     _controller.updateDraft(draft.copyWith(skill: null));
   }
 
+  Future<void> _regenerateDraft() async {
+    final feedback = await showDialog<String>(
+      context: context,
+      builder: (_) => const _RegenerateFeedbackDialog(),
+    );
+    if (feedback == null || !mounted) return;
+    await _controller.regenerate(_ensureService(), feedback: feedback);
+  }
+
   Future<void> _apply() async {
     await _controller.apply(
       _ensureService(),
@@ -1107,6 +1116,61 @@ class _OnboardingPageState extends State<OnboardingPage> {
       ),
     );
     return result;
+  }
+}
+
+class _RegenerateFeedbackDialog extends StatefulWidget {
+  const _RegenerateFeedbackDialog();
+
+  @override
+  State<_RegenerateFeedbackDialog> createState() =>
+      _RegenerateFeedbackDialogState();
+}
+
+class _RegenerateFeedbackDialogState extends State<_RegenerateFeedbackDialog> {
+  final TextEditingController _feedbackController = TextEditingController();
+
+  @override
+  void dispose() {
+    _feedbackController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('重新生成'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('哪里不满意？说说看，我会照着改（可选）'),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _feedbackController,
+            autofocus: true,
+            minLines: 2,
+            maxLines: 5,
+            textInputAction: TextInputAction.newline,
+            decoration: const InputDecoration(
+              hintText: '例如：知识库类别太少、任务太多、语气太正式',
+              border: OutlineInputBorder(),
+            ),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('取消'),
+        ),
+        FilledButton(
+          onPressed: () =>
+              Navigator.pop(context, _feedbackController.text.trim()),
+          child: const Text('重新生成'),
+        ),
+      ],
+    );
   }
 }
 

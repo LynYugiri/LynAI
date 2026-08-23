@@ -602,7 +602,7 @@ class _HomePageState extends State<HomePage> {
       CoachMarkStep(
         title: '长按呼出快捷盘',
         message: '长按底部「对话」，滑向 ←↑→ 快速打开功能；按住 3 秒进入编辑模式，可以改方向。',
-        icon: Icons.swipe_up_alt_outlined,
+        icon: Icons.pan_tool_alt_outlined,
         targetRect: () => _navRectForTab(AppTab.chat),
       ),
     ];
@@ -666,9 +666,9 @@ class _HomePageState extends State<HomePage> {
 
     steps.add(
       CoachMarkStep(
-        title: '角色与 Agent',
-        message: '对话页右上角可以切换角色、打开对话设置；「设置」里还有完整的角色管理和 Agent 权限。',
-        icon: Icons.person_pin_circle_outlined,
+        title: '设置',
+        message: '底部「设置」里有完整的角色管理和 Agent 权限；对话页右上角也能快速切换角色和对话设置。',
+        icon: Icons.settings_outlined,
         targetRect: () => _navRectForTab(AppTab.settings),
       ),
     );
