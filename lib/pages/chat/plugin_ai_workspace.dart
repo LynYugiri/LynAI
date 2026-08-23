@@ -6,14 +6,16 @@ import '../../models/model_config.dart';
 import '../../providers/conversation_provider.dart';
 import '../../providers/model_config_provider.dart';
 import '../../providers/settings_provider.dart';
+import '../../providers/workspace_provider.dart';
 import '../../services/lynai_permission_definitions.dart';
 import '../agent_defaults_settings_page.dart';
 import '../chat_page.dart';
 
-/// 打开（或复用）绑定指定插件的对话并让 AI 开始修改。
+/// 为插件工坊的 AI 协作新建一个工作区、挂入该插件并打开绑定后的对话。
 ///
 /// 这是插件工坊与主聊天之间的共享桥接：复用现有 `ChatPage` 与
-/// `AgentLoopRuntime`，不在工坊内重建 Agent 循环。
+/// `AgentLoopRuntime`，不在工坊内重建 Agent 循环。每次调用都会创建新的
+/// 工作区与会话，历史自动归入「工作区对话历史」。
 Future<bool> openPluginAiConversation(
   BuildContext context, {
   required String pluginId,
@@ -61,6 +63,16 @@ Future<bool> openPluginAiConversation(
   }
 
   final conversations = context.read<ConversationProvider>();
+  final workspaces = context.read<WorkspaceProvider>();
+  final displayName = pluginName.trim().isEmpty ? pluginId : pluginName.trim();
+  final workspaceName = _uniqueWorkspaceName(
+    workspaces,
+    '$displayName · AI 协作',
+  );
+  final workspace = workspaces.createWorkspace(
+    name: workspaceName,
+    devPluginIds: [pluginId],
+  );
   final settings = ConversationSettings(
     modelId: model.id,
     modelName: model.name,
@@ -68,13 +80,13 @@ Future<bool> openPluginAiConversation(
     systemPrompt: settingsProvider.settings.systemPrompt,
     agentEnabled: true,
   );
-  final conversationId = conversations.ensurePluginConversation(
-    pluginId: pluginId,
-    pluginName: pluginName,
-    settings: settings,
+  final conversationId = conversations.createConversation(
+    settings,
+    workspaceId: workspace.id,
+    workspaceName: workspace.name,
   );
-  // 复用已有工作区对话时，也确保它使用支持工具调用的模型并开启 Agent。
-  conversations.updateConversationSettings(conversationId, settings);
+  conversations.updateConversationTitle(conversationId, '插件 · $displayName');
+  conversations.setPluginWorkspace(conversationId, pluginId);
 
   await Navigator.push(
     context,
@@ -89,4 +101,17 @@ Future<bool> openPluginAiConversation(
     ),
   );
   return true;
+}
+
+String _uniqueWorkspaceName(WorkspaceProvider provider, String base) {
+  if (!provider.workspaces.any((workspace) => workspace.name == base)) {
+    return base;
+  }
+  var suffix = 2;
+  while (provider.workspaces.any(
+    (workspace) => workspace.name == '$base $suffix',
+  )) {
+    suffix++;
+  }
+  return '$base $suffix';
 }

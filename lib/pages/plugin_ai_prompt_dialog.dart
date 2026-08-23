@@ -15,7 +15,7 @@ Future<String?> showPluginAiPromptDialog(
   return showDialog<String>(
     context: context,
     builder: (context) => AlertDialog(
-      title: Text('交给 AI 修改「${plugin.displayName}」'),
+      title: Text('新建工作区并交给 AI 修改「${plugin.displayName}」'),
       content: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,

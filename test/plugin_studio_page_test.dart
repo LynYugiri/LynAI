@@ -54,7 +54,7 @@ void main() {
     expect(find.text('hello'), findsOneWidget);
   });
 
-  testWidgets('Studio 顶部提供交给 AI 修改入口', (tester) async {
+  testWidgets('Studio 顶部提供新建工作区并交给 AI 入口', (tester) async {
     await tester.binding.setSurfaceSize(const Size(1200, 900));
     addTearDown(() => tester.binding.setSurfaceSize(null));
 
@@ -68,11 +68,11 @@ void main() {
     );
     await tester.pump();
 
-    await tester.tap(find.byTooltip('交给 AI 修改'));
+    await tester.tap(find.byTooltip('新建工作区并交给 AI'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
 
-    expect(find.text('交给 AI 修改「Studio 插件」'), findsOneWidget);
+    expect(find.text('新建工作区并交给 AI 修改「Studio 插件」'), findsOneWidget);
     expect(find.text('开始修改'), findsOneWidget);
     expect(find.text('取消'), findsOneWidget);
   });

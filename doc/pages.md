@@ -230,12 +230,12 @@ Agent 工具轮数上限保存为 `ConversationSettings.maxToolRounds`（新建�
 
 文件：`lib/pages/plugin_studio_page.dart`（能力编辑器与就地运行/预览见 `lib/pages/plugin_studio_capability_editors.dart`）
 
-插件工坊是插件创作的集中入口，宽屏为两栏布局（文件树 / 属性检查器），窄屏退化为卡片列表。点击文件进入全屏 `PluginFileEditorPage` 编辑，工坊内不再保留常驻内嵌编辑器。顶部「交给 AI 修改」会先创建“AI 协作前”恢复点，再打开或复用绑定当前插件的 Agent 对话；返回工坊后文件树与恢复点列表自动刷新。
+插件工坊是插件创作的集中入口，宽屏为两栏布局（文件树 / 属性检查器），窄屏退化为卡片列表。点击文件进入全屏 `PluginFileEditorPage` 编辑，工坊内不再保留常驻内嵌编辑器。顶部「新建工作区并交给 AI」会先创建“AI 协作前”恢复点，再新建工作区、把插件挂入开发列表并打开绑定该工作区的新对话；返回工坊后文件树与恢复点列表自动刷新。
 
 | 行为 | 说明 |
 |------|------|
 | 文件树 | 使用 `PluginProvider.listDeveloperFiles`，支持新建文件、上传、重命名、删除、恢复默认；点击文件进入全屏编辑器。 |
-| 交给 AI 修改 | 输入修改指令后，经 `openPluginAiConversation` 打开绑定该插件的对话并自动发送；工坊监听插件 renderVersion 自动刷新文件树。 |
+| 新建工作区并交给 AI | 输入修改指令后，经 `openPluginAiConversation` 新建工作区、挂入插件并打开绑定对话自动发送；工坊监听插件 renderVersion 自动刷新文件树。 |
 | 属性检查器 | 汇总开发状态、能力速览、元数据、依赖、权限、恢复点，以及 tools/functions/commands/skills/featurePages/settings 的能力编辑器。 |
 | 能力编辑 | 通过 `PluginProvider.setManifest*` 可视化增删改各能力清单并写回 `plugin.json`；仍可点 `plugin.json` 手写。 |
 | 就地运行 | 对 tool/function/command 提供「运行」入口，经 `PluginLuaRuntimeService.executeTool/executeFunction/executeCommandHandler` 执行并展示结果 JSON（以插件当前已授权权限为准）。 |

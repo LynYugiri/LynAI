@@ -228,7 +228,7 @@ class Conversation {
   /// 当前对话正在创作的插件 ID。
   ///
   /// 非空时，Agent 的插件文件工具缺省操作该插件，系统提示词也会注入插件
-  /// 摘要；由 `create_plugin` 成功或插件工坊的“交给 AI”入口绑定。
+  /// 摘要；由 `create_plugin` 成功或插件工坊的“新建工作区并交给 AI”入口绑定。
   final String? pluginWorkspaceId;
 
   /// 当前对话所属工作区 ID。

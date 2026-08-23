@@ -133,7 +133,7 @@ class _PluginStudioPageState extends State<PluginStudioPage> {
         title: Text('${plugin.displayName} · 插件工坊'),
         actions: [
           IconButton(
-            tooltip: '交给 AI 修改',
+            tooltip: '新建工作区并交给 AI',
             onPressed: () => _openAiCollaboration(plugin),
             icon: const Icon(Icons.smart_toy_outlined),
           ),
