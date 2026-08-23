@@ -316,8 +316,11 @@ class _ApiCategoryPage extends StatelessWidget {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) =>
-            _EditModelPage(category: category, model: model, provider: provider),
+        builder: (_) => _EditModelPage(
+          category: category,
+          model: model,
+          provider: provider,
+        ),
       ),
     );
   }

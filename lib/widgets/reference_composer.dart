@@ -134,8 +134,7 @@ class ReferenceComposerController extends TextEditingController {
   int _allocateCode() {
     final span = _refCodeEnd - _refCodeStart + 1;
     for (var i = 0; i < span; i++) {
-      final code =
-          _refCodeStart + ((_nextCode - _refCodeStart + i) % span);
+      final code = _refCodeStart + ((_nextCode - _refCodeStart + i) % span);
       if (!_refsByCode.containsKey(code)) {
         _nextCode = code + 1;
         return code;

@@ -22,10 +22,7 @@ void main() {
     expect(ctrl.hasReferences, isTrue);
     expect(ctrl.references, hasLength(1));
     expect(ctrl.displayText, '帮我总结@项目规划');
-    expect(
-      ctrl.modelText,
-      '帮我总结<lynai_ref type="note" id="note-1"/>',
-    );
+    expect(ctrl.modelText, '帮我总结<lynai_ref type="note" id="note-1"/>');
   });
 
   test('segments preserve text/reference interleaving order', () {
@@ -41,15 +38,12 @@ void main() {
     final segments = ctrl.segments;
     expect(segments.whereType<ComposerTextSegment>(), hasLength(2));
     expect(segments.whereType<ComposerReferenceSegment>(), hasLength(2));
-    expect(
-      segments.map((s) => s.runtimeType).toList(),
-      [
-        ComposerTextSegment,
-        ComposerReferenceSegment,
-        ComposerReferenceSegment,
-        ComposerTextSegment,
-      ],
-    );
+    expect(segments.map((s) => s.runtimeType).toList(), [
+      ComposerTextSegment,
+      ComposerReferenceSegment,
+      ComposerReferenceSegment,
+      ComposerTextSegment,
+    ]);
   });
 
   test('removeReference removes the chip by localId', () {

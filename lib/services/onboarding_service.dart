@@ -147,9 +147,7 @@ class OnboardingService {
       final draft = _draftFromAiJson(json);
       if (draft == null) return null;
       if (draft.welcomeMessage.trim().isEmpty) {
-        return draft.copyWith(
-          welcomeMessage: _buildLocalWelcome(input, draft),
-        );
+        return draft.copyWith(welcomeMessage: _buildLocalWelcome(input, draft));
       }
       return draft;
     } catch (_) {

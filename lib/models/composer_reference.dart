@@ -67,7 +67,8 @@ class ComposerReference {
   factory ComposerReference.fromJson(Map<String, dynamic> json) {
     return ComposerReference(
       localId: json['localId'] as String? ?? '',
-      type: ComposerReferenceType.fromWire(json['type'] as String?) ??
+      type:
+          ComposerReferenceType.fromWire(json['type'] as String?) ??
           ComposerReferenceType.note,
       id: json['id'] as String? ?? '',
       title: json['title'] as String? ?? '',
@@ -184,7 +185,9 @@ List<ComposerSegment> decodeComposerSegments(String json) {
     } else if (kind == 'ref' && item['v'] is Map) {
       segments.add(
         ComposerReferenceSegment(
-          ComposerReference.fromJson(Map<String, dynamic>.from(item['v'] as Map)),
+          ComposerReference.fromJson(
+            Map<String, dynamic>.from(item['v'] as Map),
+          ),
         ),
       );
     }

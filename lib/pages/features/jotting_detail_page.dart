@@ -191,7 +191,9 @@ class _AttachmentCardState extends State<_AttachmentCard> {
       final resource = await storage.findResourceById(
         widget.attachment.resourceId,
       );
-      final path = resource == null ? null : await storage.resourcePath(resource);
+      final path = resource == null
+          ? null
+          : await storage.resourcePath(resource);
       if (!mounted) return;
       setState(() => _path = path);
     } catch (_) {

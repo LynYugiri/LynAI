@@ -46,9 +46,9 @@ void main() {
       expect(folders.map((i) => i.title), contains('工作'));
       expect(unfiled.map((i) => i.title), contains('灵感'));
 
-      final inFolder = await registry
-          .selector('notes')!
-          .load('', [folders.first.key.split(':').last]);
+      final inFolder = await registry.selector('notes')!.load('', [
+        folders.first.key.split(':').last,
+      ]);
       expect(inFolder.map((i) => i.title), contains('项目规划'));
       final value = inFolder.first.value!;
       expect(value.type, ComposerReferenceType.note);
@@ -103,9 +103,9 @@ void main() {
       );
       expect(folder.title, '项目发布');
 
-      final inList = await registry
-          .selector('tasks')!
-          .load('', [folder.key.split(':').last]);
+      final inList = await registry.selector('tasks')!.load('', [
+        folder.key.split(':').last,
+      ]);
       expect(inList.map((i) => i.title), contains('完成发布说明'));
       expect(inList.first.value!.type, ComposerReferenceType.task);
     } finally {
@@ -139,7 +139,18 @@ void main() {
 
   test('parsePluginCommandItems fails closed on error or malformed data', () {
     expect(parsePluginCommandItems({'ok': false, 'error': 'denied'}), isEmpty);
-    expect(parsePluginCommandItems({'ok': true, 'result': 'not-a-list'}), isEmpty);
-    expect(parsePluginCommandItems({'ok': true, 'result': [{'type': 'bad'}]}), isEmpty);
+    expect(
+      parsePluginCommandItems({'ok': true, 'result': 'not-a-list'}),
+      isEmpty,
+    );
+    expect(
+      parsePluginCommandItems({
+        'ok': true,
+        'result': [
+          {'type': 'bad'},
+        ],
+      }),
+      isEmpty,
+    );
   });
 }

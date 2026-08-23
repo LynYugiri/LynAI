@@ -84,10 +84,7 @@ void main() {
     final restored = decodeComposerSegments(encodeComposerSegments(segments));
     expect(restored, hasLength(3));
     expect((restored[0] as ComposerTextSegment).text, '请总结 ');
-    expect(
-      (restored[1] as ComposerReferenceSegment).reference.id,
-      'note-123',
-    );
+    expect((restored[1] as ComposerReferenceSegment).reference.id, 'note-123');
     expect((restored[2] as ComposerTextSegment).text, ' 并列出风险。');
   });
 }

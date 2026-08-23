@@ -194,10 +194,7 @@ class _ChatCommandPaletteState extends State<ChatCommandPalette> {
                     )
                   : ListTile(
                       dense: true,
-                      leading: Icon(
-                        _valueIcon(item.value?.type),
-                        size: 20,
-                      ),
+                      leading: Icon(_valueIcon(item.value?.type), size: 20),
                       title: Text(
                         item.title,
                         style: const TextStyle(fontSize: 14),

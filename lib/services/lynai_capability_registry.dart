@@ -35,11 +35,7 @@ class LynAICapabilityRegistry {
   }
 
   /// 注册宿主内置能力。
-  void registerHost(
-    String method, {
-    String? permission,
-    bool isRead = false,
-  }) {
+  void registerHost(String method, {String? permission, bool isRead = false}) {
     _methods[method] = CapabilityMethod(
       method: method,
       permission: permission,
@@ -86,11 +82,18 @@ void registerHostCapabilities(LynAICapabilityRegistry registry) {
       registry.registerHost(method, permission: permission, isRead: read);
 
   // 回收站
-  host('recycleBin.list', permission: LynAIPermissions.recycleBinRead, read: true);
+  host(
+    'recycleBin.list',
+    permission: LynAIPermissions.recycleBinRead,
+    read: true,
+  );
   host('recycleBin.putData', permission: LynAIPermissions.recycleBinWrite);
   host('recycleBin.putFile', permission: LynAIPermissions.recycleBinWrite);
   host('recycleBin.restore', permission: LynAIPermissions.recycleBinRestore);
-  host('recycleBin.deleteForever', permission: LynAIPermissions.recycleBinRestore);
+  host(
+    'recycleBin.deleteForever',
+    permission: LynAIPermissions.recycleBinRestore,
+  );
 
   // 插件调用（跨插件调用入口，调用方需 plugins.callFunction）
   host('plugin.call', permission: LynAIPermissions.pluginCallFunction);
@@ -120,7 +123,11 @@ void registerHostCapabilities(LynAICapabilityRegistry registry) {
   host('notes.delete', permission: LynAIPermissions.notesWrite);
   host('notes.pages.list', permission: LynAIPermissions.notesRead, read: true);
   host('notes.pages.save', permission: LynAIPermissions.notesWrite);
-  host('notes.folders.list', permission: LynAIPermissions.notesRead, read: true);
+  host(
+    'notes.folders.list',
+    permission: LynAIPermissions.notesRead,
+    read: true,
+  );
   host('notes.folders.save', permission: LynAIPermissions.notesWrite);
 
   // 待办 / 任务 / 任务清单
@@ -145,11 +152,19 @@ void registerHostCapabilities(LynAICapabilityRegistry registry) {
   host('calendar.create', permission: LynAIPermissions.schedulesWrite);
   host('calendar.update', permission: LynAIPermissions.schedulesWrite);
   host('calendar.delete', permission: LynAIPermissions.schedulesWrite);
-  host('anniversaries.list', permission: LynAIPermissions.schedulesRead, read: true);
+  host(
+    'anniversaries.list',
+    permission: LynAIPermissions.schedulesRead,
+    read: true,
+  );
   host('anniversaries.create', permission: LynAIPermissions.schedulesWrite);
   host('anniversaries.update', permission: LynAIPermissions.schedulesWrite);
   host('anniversaries.delete', permission: LynAIPermissions.schedulesWrite);
-  host('schedules.list', permission: LynAIPermissions.schedulesRead, read: true);
+  host(
+    'schedules.list',
+    permission: LynAIPermissions.schedulesRead,
+    read: true,
+  );
   host('schedules.create', permission: LynAIPermissions.schedulesWrite);
   host('schedules.update', permission: LynAIPermissions.schedulesWrite);
   host('schedules.delete', permission: LynAIPermissions.schedulesWrite);
@@ -161,22 +176,72 @@ void registerHostCapabilities(LynAICapabilityRegistry registry) {
   host('model.generateImage', permission: LynAIPermissions.modelGenerateImage);
 
   // 设备
-  host('device.screen.snapshot', permission: LynAIPermissions.deviceScreenRead, read: true);
-  host('device.screen.context', permission: LynAIPermissions.deviceScreenRead, read: true);
-  host('device.screen.screenshot', permission: LynAIPermissions.deviceScreenRead, read: true);
-  host('device.screen.query', permission: LynAIPermissions.deviceScreenRead, read: true);
-  host('device.screen.waitText', permission: LynAIPermissions.deviceScreenRead, read: true);
-  host('device.screen.readVisibleText', permission: LynAIPermissions.deviceScreenRead, read: true);
-  host('device.screen.extractMessages', permission: LynAIPermissions.deviceScreenRead, read: true);
-  host('device.node.find', permission: LynAIPermissions.deviceScreenRead, read: true);
-  host('device.node.findAll', permission: LynAIPermissions.deviceScreenRead, read: true);
-  host('device.waitForNode', permission: LynAIPermissions.deviceScreenRead, read: true);
+  host(
+    'device.screen.snapshot',
+    permission: LynAIPermissions.deviceScreenRead,
+    read: true,
+  );
+  host(
+    'device.screen.context',
+    permission: LynAIPermissions.deviceScreenRead,
+    read: true,
+  );
+  host(
+    'device.screen.screenshot',
+    permission: LynAIPermissions.deviceScreenRead,
+    read: true,
+  );
+  host(
+    'device.screen.query',
+    permission: LynAIPermissions.deviceScreenRead,
+    read: true,
+  );
+  host(
+    'device.screen.waitText',
+    permission: LynAIPermissions.deviceScreenRead,
+    read: true,
+  );
+  host(
+    'device.screen.readVisibleText',
+    permission: LynAIPermissions.deviceScreenRead,
+    read: true,
+  );
+  host(
+    'device.screen.extractMessages',
+    permission: LynAIPermissions.deviceScreenRead,
+    read: true,
+  );
+  host(
+    'device.node.find',
+    permission: LynAIPermissions.deviceScreenRead,
+    read: true,
+  );
+  host(
+    'device.node.findAll',
+    permission: LynAIPermissions.deviceScreenRead,
+    read: true,
+  );
+  host(
+    'device.waitForNode',
+    permission: LynAIPermissions.deviceScreenRead,
+    read: true,
+  );
   host('device.screen.clickText', permission: LynAIPermissions.deviceControl);
-  host('device.screen.waitAndClick', permission: LynAIPermissions.deviceControl);
+  host(
+    'device.screen.waitAndClick',
+    permission: LynAIPermissions.deviceControl,
+  );
   host('device.screen.inputText', permission: LynAIPermissions.deviceControl);
   host('device.screen.scrollUntil', permission: LynAIPermissions.deviceControl);
   host('device.service.status', permission: LynAIPermissions.deviceOverlay);
-  host('device.service.openSettings', permission: LynAIPermissions.deviceOverlay);
+  host(
+    'device.service.openSettings',
+    permission: LynAIPermissions.deviceOverlay,
+  );
   host('device.app.open', permission: LynAIPermissions.deviceControl);
-  host('device.app.list', permission: LynAIPermissions.deviceControl, read: true);
+  host(
+    'device.app.list',
+    permission: LynAIPermissions.deviceControl,
+    read: true,
+  );
 }

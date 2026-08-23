@@ -37,10 +37,7 @@ void main() {
         name: 'greet',
         description: '打招呼',
         handler: 'greet',
-        parameters: {
-          'type': 'object',
-          'properties': <String, dynamic>{},
-        },
+        parameters: {'type': 'object', 'properties': <String, dynamic>{}},
       ),
     ]);
     await provider.setManifestFunctions(plugin.id, [
@@ -79,9 +76,9 @@ void main() {
     expect(loaded.manifest.settings.single.key, 'mode');
 
     // 持久化到 plugin.json，重启后仍可读回。
-    final raw = jsonDecode(
-      await File('${plugin.path}/plugin.json').readAsString(),
-    ) as Map<String, dynamic>;
+    final raw =
+        jsonDecode(await File('${plugin.path}/plugin.json').readAsString())
+            as Map<String, dynamic>;
     expect(raw['tools'], isA<List>());
     expect(raw['functions'], isA<List>());
     expect(raw['commands'], isA<List>());
@@ -115,7 +112,12 @@ void main() {
 
     await expectLater(
       provider.setManifestFeaturePages(plugin.id, [
-        const PluginFeaturePageDefinition(id: 'x', title: 'X', icon: '', entry: ''),
+        const PluginFeaturePageDefinition(
+          id: 'x',
+          title: 'X',
+          icon: '',
+          entry: '',
+        ),
       ]),
       throwsA(isA<Exception>()),
     );

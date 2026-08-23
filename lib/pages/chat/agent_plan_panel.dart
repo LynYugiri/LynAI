@@ -227,9 +227,7 @@ class _AgentPlanPanelState extends State<AgentPlanPanel> {
                           fontSize: 11,
                           color: failed
                               ? scheme.error
-                              : scheme.onSurfaceVariant.withValues(
-                                  alpha: 0.68,
-                                ),
+                              : scheme.onSurfaceVariant.withValues(alpha: 0.68),
                         ),
                       ),
                     ),
@@ -257,10 +255,7 @@ class _AgentPlanPanelState extends State<AgentPlanPanel> {
         color: color.withValues(alpha: 0.12),
         borderRadius: BorderRadius.circular(999),
       ),
-      child: Text(
-        label,
-        style: TextStyle(fontSize: 10, color: color),
-      ),
+      child: Text(label, style: TextStyle(fontSize: 10, color: color)),
     );
   }
 
@@ -299,7 +294,10 @@ class _AgentPlanPanelState extends State<AgentPlanPanel> {
                 Text(
                   '完成 $completed/${plan.items.length} · 进行中 ${_inProgressCount(plan)} · '
                   '失败 $failed · 需确认 $needsConfirmation',
-                  style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: scheme.onSurfaceVariant,
+                  ),
                 ),
                 const Divider(height: 20),
                 for (var index = 0; index < plan.items.length; index++)

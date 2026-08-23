@@ -212,10 +212,7 @@ class PluginStudioToolsEditor extends StatelessWidget {
     );
   }
 
-  Future<void> _runTool(
-    BuildContext context,
-    PluginToolDefinition tool,
-  ) async {
+  Future<void> _runTool(BuildContext context, PluginToolDefinition tool) async {
     await runHandlerDialog(
       context,
       title: '运行工具 ${tool.name}',
@@ -314,18 +311,20 @@ class PluginStudioFunctionsEditor extends StatelessWidget {
     if (result == null || !context.mounted) return;
     final next = _replaceAt(plugin.manifest.functions, index, result);
     await _save(context, () async {
-      await context
-          .read<PluginProvider>()
-          .setManifestFunctions(plugin.id, next);
+      await context.read<PluginProvider>().setManifestFunctions(
+        plugin.id,
+        next,
+      );
     }, '函数已更新');
   }
 
   Future<void> _removeFunction(BuildContext context, int index) async {
     final next = _removeAt(plugin.manifest.functions, index);
     await _save(context, () async {
-      await context
-          .read<PluginProvider>()
-          .setManifestFunctions(plugin.id, next);
+      await context.read<PluginProvider>().setManifestFunctions(
+        plugin.id,
+        next,
+      );
     }, '函数已删除');
   }
 }
@@ -403,18 +402,14 @@ class PluginStudioCommandsEditor extends StatelessWidget {
     if (result == null || !context.mounted) return;
     final next = _replaceAt(plugin.manifest.commands, index, result);
     await _save(context, () async {
-      await context
-          .read<PluginProvider>()
-          .setManifestCommands(plugin.id, next);
+      await context.read<PluginProvider>().setManifestCommands(plugin.id, next);
     }, '命令已更新');
   }
 
   Future<void> _removeCommand(BuildContext context, int index) async {
     final next = _removeAt(plugin.manifest.commands, index);
     await _save(context, () async {
-      await context
-          .read<PluginProvider>()
-          .setManifestCommands(plugin.id, next);
+      await context.read<PluginProvider>().setManifestCommands(plugin.id, next);
     }, '命令已删除');
   }
 }
@@ -439,10 +434,7 @@ class PluginStudioSkillsEditor extends StatelessWidget {
             ListTile(
               dense: true,
               contentPadding: EdgeInsets.zero,
-              leading: const Icon(
-                Icons.auto_awesome_motion_outlined,
-                size: 18,
-              ),
+              leading: const Icon(Icons.auto_awesome_motion_outlined, size: 18),
               title: Text(
                 skills[i].title.isEmpty ? skills[i].name : skills[i].title,
               ),
@@ -482,18 +474,16 @@ class PluginStudioSkillsEditor extends StatelessWidget {
     PluginSkillDefinition skill,
   ) async {
     try {
-      final content = await context
-          .read<PluginProvider>()
-          .readDeveloperFile(plugin.id, 'skills/${skill.name}.md');
+      final content = await context.read<PluginProvider>().readDeveloperFile(
+        plugin.id,
+        'skills/${skill.name}.md',
+      );
       if (!context.mounted) return;
       await Navigator.push(
         context,
         MaterialPageRoute(
-          builder: (_) => SkillPreviewPage(
-            plugin: plugin,
-            skill: skill,
-            content: content,
-          ),
+          builder: (_) =>
+              SkillPreviewPage(plugin: plugin, skill: skill, content: content),
         ),
       );
     } catch (e) {
@@ -546,7 +536,9 @@ class PluginStudioFeaturePagesEditor extends StatelessWidget {
               dense: true,
               contentPadding: EdgeInsets.zero,
               leading: const Icon(Icons.web_outlined, size: 18),
-              title: Text(pages[i].title.isEmpty ? pages[i].id : pages[i].title),
+              title: Text(
+                pages[i].title.isEmpty ? pages[i].id : pages[i].title,
+              ),
               subtitle: Text(
                 pages[i].entry,
                 maxLines: 1,
@@ -597,18 +589,20 @@ class PluginStudioFeaturePagesEditor extends StatelessWidget {
     if (result == null || !context.mounted) return;
     final next = _replaceAt(plugin.manifest.featurePages, index, result);
     await _save(context, () async {
-      await context
-          .read<PluginProvider>()
-          .setManifestFeaturePages(plugin.id, next);
+      await context.read<PluginProvider>().setManifestFeaturePages(
+        plugin.id,
+        next,
+      );
     }, '功能页已更新');
   }
 
   Future<void> _removePage(BuildContext context, int index) async {
     final next = _removeAt(plugin.manifest.featurePages, index);
     await _save(context, () async {
-      await context
-          .read<PluginProvider>()
-          .setManifestFeaturePages(plugin.id, next);
+      await context.read<PluginProvider>().setManifestFeaturePages(
+        plugin.id,
+        next,
+      );
     }, '功能页已删除');
   }
 }
@@ -635,9 +629,7 @@ class PluginStudioSettingsEditor extends StatelessWidget {
               contentPadding: EdgeInsets.zero,
               leading: const Icon(Icons.tune, size: 18),
               title: Text(
-                settings[i].title.isEmpty
-                    ? settings[i].key
-                    : settings[i].title,
+                settings[i].title.isEmpty ? settings[i].key : settings[i].title,
               ),
               subtitle: Text(
                 '${settings[i].key} · ${settings[i].type}',
@@ -1283,9 +1275,7 @@ Future<PluginCommandDefinition?> _showCommandDialog(
                         : handler.text.trim(),
                     description: description.text.trim(),
                     parameters: params,
-                    model: model.text.trim().isEmpty
-                        ? null
-                        : model.text.trim(),
+                    model: model.text.trim().isEmpty ? null : model.text.trim(),
                   );
                   final invalid = def.validate();
                   if (invalid != null) {
@@ -1397,7 +1387,8 @@ Future<PluginSkillDefinition?> _showSkillDialog(
                       contentPadding: EdgeInsets.zero,
                       value: editable,
                       title: const Text('允许编辑正文 (editable)'),
-                      onChanged: (next) => setDialogState(() => editable = next),
+                      onChanged: (next) =>
+                          setDialogState(() => editable = next),
                     ),
                     if (error != null)
                       Text(
@@ -1560,9 +1551,9 @@ Future<PluginSettingDefinition?> _showSettingDialog(
         current?.key ?? '',
         current?.title ?? '',
         _stringifyDefault(current?.defaultValue),
-        const JsonEncoder.withIndent('  ').convert(
-          current?.options ?? const <Map<String, dynamic>>[],
-        ),
+        const JsonEncoder.withIndent(
+          '  ',
+        ).convert(current?.options ?? const <Map<String, dynamic>>[]),
       ],
       builder: (context, controllers) {
         final key = controllers[0];
@@ -1602,12 +1593,18 @@ Future<PluginSettingDefinition?> _showSettingDialog(
                         border: OutlineInputBorder(),
                       ),
                       items: const [
-                        DropdownMenuItem(value: 'string', child: Text('string')),
+                        DropdownMenuItem(
+                          value: 'string',
+                          child: Text('string'),
+                        ),
                         DropdownMenuItem(
                           value: 'boolean',
                           child: Text('boolean'),
                         ),
-                        DropdownMenuItem(value: 'select', child: Text('select')),
+                        DropdownMenuItem(
+                          value: 'select',
+                          child: Text('select'),
+                        ),
                       ],
                       onChanged: (next) =>
                           setDialogState(() => type = next ?? 'string'),

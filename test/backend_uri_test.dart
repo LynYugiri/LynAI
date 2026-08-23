@@ -4,21 +4,39 @@ import 'package:lynai/services/backend_uri.dart';
 void main() {
   group('normalizeBackendUri', () {
     test('canonicalizes scheme and host case, strips default ports', () {
-      expect(normalizeBackendUri('HTTPS://Example.COM:443/api'), 'https://example.com/api');
-      expect(normalizeBackendUri('http://example.com:80'), 'http://example.com');
+      expect(
+        normalizeBackendUri('HTTPS://Example.COM:443/api'),
+        'https://example.com/api',
+      );
+      expect(
+        normalizeBackendUri('http://example.com:80'),
+        'http://example.com',
+      );
     });
 
     test('preserves explicit non-default ports', () {
-      expect(normalizeBackendUri('https://example.com:8443/api/'), 'https://example.com:8443/api');
+      expect(
+        normalizeBackendUri('https://example.com:8443/api/'),
+        'https://example.com:8443/api',
+      );
     });
 
     test('keeps path prefix without trailing slash', () {
-      expect(normalizeBackendUri('https://example.com/relay/'), 'https://example.com/relay');
-      expect(normalizeBackendUri('https://example.com/a/b/c'), 'https://example.com/a/b/c');
+      expect(
+        normalizeBackendUri('https://example.com/relay/'),
+        'https://example.com/relay',
+      );
+      expect(
+        normalizeBackendUri('https://example.com/a/b/c'),
+        'https://example.com/a/b/c',
+      );
     });
 
     test('strips a root-only path', () {
-      expect(normalizeBackendUri('https://example.com/'), 'https://example.com');
+      expect(
+        normalizeBackendUri('https://example.com/'),
+        'https://example.com',
+      );
     });
 
     test('rejects invalid inputs', () {
@@ -32,8 +50,14 @@ void main() {
 
   group('normalizedBackendOrigin', () {
     test('returns origin without path', () {
-      expect(normalizedBackendOrigin('https://example.com:8443/a/b'), 'https://example.com:8443');
-      expect(normalizedBackendOrigin('https://example.com/api'), 'https://example.com');
+      expect(
+        normalizedBackendOrigin('https://example.com:8443/a/b'),
+        'https://example.com:8443',
+      );
+      expect(
+        normalizedBackendOrigin('https://example.com/api'),
+        'https://example.com',
+      );
     });
 
     test('returns empty for invalid input', () {

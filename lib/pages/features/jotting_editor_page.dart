@@ -183,9 +183,7 @@ class JottingEditorPageState extends State<JottingEditorPage> {
               padding: const EdgeInsets.symmetric(vertical: 4),
               child: _EditorAttachmentCard(
                 attachment: _attachments[index],
-                onDelete: _saving
-                    ? null
-                    : () => _removeAttachmentAt(index),
+                onDelete: _saving ? null : () => _removeAttachmentAt(index),
               ),
             ),
         ],
@@ -212,9 +210,7 @@ class JottingEditorPageState extends State<JottingEditorPage> {
               padding: const EdgeInsets.symmetric(vertical: 4),
               child: _ReferenceCard(
                 reference: _references[index],
-                onDelete: _saving
-                    ? null
-                    : () => _removeReferenceAt(index),
+                onDelete: _saving ? null : () => _removeReferenceAt(index),
               ),
             ),
         ],
@@ -497,7 +493,8 @@ class JottingEditorPageState extends State<JottingEditorPage> {
     try {
       final provider = context.read<JottingProvider>();
       final id = widget.jottingId;
-      final savedId = id ??
+      final savedId =
+          id ??
           await provider.add(
             content,
             tags: _tags,
@@ -574,12 +571,8 @@ class JottingEditorPageState extends State<JottingEditorPage> {
   }
 }
 
-
 class _ReferenceCard extends StatelessWidget {
-  const _ReferenceCard({
-    required this.reference,
-    required this.onDelete,
-  });
+  const _ReferenceCard({required this.reference, required this.onDelete});
 
   final JottingReference reference;
   final VoidCallback? onDelete;
@@ -664,8 +657,12 @@ class _EditorAttachmentCardState extends State<_EditorAttachmentCard> {
   Future<void> _resolvePath() async {
     try {
       final storage = context.read<StorageV2Service>();
-      final resource = await storage.findResourceById(widget.attachment.resourceId);
-      final path = resource == null ? null : await storage.resourcePath(resource);
+      final resource = await storage.findResourceById(
+        widget.attachment.resourceId,
+      );
+      final path = resource == null
+          ? null
+          : await storage.resourcePath(resource);
       if (!mounted) return;
       setState(() => _path = path);
     } catch (_) {
@@ -697,11 +694,10 @@ class _EditorAttachmentCardState extends State<_EditorAttachmentCard> {
                         width: 44,
                         height: 44,
                         fit: BoxFit.cover,
-                        errorBuilder: (_, _, _) =>
-                            const SizedBox.square(
-                              dimension: 44,
-                              child: Icon(Icons.broken_image_outlined),
-                            ),
+                        errorBuilder: (_, _, _) => const SizedBox.square(
+                          dimension: 44,
+                          child: Icon(Icons.broken_image_outlined),
+                        ),
                       ),
               )
             else

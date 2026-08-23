@@ -179,8 +179,8 @@ void main() {
           ChangeNotifierProvider.value(value: settings),
           ChangeNotifierProvider.value(value: models),
           ChangeNotifierProvider(create: (_) => FeatureProvider()),
-            ChangeNotifierProvider(create: (_) => MemoryCardProvider()),
-            ChangeNotifierProvider(create: (_) => JottingProvider()),
+          ChangeNotifierProvider(create: (_) => MemoryCardProvider()),
+          ChangeNotifierProvider(create: (_) => JottingProvider()),
           ChangeNotifierProvider(create: (_) => TaskProvider()),
           ChangeNotifierProvider(create: (_) => CalendarProvider()),
           ChangeNotifierProvider(create: (_) => PluginProvider()),
@@ -244,8 +244,8 @@ void main() {
           ChangeNotifierProvider.value(value: settings),
           ChangeNotifierProvider.value(value: models),
           ChangeNotifierProvider(create: (_) => FeatureProvider()),
-            ChangeNotifierProvider(create: (_) => MemoryCardProvider()),
-            ChangeNotifierProvider(create: (_) => JottingProvider()),
+          ChangeNotifierProvider(create: (_) => MemoryCardProvider()),
+          ChangeNotifierProvider(create: (_) => JottingProvider()),
           ChangeNotifierProvider(create: (_) => TaskProvider()),
           ChangeNotifierProvider(create: (_) => CalendarProvider()),
           ChangeNotifierProvider(create: (_) => PluginProvider()),
@@ -279,81 +279,77 @@ void main() {
     await conversations.flushPendingSaves();
   });
 
-  testWidgets(
-    'conversation permissions edit global settings directly',
-    (tester) async {
-      SharedPreferences.setMockInitialValues({});
-      final conversations = memoryConversationProvider();
-      final settings = memorySettingsProvider();
-      await settings.replaceSettings(
-        AppSettings.defaults().copyWith(
-          agentEnabledByDefault: true,
-          agentGrantedPermissions: const [LynAIPermissions.networkAccess],
+  testWidgets('conversation permissions edit global settings directly', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    final conversations = memoryConversationProvider();
+    final settings = memorySettingsProvider();
+    await settings.replaceSettings(
+      AppSettings.defaults().copyWith(
+        agentEnabledByDefault: true,
+        agentGrantedPermissions: const [LynAIPermissions.networkAccess],
+      ),
+    );
+    final models = memoryModelConfigProvider()
+      ..addModel(
+        ModelConfig(
+          id: 'm1',
+          name: 'test',
+          endpoint: 'https://example.test',
+          apiKey: '',
+          modelName: 'model',
+          apiType: 'openai',
+          priority: 0,
         ),
       );
-      final models = memoryModelConfigProvider()
-        ..addModel(
-          ModelConfig(
-            id: 'm1',
-            name: 'test',
-            endpoint: 'https://example.test',
-            apiKey: '',
-            modelName: 'model',
-            apiType: 'openai',
-            priority: 0,
-          ),
-        );
-      final conversationId = conversations.createConversation(
-        ConversationSettings(
-          modelId: 'm1',
-          agentEnabled: false,
-        ),
-      );
+    final conversationId = conversations.createConversation(
+      ConversationSettings(modelId: 'm1', agentEnabled: false),
+    );
 
-      await tester.pumpWidget(
-        MultiProvider(
-          providers: [
-            ChangeNotifierProvider.value(value: conversations),
-            ChangeNotifierProvider.value(value: settings),
-            ChangeNotifierProvider.value(value: models),
-            ChangeNotifierProvider(create: (_) => FeatureProvider()),
-            ChangeNotifierProvider(create: (_) => MemoryCardProvider()),
-            ChangeNotifierProvider(create: (_) => JottingProvider()),
-            ChangeNotifierProvider(create: (_) => TaskProvider()),
-            ChangeNotifierProvider(create: (_) => CalendarProvider()),
-            ChangeNotifierProvider(create: (_) => PluginProvider()),
-            ChangeNotifierProvider(create: (_) => KnowledgeProvider()),
-            ChangeNotifierProvider(create: (_) => BackendClient()),
-            Provider.value(value: storage),
-          ],
-          child: MaterialApp(home: ChatPage(conversationId: conversationId)),
-        ),
-      );
-      await tester.pump();
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider.value(value: conversations),
+          ChangeNotifierProvider.value(value: settings),
+          ChangeNotifierProvider.value(value: models),
+          ChangeNotifierProvider(create: (_) => FeatureProvider()),
+          ChangeNotifierProvider(create: (_) => MemoryCardProvider()),
+          ChangeNotifierProvider(create: (_) => JottingProvider()),
+          ChangeNotifierProvider(create: (_) => TaskProvider()),
+          ChangeNotifierProvider(create: (_) => CalendarProvider()),
+          ChangeNotifierProvider(create: (_) => PluginProvider()),
+          ChangeNotifierProvider(create: (_) => KnowledgeProvider()),
+          ChangeNotifierProvider(create: (_) => BackendClient()),
+          Provider.value(value: storage),
+        ],
+        child: MaterialApp(home: ChatPage(conversationId: conversationId)),
+      ),
+    );
+    await tester.pump();
 
-      expect(find.byIcon(Icons.account_tree_outlined), findsOneWidget);
-      await tester.tap(find.byIcon(Icons.tune));
-      await tester.pumpAndSettle();
-      expect(find.text('对话权限'), findsOneWidget);
-      expect(find.text('全局权限'), findsOneWidget);
-      expect(find.text('启用 Agent 模式'), findsNothing);
-      expect(find.text('读取回收站'), findsNothing);
-      expect(find.text('跟随全局默认权限'), findsNothing);
+    expect(find.byIcon(Icons.account_tree_outlined), findsOneWidget);
+    await tester.tap(find.byIcon(Icons.tune));
+    await tester.pumpAndSettle();
+    expect(find.text('对话权限'), findsOneWidget);
+    expect(find.text('全局权限'), findsOneWidget);
+    expect(find.text('启用 Agent 模式'), findsNothing);
+    expect(find.text('读取回收站'), findsNothing);
+    expect(find.text('跟随全局默认权限'), findsNothing);
 
-      // 直接编辑全局权限：勾选“读取待办”。
-      await tester.ensureVisible(find.text('读取待办'));
-      await tester.tap(find.text('读取待办'));
-      await tester.pump();
+    // 直接编辑全局权限：勾选“读取待办”。
+    await tester.ensureVisible(find.text('读取待办'));
+    await tester.tap(find.text('读取待办'));
+    await tester.pump();
 
-      final conversation = conversations.getConversation(conversationId)!;
-      expect(conversation.settings.agentEnabled, isFalse);
-      expect(settings.settings.agentEnabledByDefault, isTrue);
-      expect(
-        settings.settings.agentGrantedPermissions.toSet(),
-        {LynAIPermissions.networkAccess, LynAIPermissions.todosRead},
-      );
-      await conversations.flushPendingSaves();
-      await settings.flushPendingSaves();
-    },
-  );
+    final conversation = conversations.getConversation(conversationId)!;
+    expect(conversation.settings.agentEnabled, isFalse);
+    expect(settings.settings.agentEnabledByDefault, isTrue);
+    expect(settings.settings.agentGrantedPermissions.toSet(), {
+      LynAIPermissions.networkAccess,
+      LynAIPermissions.todosRead,
+    });
+    await conversations.flushPendingSaves();
+    await settings.flushPendingSaves();
+  });
 }

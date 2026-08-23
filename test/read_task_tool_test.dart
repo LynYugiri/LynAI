@@ -27,7 +27,10 @@ void main() {
       final first = await tasks.addTask(title: '同名任务', listId: listId);
       final second = await tasks.addTask(title: '同名任务', listId: listId);
 
-      Future<Map<String, dynamic>> call(String method, Map<String, dynamic> args) {
+      Future<Map<String, dynamic>> call(
+        String method,
+        Map<String, dynamic> args,
+      ) {
         return LynAIFunctionService().execute(
           LynAIFunctionCall(name: method, arguments: args),
           LynAIFunctionContext(

@@ -34,7 +34,9 @@ void main() {
     final installedRoot = await Directory.systemTemp.createTemp(
       'lynai_autogrant_',
     );
-    final source = await Directory.systemTemp.createTemp('lynai_autogrant_src_');
+    final source = await Directory.systemTemp.createTemp(
+      'lynai_autogrant_src_',
+    );
     try {
       await File('${source.path}/main.lua').writeAsString('-- handler');
       await File('${source.path}/plugin.json').writeAsString(

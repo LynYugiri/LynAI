@@ -6,72 +6,69 @@ import 'package:lynai/services/storage_v2_database.dart';
 import 'package:sqlite3/sqlite3.dart';
 
 void main() {
-  test(
-    'schema omits knowledge defaults and keeps category constraints',
-    () async {
-      final root = await Directory.systemTemp.createTemp(
-        'lynai_knowledge_schema_',
-      );
-      final storageRoot = Directory('${root.path}/storage_v2');
-      await storageRoot.create(recursive: true);
-      final storage = StorageV2Database(storageRoot);
+  test('schema omits knowledge defaults and keeps category constraints', () async {
+    final root = await Directory.systemTemp.createTemp(
+      'lynai_knowledge_schema_',
+    );
+    final storageRoot = Directory('${root.path}/storage_v2');
+    await storageRoot.create(recursive: true);
+    final storage = StorageV2Database(storageRoot);
+    try {
+      final knowledge = await storage.loadDataFile('knowledge.json');
+      expect(knowledge, isNot(contains('settings')));
+      final raw = sqlite3.open('${storageRoot.path}/app.db');
       try {
-        final knowledge = await storage.loadDataFile('knowledge.json');
-        expect(knowledge, isNot(contains('settings')));
-        final raw = sqlite3.open('${storageRoot.path}/app.db');
-        try {
-          expect(raw.userVersion, StorageV2DriftDatabase.currentSchemaVersion);
-          final columns = raw
-              .select('PRAGMA table_info(knowledge_categories)')
-              .map((row) => row['name'])
-              .toSet();
-          expect(
-            columns,
-            containsAll({
-              'alias',
-              'annotation_rule',
-              'explanation_prompt',
-              'color_value',
-              'auto_annotate',
-              'model_config_id',
-            }),
-          );
-          expect(columns, isNot(contains('is_default')));
-          expect(
-            raw.select(
-              "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'knowledge_settings'",
-            ),
-            isEmpty,
-          );
-          expect(
-            raw.select(
-              "SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_knowledge_categories_default'",
-            ),
-            isEmpty,
-          );
-          raw.execute('''
+        expect(raw.userVersion, StorageV2DriftDatabase.currentSchemaVersion);
+        final columns = raw
+            .select('PRAGMA table_info(knowledge_categories)')
+            .map((row) => row['name'])
+            .toSet();
+        expect(
+          columns,
+          containsAll({
+            'alias',
+            'annotation_rule',
+            'explanation_prompt',
+            'color_value',
+            'auto_annotate',
+            'model_config_id',
+          }),
+        );
+        expect(columns, isNot(contains('is_default')));
+        expect(
+          raw.select(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'knowledge_settings'",
+          ),
+          isEmpty,
+        );
+        expect(
+          raw.select(
+            "SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_knowledge_categories_default'",
+          ),
+          isEmpty,
+        );
+        raw.execute('''
 INSERT INTO knowledge_bases VALUES ('base', 'Base', NULL, 1, 0, 'now', 'now');
 INSERT INTO knowledge_categories VALUES (
   'one', 'base', 'One', 'valid_alias', NULL, '', '', 0, 1, NULL, 1, 0, 'now', 'now'
 );
 ''');
-          expect(
-            () => raw.execute('''
+        expect(
+          () => raw.execute('''
 INSERT INTO knowledge_categories VALUES (
   'two', 'base', 'Two', 'valid_alias', NULL, '', '', 0, 0, NULL, 1, 1, 'now', 'now'
 );
 '''),
-            throwsA(isA<SqliteException>()),
-          );
-        } finally {
-          raw.close();
-        }
+          throwsA(isA<SqliteException>()),
+        );
       } finally {
-        await storage.close();
-        if (await root.exists()) await root.delete(recursive: true);
+        raw.close();
       }
-    },
-  );
+    } finally {
+      await storage.close();
+      if (await root.exists()) await root.delete(recursive: true);
+    }
+  });
 
   test('schema 26 migration preserves category links and reseeds cloud scopes', () async {
     final root = await Directory.systemTemp.createTemp('lynai_knowledge_v27_');
@@ -172,7 +169,10 @@ PRAGMA user_version = 26;
       expect((knowledge['entries'] as List).single['categoryId'], 'category');
       final migrated = sqlite3.open('${storageRoot.path}/app.db');
       try {
-        expect(migrated.userVersion, StorageV2DriftDatabase.currentSchemaVersion);
+        expect(
+          migrated.userVersion,
+          StorageV2DriftDatabase.currentSchemaVersion,
+        );
         expect(migrated.select('PRAGMA foreign_key_check'), isEmpty);
         expect(
           migrated.select(

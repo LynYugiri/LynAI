@@ -28,7 +28,11 @@ class CoachMarkOverlay extends StatefulWidget {
   final List<CoachMarkStep> steps;
   final VoidCallback onClose;
 
-  const CoachMarkOverlay({super.key, required this.steps, required this.onClose});
+  const CoachMarkOverlay({
+    super.key,
+    required this.steps,
+    required this.onClose,
+  });
 
   @override
   State<CoachMarkOverlay> createState() => _CoachMarkOverlayState();
@@ -100,16 +104,11 @@ class _CoachMarkOverlayState extends State<CoachMarkOverlay> {
             Row(
               mainAxisAlignment: MainAxisAlignment.end,
               children: [
-                TextButton(
-                  onPressed: widget.onClose,
-                  child: const Text('跳过'),
-                ),
+                TextButton(onPressed: widget.onClose, child: const Text('跳过')),
                 const SizedBox(width: 8),
                 FilledButton(
                   onPressed: _next,
-                  child: Text(
-                    _index >= widget.steps.length - 1 ? '完成' : '下一步',
-                  ),
+                  child: Text(_index >= widget.steps.length - 1 ? '完成' : '下一步'),
                 ),
               ],
             ),
@@ -130,16 +129,14 @@ class _CoachMarkOverlayState extends State<CoachMarkOverlay> {
 
     const gap = 12.0;
     final cardHeight = 176.0;
-    final left = (target.center.dx - cardWidth / 2).clamp(12.0, size.width - cardWidth - 12.0);
+    final left = (target.center.dx - cardWidth / 2).clamp(
+      12.0,
+      size.width - cardWidth - 12.0,
+    );
     final above = target.top - gap - cardHeight;
     final below = target.bottom + gap;
     final top = above >= topPadding + 12 ? above : below;
-    return Positioned(
-      top: top,
-      left: left,
-      width: cardWidth,
-      child: card,
-    );
+    return Positioned(top: top, left: left, width: cardWidth, child: card);
   }
 }
 
@@ -160,10 +157,7 @@ class _DimPainter extends CustomPainter {
       ..fillType = PathFillType.evenOdd
       ..addRect(Offset.zero & size)
       ..addRRect(
-        RRect.fromRectAndRadius(
-          hole!.inflate(8),
-          const Radius.circular(14),
-        ),
+        RRect.fromRectAndRadius(hole!.inflate(8), const Radius.circular(14)),
       );
     canvas.drawPath(path, dim);
     canvas.drawRRect(

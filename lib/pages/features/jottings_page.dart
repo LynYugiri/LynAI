@@ -553,7 +553,8 @@ class _JottingsPageState extends State<JottingsPage> {
               spacing: 6,
               runSpacing: 6,
               children: [
-                for (final file in files) _TimelineFileAttachment(attachment: file),
+                for (final file in files)
+                  _TimelineFileAttachment(attachment: file),
               ],
             ),
         ],
@@ -882,7 +883,9 @@ class _TimelineImageAttachmentState extends State<_TimelineImageAttachment> {
       final resource = await storage.findResourceById(
         widget.attachment.resourceId,
       );
-      final path = resource == null ? null : await storage.resourcePath(resource);
+      final path = resource == null
+          ? null
+          : await storage.resourcePath(resource);
       if (!mounted) return;
       setState(() => _path = path);
     } catch (_) {
@@ -969,7 +972,11 @@ class _TimelineFileAttachment extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.insert_drive_file_outlined, size: 16, color: scheme.primary),
+          Icon(
+            Icons.insert_drive_file_outlined,
+            size: 16,
+            color: scheme.primary,
+          ),
           const SizedBox(width: 4),
           ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 160),

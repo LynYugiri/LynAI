@@ -509,7 +509,8 @@ class MemoryCardRows extends Table {
   IntColumn get repetitions => integer()();
   IntColumn get lapses => integer()();
   IntColumn get reviewCount => integer().named('review_count')();
-  TextColumn get lastReviewedAt => text().named('last_reviewed_at').nullable()();
+  TextColumn get lastReviewedAt =>
+      text().named('last_reviewed_at').nullable()();
   BoolColumn get enabled => boolean().withDefault(const Constant(true))();
   IntColumn get sortOrder => integer().named('sort_order')();
   TextColumn get createdAt => text().named('created_at')();
@@ -544,8 +545,7 @@ class MemoryCardReviewLogRows extends Table {
       .customConstraint(
         "NOT NULL CHECK (status_after IN ('new', 'learning', 'review', 'relearning'))",
       )();
-  RealColumn get intervalDaysBefore =>
-      real().named('interval_days_before')();
+  RealColumn get intervalDaysBefore => real().named('interval_days_before')();
   RealColumn get intervalDaysAfter => real().named('interval_days_after')();
   RealColumn get easeBefore => real().named('ease_before')();
   RealColumn get easeAfter => real().named('ease_after')();
@@ -560,15 +560,12 @@ class JottingRows extends Table {
 
   TextColumn get id => text()();
   TextColumn get content => text()();
-  TextColumn get tagsJson => text()
-      .named('tags_json')
-      .withDefault(const Constant('[]'))();
-  TextColumn get referencesJson => text()
-      .named('references_json')
-      .withDefault(const Constant('[]'))();
-  TextColumn get attachmentsJson => text()
-      .named('attachments_json')
-      .withDefault(const Constant('[]'))();
+  TextColumn get tagsJson =>
+      text().named('tags_json').withDefault(const Constant('[]'))();
+  TextColumn get referencesJson =>
+      text().named('references_json').withDefault(const Constant('[]'))();
+  TextColumn get attachmentsJson =>
+      text().named('attachments_json').withDefault(const Constant('[]'))();
   TextColumn get createdAt => text().named('created_at')();
   TextColumn get updatedAt => text().named('updated_at')();
 
@@ -6489,10 +6486,9 @@ CREATE TABLE IF NOT EXISTS cloud_reseed_tasks (
     StorageV2DriftDatabase db,
   ) async {
     final decks =
-        (await (db.select(db.memoryCardDeckRows)..orderBy([
-                  (row) => OrderingTerm.asc(row.sortOrder),
-                ]))
-                .get())
+        (await (db.select(
+              db.memoryCardDeckRows,
+            )..orderBy([(row) => OrderingTerm.asc(row.sortOrder)])).get())
             .map(
               (row) => {
                 'id': row.id,
@@ -6541,10 +6537,9 @@ CREATE TABLE IF NOT EXISTS cloud_reseed_tasks (
             )
             .toList();
     final reviewLogs =
-        (await (db.select(db.memoryCardReviewLogRows)..orderBy([
-                  (row) => OrderingTerm.desc(row.reviewedAt),
-                ]))
-                .get())
+        (await (db.select(
+              db.memoryCardReviewLogRows,
+            )..orderBy([(row) => OrderingTerm.desc(row.reviewedAt)])).get())
             .map(
               (row) => {
                 'id': row.id,
@@ -6603,9 +6598,7 @@ CREATE TABLE IF NOT EXISTS cloud_reseed_tasks (
     }
   }
 
-  Future<Map<String, dynamic>> _loadJottings(
-    StorageV2DriftDatabase db,
-  ) async {
+  Future<Map<String, dynamic>> _loadJottings(StorageV2DriftDatabase db) async {
     final jottings =
         (await (db.select(db.jottingRows)..orderBy([
                   (row) => OrderingTerm.desc(row.createdAt),
@@ -8120,7 +8113,10 @@ CREATE TABLE IF NOT EXISTS cloud_reseed_tasks (
         if (op == 'upsert') {
           await upsertMemoryCardDeckRow(data, transactionDb: db);
         } else {
-          await deleteMemoryCardDeckRow(data['id'] as String, transactionDb: db);
+          await deleteMemoryCardDeckRow(
+            data['id'] as String,
+            transactionDb: db,
+          );
         }
       case 'memory_cards':
         if (op == 'upsert') {

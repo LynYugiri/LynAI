@@ -152,7 +152,10 @@ class _OnboardingPageState extends State<OnboardingPage> {
     await _finish(skipped: true);
   }
 
-  Future<void> _finish({bool skipped = false, bool showGuidedTour = true}) async {
+  Future<void> _finish({
+    bool skipped = false,
+    bool showGuidedTour = true,
+  }) async {
     await _controller.finish(
       context.read<SettingsProvider>(),
       skipped: skipped,
@@ -877,10 +880,7 @@ class _OnboardingPageState extends State<OnboardingPage> {
             if (result.skill != null) _summaryLine(result.skill!),
           ],
           const Spacer(),
-          FilledButton(
-            onPressed: _showWelcome,
-            child: const Text('继续'),
-          ),
+          FilledButton(onPressed: _showWelcome, child: const Text('继续')),
         ],
       ),
     );

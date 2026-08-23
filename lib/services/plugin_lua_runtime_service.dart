@@ -382,17 +382,13 @@ class PluginLuaRuntimeService {
         final pluginId = ls.checkString(1)?.trim() ?? '';
         final functionName = ls.checkString(2)?.trim() ?? '';
         final args = _readJsonValue(ls, 3);
-        _pushFunctionCommand(
-          ls,
-          'plugin.call',
-          {
-            'pluginId': pluginId,
-            'functionName': functionName,
-            'arguments': args is Map
-                ? args.map((key, item) => MapEntry(key.toString(), item))
-                : <String, dynamic>{},
-          },
-        );
+        _pushFunctionCommand(ls, 'plugin.call', {
+          'pluginId': pluginId,
+          'functionName': functionName,
+          'arguments': args is Map
+              ? args.map((key, item) => MapEntry(key.toString(), item))
+              : <String, dynamic>{},
+        });
         return 1;
       },
     });

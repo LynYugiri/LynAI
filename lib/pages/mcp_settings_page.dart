@@ -98,16 +98,15 @@ class McpSettingsPage extends StatelessWidget {
   }
 }
 
-Future<void> _confirmDelete(
-  BuildContext context,
-  McpServerState state,
-) async {
+Future<void> _confirmDelete(BuildContext context, McpServerState state) async {
   final confirmed = await showDialog<bool>(
     context: context,
     builder: (ctx) => AlertDialog(
       title: const Text('删除 MCP 服务'),
-      content: Text('确定要删除“${state.server.name}”吗？'
-          '已保存的凭据、请求头映射和逐工具开关会一并删除。'),
+      content: Text(
+        '确定要删除“${state.server.name}”吗？'
+        '已保存的凭据、请求头映射和逐工具开关会一并删除。',
+      ),
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(ctx, false),

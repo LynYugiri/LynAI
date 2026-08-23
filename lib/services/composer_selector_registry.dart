@@ -390,10 +390,9 @@ List<ComposerSelectorItem> parsePluginCommandItems(Object? data) {
     final map = raw.map((key, value) => MapEntry(key.toString(), value));
     final title = map['title']?.toString() ?? '';
     final subtitle = map['subtitle']?.toString();
-    final kind =
-        map['kind']?.toString() == 'folder'
-            ? ComposerSelectorItemKind.folder
-            : ComposerSelectorItemKind.item;
+    final kind = map['kind']?.toString() == 'folder'
+        ? ComposerSelectorItemKind.folder
+        : ComposerSelectorItemKind.item;
     final key =
         map['key']?.toString() ??
         (kind == ComposerSelectorItemKind.folder

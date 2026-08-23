@@ -56,7 +56,9 @@ void main() {
     );
   }
 
-  testWidgets('renders conversations grouped under the current role', (tester) async {
+  testWidgets('renders conversations grouped under the current role', (
+    tester,
+  ) async {
     final conversations = memoryConversationProvider();
     final settings = memorySettingsProvider();
     await conversations.loadConversations();
@@ -73,7 +75,9 @@ void main() {
     final conversations = memoryConversationProvider();
     final settings = memorySettingsProvider();
     await conversations.loadConversations();
-    await conversations.replaceConversations([makeConversation('c1', '被折叠的对话')]);
+    await conversations.replaceConversations([
+      makeConversation('c1', '被折叠的对话'),
+    ]);
     await pumpDrawer(
       tester,
       conversations: conversations,
@@ -83,7 +87,10 @@ void main() {
     await tester.pump();
 
     expect(find.text('被折叠的对话'), findsNothing);
-    expect(find.byKey(const ValueKey('history-role-toggle-${ChatRole.defaultId}')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('history-role-toggle-${ChatRole.defaultId}')),
+      findsOneWidget,
+    );
   });
 
   testWidgets('search filters conversations by title', (tester) async {

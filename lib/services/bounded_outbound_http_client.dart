@@ -98,7 +98,8 @@ class BoundedOutboundHttpClient {
         );
         if (cancelled) throw const OutboundRequestCancelledException();
         final client =
-            _clientFactory?.call() ?? createOutboundHttpClient(target.addresses);
+            _clientFactory?.call() ??
+            createOutboundHttpClient(target.addresses);
         activeClient = client;
         final request = http.Request(currentMethod, currentUri)
           ..followRedirects = false

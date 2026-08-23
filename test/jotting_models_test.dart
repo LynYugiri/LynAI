@@ -4,10 +4,10 @@ import 'package:lynai/models/jotting.dart';
 void main() {
   group('Jotting.normalizeTags', () {
     test('trims lowercases deduplicates and drops empty tags', () {
-      expect(
-        Jotting.normalizeTags([' 灵感 ', 'INSPIRATION', '灵感', '', '  ']),
-        ['灵感', 'inspiration'],
-      );
+      expect(Jotting.normalizeTags([' 灵感 ', 'INSPIRATION', '灵感', '', '  ']), [
+        '灵感',
+        'inspiration',
+      ]);
     });
 
     test('caps tags at maxTagCount', () {
@@ -19,10 +19,9 @@ void main() {
     });
 
     test('drops tags longer than maxTagLength', () {
-      expect(
-        Jotting.normalizeTags(['ok', 'x' * (Jotting.maxTagLength + 1)]),
-        ['ok'],
-      );
+      expect(Jotting.normalizeTags(['ok', 'x' * (Jotting.maxTagLength + 1)]), [
+        'ok',
+      ]);
     });
   });
 

@@ -611,7 +611,8 @@ class _HomePageState extends State<HomePage> {
       steps.add(
         CoachMarkStep(
           title: '去插件市场看看',
-          message: '你选择了自动化方向。向导已经生成一个 SKILL，可以到「插件市场」里管理；开发者还能给 Agent 开更多工具权限。',
+          message:
+              '你选择了自动化方向。向导已经生成一个 SKILL，可以到「插件市场」里管理；开发者还能给 Agent 开更多工具权限。',
           icon: Icons.store_outlined,
           targetRect: () => _navRectForTab(AppTab.market),
         ),

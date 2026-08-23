@@ -30,7 +30,10 @@ void main() {
       limits: _limits,
       archiveLabel: '插件压缩包',
     );
-    expect(archive.files.map((f) => f.name), containsAll(['plugin.json', 'main.lua']));
+    expect(
+      archive.files.map((f) => f.name),
+      containsAll(['plugin.json', 'main.lua']),
+    );
   });
 
   test('rejects entries over maxEntries', () {
@@ -76,11 +79,7 @@ void main() {
     for (final name in ['../escape.txt', 'a/../../escape.txt', '/abs.txt']) {
       final bytes = _encode([_file(name, 'x')]);
       expect(
-        () => decodeBoundedZip(
-          bytes,
-          limits: _limits,
-          archiveLabel: '插件压缩包',
-        ),
+        () => decodeBoundedZip(bytes, limits: _limits, archiveLabel: '插件压缩包'),
         throwsA(
           isA<FormatException>().having(
             (e) => e.message,
