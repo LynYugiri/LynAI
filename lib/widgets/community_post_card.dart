@@ -13,6 +13,7 @@ class CommunityPostCard extends StatelessWidget {
     required this.onAuthor,
     this.onLike,
     this.onFavorite,
+    this.onPluginTap,
     this.compact = false,
   });
 
@@ -22,6 +23,7 @@ class CommunityPostCard extends StatelessWidget {
   final VoidCallback onAuthor;
   final VoidCallback? onLike;
   final VoidCallback? onFavorite;
+  final VoidCallback? onPluginTap;
   final bool compact;
 
   @override
@@ -91,6 +93,10 @@ class CommunityPostCard extends StatelessWidget {
                       )
                     : SafeCommunityMarkdown(data: post.content),
               ],
+              if (post.plugin case final plugin?) ...[
+                const SizedBox(height: 12),
+                CommunityPluginShareCard(plugin: plugin, onTap: onPluginTap),
+              ],
               if (post.media.isNotEmpty) ...[
                 const SizedBox(height: 12),
                 CommunityMediaGrid(media: post.media, service: service),
@@ -125,6 +131,100 @@ class CommunityPostCard extends StatelessWidget {
         ),
       ),
     );
+  }
+}
+
+/// 帖子中分享的已上架插件卡片。
+///
+/// 视觉上沿用功能页仪表盘卡片（图标容器 + 标题 + 副标题）的样式，
+/// 整卡可点击并跳转到插件市场详情页。
+class CommunityPluginShareCard extends StatelessWidget {
+  const CommunityPluginShareCard({super.key, required this.plugin, this.onTap});
+
+  final CommunityPluginShare plugin;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Material(
+      color: scheme.surfaceContainerLow,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(14),
+        side: BorderSide(color: scheme.outlineVariant),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Row(
+            children: [
+              Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  color: scheme.primaryContainer.withValues(alpha: 0.7),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: scheme.primary.withValues(alpha: 0.16),
+                  ),
+                ),
+                child: Icon(Icons.extension, color: scheme.primary, size: 24),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      plugin.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    if (plugin.description.isNotEmpty) ...[
+                      const SizedBox(height: 3),
+                      Text(
+                        plugin.description,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: scheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 4),
+                    Text(
+                      _pluginMeta(plugin),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        color: scheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              Icon(Icons.chevron_right, color: scheme.outline),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  String _pluginMeta(CommunityPluginShare plugin) {
+    final parts = ['v${plugin.version}'];
+    final creator = plugin.author.isNotEmpty
+        ? plugin.author
+        : plugin.uploaderName;
+    if (creator.isNotEmpty) parts.add(creator);
+    return parts.join(' · ');
   }
 }
 

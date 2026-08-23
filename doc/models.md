@@ -14,7 +14,7 @@
 
 文件：`lib/models/community.dart`
 
-`CommunityUser`、`CommunityMedia`、`CommunityPost` 和 `CommunityComment` 描述远端社区数据；`CommunityPageResult` 表达分页结果。解析同时容忍常见 camelCase/snake_case 字段和字符串/整数 ID，模型不负责网络或页面状态。
+`CommunityUser`、`CommunityMedia`、`CommunityPost` 和 `CommunityComment` 描述远端社区数据；`CommunityPageResult` 表达分页结果。`CommunityPluginShare` 是帖子可选携带的已上架插件展示快照（id、名称、作者、上传者、版本、描述、权限等），用于渲染社区里的插件分享卡片并跳转插件市场详情页。解析同时容忍常见 camelCase/snake_case 字段和字符串/整数 ID，模型不负责网络或页面状态。
 
 ## Web Search
 

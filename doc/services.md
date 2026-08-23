@@ -8,7 +8,7 @@
 
 默认后端通过编译环境变量 `LYNAI_BACKEND_URL` 提供；未传入时保持未配置。UI 对所有 HTTP 后端显示明示风险，真实账号和生产数据必须使用可信 HTTPS 后端。
 
-`BackendClient` 为 JSON POST/PUT/PATCH/DELETE、可重放字节请求和内存 multipart 上传提供统一 Bearer token、超时、401 刷新和重放。同步上传保留稳定 body bytes，但通过 `postReplayableBytes()` 在首次发送和 token refresh 后分别重建鉴权与设备签名头，避免使用旧 session 的签名重放。`RemoteCommunityService` 在 `/community` 下实现公开动态、评论、用户资料和媒体读取，以及登录后的发布、互动、收藏、资料修改和置顶操作。社区图片先上传为当前用户拥有的临时 media，再由帖子 JSON 中的有序 `mediaIds` 原子关联；客户端只渲染后端显式返回的媒体，社区 Markdown 会隐藏图片语法、危险 scheme 链接和原始 HTML 标签。
+`BackendClient` 为 JSON POST/PUT/PATCH/DELETE、可重放字节请求和内存 multipart 上传提供统一 Bearer token、超时、401 刷新和重放。同步上传保留稳定 body bytes，但通过 `postReplayableBytes()` 在首次发送和 token refresh 后分别重建鉴权与设备签名头，避免使用旧 session 的签名重放。`RemoteCommunityService` 在 `/community` 下实现公开动态、评论、用户资料和媒体读取，以及登录后的发布、互动、收藏、资料修改和置顶操作。创建/编辑帖子时可通过可选 `pluginId` 关联一个已上架插件，后端在帖子响应中返回 `plugin` 展示快照。社区图片先上传为当前用户拥有的临时 media，再由帖子 JSON 中的有序 `mediaIds` 原子关联；客户端只渲染后端显式返回的媒体，社区 Markdown 会隐藏图片语法、危险 scheme 链接和原始 HTML 标签。
 
 `OutboundNetworkPolicy` 和 `BoundedOutboundHttpClient` 是通用出站网络安全基础。默认只允许无 URL 凭据的 HTTPS 公网目标，请求和每次重定向前都重新检查 host 与 DNS 结果；`dart:io` transport 随后只连接该校验通过的地址列表，按 IPv4 优先、IPv6 次之逐个尝试（每地址 TCP 连接与 HTTPS 握手各 3 秒超时），同时仍使用原始 URI host 生成 HTTP Host，并由连接工厂在该直连 socket 上以原始 hostname 完成 TLS 握手（SNI 与证书校验）。每个 redirect hop 都重新解析、校验和 pin，不复用上一跳地址。HTTP 或私网只能由可信应用配置显式开启。通用客户端限制请求/响应字节数、超时和重定向次数，跨重定向删除 Authorization、proxy authorization 和 API-key header，并通过关闭请求专用 `http.Client` 主动取消进行中的连接。Web/stub 平台保留相同策略校验，但底层浏览器 transport 无法接收应用指定的连接 IP。`McpHttpTransport` 复用相同的 resolver 和 pinned native client factory，为每个请求及 redirect hop 创建独立 pin，同时保留 MCP 的 POST redirect、credential/session header、SSE、错误和大小限制行为。
 

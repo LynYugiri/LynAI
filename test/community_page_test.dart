@@ -4,6 +4,7 @@ import 'package:lynai/models/community.dart';
 import 'package:lynai/pages/community_page.dart';
 import 'package:lynai/providers/account_provider.dart';
 import 'package:lynai/services/account_service.dart';
+import 'package:lynai/services/backend_client.dart';
 import 'package:lynai/services/community_service.dart';
 import 'package:provider/provider.dart';
 
@@ -37,9 +38,46 @@ void main() {
     expect(service.listCalls, 1);
     expect(find.text('First community post'), findsOneWidget);
   });
+
+  testWidgets('shared plugin card opens the plugin market detail page', (
+    tester,
+  ) async {
+    final service = _FakeCommunityService(withPlugin: true);
+    final account = AccountProvider(service: _FakeAccountService());
+    final backend = BackendClient()..configure('https://example.test');
+    addTearDown(account.dispose);
+    addTearDown(backend.close);
+
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider<AccountProvider>.value(value: account),
+          ChangeNotifierProvider<BackendClient>.value(value: backend),
+        ],
+        child: MaterialApp(
+          home: CommunityPage(
+            active: true,
+            onOpenSettings: () {},
+            communityService: service,
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.text('Shared Plugin'), findsOneWidget);
+    await tester.tap(find.text('Shared Plugin'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('安装'), findsOneWidget);
+  });
 }
 
 class _FakeCommunityService implements CommunityService {
+  _FakeCommunityService({this.withPlugin = false});
+
+  final bool withPlugin;
   int listCalls = 0;
 
   @override
@@ -53,12 +91,27 @@ class _FakeCommunityService implements CommunityService {
     listCalls++;
     return CommunityPageResult(
       items: [
-        CommunityPost(
-          id: 'p1',
-          author: const CommunityUser(id: 'u1', displayName: 'User'),
-          content: 'First community post',
-          createdAt: DateTime(2026, 7, 18),
-        ),
+        if (withPlugin)
+          CommunityPost(
+            id: 'p2',
+            author: const CommunityUser(id: 'u1', displayName: 'User'),
+            content: '试试这个插件',
+            createdAt: DateTime(2026, 7, 18),
+            plugin: const CommunityPluginShare(
+              id: 'shared-plugin',
+              name: 'Shared Plugin',
+              author: 'Author',
+              description: 'desc',
+              version: '1.0.0',
+            ),
+          )
+        else
+          CommunityPost(
+            id: 'p1',
+            author: const CommunityUser(id: 'u1', displayName: 'User'),
+            content: 'First community post',
+            createdAt: DateTime(2026, 7, 18),
+          ),
       ],
       hasMore: false,
     );

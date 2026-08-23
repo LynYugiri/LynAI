@@ -6,6 +6,7 @@ import '../providers/account_provider.dart';
 import '../services/community_service.dart';
 import '../utils/snackbar_utils.dart';
 import '../widgets/community_post_card.dart';
+import 'community_plugin_share.dart';
 import 'community_post_detail_page.dart';
 
 class CommunityProfilePage extends StatefulWidget {
@@ -115,6 +116,12 @@ class _CommunityProfilePageState extends State<CommunityProfilePage> {
                       compact: true,
                       onOpen: () => _openPost(post),
                       onAuthor: () {},
+                      onPluginTap: post.plugin == null
+                          ? null
+                          : () => openCommunitySharedPlugin(
+                              context,
+                              post.plugin!,
+                            ),
                     ),
                   if (_hasMore)
                     Center(

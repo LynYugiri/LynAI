@@ -112,21 +112,28 @@ class RemoteCommunityService implements CommunityService {
     return _page(resp.body, CommunityPost.fromJson, const ['posts', 'entries']);
   }
 
-  Map<String, Object> _postBody(
+  Map<String, Object?> _postBody(
     String title,
     String content,
     List<String> mediaIds,
-  ) => {'title': title, 'content': content, 'mediaIds': mediaIds};
+    String? pluginId,
+  ) => {
+    'title': title,
+    'content': content,
+    'mediaIds': mediaIds,
+    'pluginId': pluginId,
+  };
 
   @override
   Future<CommunityPost> createPost({
     required String title,
     required String content,
     List<String> mediaIds = const [],
+    String? pluginId,
   }) async {
     final resp = await _client.post(
       '/community/posts',
-      body: _postBody(title, content, mediaIds),
+      body: _postBody(title, content, mediaIds, pluginId),
     );
     _expect(resp, const [200, 201]);
     return CommunityPost.fromJson(_entity(resp.body, 'post'));
@@ -138,10 +145,11 @@ class RemoteCommunityService implements CommunityService {
     required String title,
     required String content,
     List<String> mediaIds = const [],
+    String? pluginId,
   }) async {
     final resp = await _client.patch(
       '/community/posts/$id',
-      body: _postBody(title, content, mediaIds),
+      body: _postBody(title, content, mediaIds, pluginId),
     );
     _expect(resp, const [200]);
     return CommunityPost.fromJson(_entity(resp.body, 'post'));

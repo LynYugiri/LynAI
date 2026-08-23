@@ -8,6 +8,7 @@ import '../utils/snackbar_utils.dart';
 import '../widgets/community_post_card.dart';
 import '../widgets/login_dialog.dart';
 import 'community_post_editor_page.dart';
+import 'community_plugin_share.dart';
 import 'community_profile_page.dart';
 
 class CommunityPostDetailPage extends StatefulWidget {
@@ -107,6 +108,10 @@ class _CommunityPostDetailPageState extends State<CommunityPostDetailPage> {
                     onAuthor: _openAuthor,
                     onLike: () => _toggleLike(account),
                     onFavorite: () => _toggleFavorite(account),
+                    onPluginTap: _post.plugin == null
+                        ? null
+                        : () =>
+                              openCommunitySharedPlugin(context, _post.plugin!),
                   ),
                   Padding(
                     padding: const EdgeInsets.fromLTRB(16, 12, 16, 6),

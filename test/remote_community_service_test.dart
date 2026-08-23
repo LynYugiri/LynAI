@@ -98,9 +98,52 @@ void main() {
         'title': 'updated',
         'content': 'body',
         'mediaIds': ['m1'],
+        'pluginId': null,
       }),
     );
     expect(post.id, 'p1');
+  });
+
+  test('post bodies carry the shared plugin id', () async {
+    Map<String, dynamic>? sent;
+    final transport = _CommunityClient((request) async {
+      sent = Map<String, dynamic>.from(
+        jsonDecode(await request.finalize().bytesToString()) as Map,
+      );
+      return _response(
+        201,
+        jsonEncode({
+          'post': {
+            'id': 'p1',
+            'content': '',
+            'createdAt': '2026-07-18T10:00:00Z',
+            'author': {'id': 'u1', 'displayName': 'User'},
+            'plugin': {
+              'id': 'plugin-1',
+              'name': 'Plugin One',
+              'author': 'author',
+              'uploaderName': 'uploader',
+              'description': 'desc',
+              'version': '1.0.0',
+              'permissions': ['storage'],
+              'downloadUrl': '/market/plugins/plugin-1/download',
+              'status': 'approved',
+            },
+          },
+        }),
+      );
+    });
+    final client = BackendClient(client: transport)
+      ..configure('https://example.test');
+    addTearDown(client.close);
+
+    final post = await RemoteCommunityService(
+      client,
+    ).createPost(title: '', content: '', pluginId: 'plugin-1');
+
+    expect(sent?['pluginId'], 'plugin-1');
+    expect(post.plugin?.id, 'plugin-1');
+    expect(post.plugin?.permissions, ['storage']);
   });
 
   test('multipart media upload is replayable after refresh', () async {

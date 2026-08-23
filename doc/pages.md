@@ -199,7 +199,7 @@ Agent 工具轮数上限保存为 `ConversationSettings.maxToolRounds`（新建�
 
 文件：`lib/pages/community_page.dart`
 
-社区页首次成为当前 Tab 时才加载公开动态，支持分页、下拉刷新、Markdown 正文和最多 9 张显式媒体图片。游客可浏览动态、详情、评论和用户主页；发布、编辑、删除、点赞、收藏、评论、资料修改和置顶会复用 `LoginDialog` 要求登录。收藏页和个人主页从社区 AppBar 进入。社区 Markdown 会移除远程图片语法、危险 scheme 链接和原始 HTML 标签，只加载后端返回的媒体资源。切换后端或账号后会清空旧作用域内容并重新加载。
+社区页首次成为当前 Tab 时才加载公开动态，支持分页、下拉刷新、Markdown 正文和最多 9 张显式媒体图片。发布/编辑页可从插件市场选择已上架插件作为分享附件；帖子卡片以功能页仪表盘风格的插件卡片展示名称、描述、版本和作者，点击整卡跳转到 `PluginMarketDetailPage`。游客可浏览动态、详情、评论和用户主页；发布、编辑、删除、点赞、收藏、评论、资料修改和置顶会复用 `LoginDialog` 要求登录。收藏页和个人主页从社区 AppBar 进入。社区 Markdown 会移除远程图片语法、危险 scheme 链接和原始 HTML 标签，只加载后端返回的媒体资源。切换后端或账号后会清空旧作用域内容并重新加载。
 
 ## PluginManagementPage
 

@@ -1,16 +1,31 @@
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:provider/provider.dart';
 
 import '../models/community.dart';
+import '../models/plugin_market_entry.dart';
+import '../services/backend_client.dart';
 import '../services/community_service.dart';
+import '../services/market_service.dart';
+import '../services/remote_market_service.dart';
 import '../utils/snackbar_utils.dart';
 import '../widgets/community_post_card.dart';
+import 'community_plugin_picker_page.dart';
+import 'community_plugin_share.dart';
 
 class CommunityPostEditorPage extends StatefulWidget {
-  const CommunityPostEditorPage({super.key, required this.service, this.post});
+  const CommunityPostEditorPage({
+    super.key,
+    required this.service,
+    this.post,
+    this.marketService,
+  });
 
   final CommunityService service;
   final CommunityPost? post;
+
+  /// 用于选择已上架插件的市场服务；为空时从 [BackendClient] 创建远端实现。
+  final MarketService? marketService;
 
   @override
   State<CommunityPostEditorPage> createState() =>
@@ -24,6 +39,7 @@ class _CommunityPostEditorPageState extends State<CommunityPostEditorPage> {
   late final TextEditingController _titleController;
   late final TextEditingController _contentController;
   late List<CommunityMedia> _existingMedia;
+  CommunityPluginShare? _plugin;
   final List<XFile> _newImages = [];
   bool _preview = false;
   bool _submitting = false;
@@ -36,6 +52,7 @@ class _CommunityPostEditorPageState extends State<CommunityPostEditorPage> {
       text: widget.post?.content ?? '',
     );
     _existingMedia = [...?widget.post?.media];
+    _plugin = widget.post?.plugin;
   }
 
   @override
@@ -74,6 +91,8 @@ class _CommunityPostEditorPageState extends State<CommunityPostEditorPage> {
                 border: OutlineInputBorder(),
               ),
             ),
+            const SizedBox(height: 12),
+            _pluginPicker(),
             const SizedBox(height: 12),
             if (_preview)
               Container(
@@ -141,6 +160,59 @@ class _CommunityPostEditorPageState extends State<CommunityPostEditorPage> {
     );
   }
 
+  Widget _pluginPicker() {
+    final plugin = _plugin;
+    if (plugin == null) {
+      return OutlinedButton.icon(
+        onPressed: _submitting ? null : _pickPlugin,
+        icon: const Icon(Icons.extension_outlined),
+        label: const Text('分享插件'),
+      );
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        CommunityPluginShareCard(
+          plugin: plugin,
+          onTap: _submitting ? null : _pickPlugin,
+        ),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.end,
+          children: [
+            TextButton(
+              onPressed: _submitting ? null : _pickPlugin,
+              child: const Text('更换'),
+            ),
+            TextButton(
+              onPressed: _submitting
+                  ? null
+                  : () => setState(() => _plugin = null),
+              child: const Text('移除'),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Future<void> _pickPlugin() async {
+    final marketService =
+        widget.marketService ??
+        RemoteMarketService(context.read<BackendClient>());
+    if (!marketService.isBackendConnected) {
+      showErrorSnackBar(context, '尚未连接后端，无法浏览插件市场');
+      return;
+    }
+    final entry = await Navigator.push<MarketPluginEntry>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => CommunityPluginPickerPage(marketService: marketService),
+      ),
+    );
+    if (!mounted || entry == null) return;
+    setState(() => _plugin = marketEntryToCommunityPluginShare(entry));
+  }
+
   Future<void> _pickImages() async {
     final remaining = maxImages - _existingMedia.length - _newImages.length;
     if (remaining <= 0) {
@@ -167,8 +239,9 @@ class _CommunityPostEditorPageState extends State<CommunityPostEditorPage> {
     if (title.isEmpty &&
         content.isEmpty &&
         _existingMedia.isEmpty &&
-        _newImages.isEmpty) {
-      showShortSnackBar(context, '请输入正文或添加图片');
+        _newImages.isEmpty &&
+        _plugin == null) {
+      showShortSnackBar(context, '请输入正文、添加图片或分享一个插件');
       return;
     }
     setState(() => _submitting = true);
@@ -187,12 +260,14 @@ class _CommunityPostEditorPageState extends State<CommunityPostEditorPage> {
               title: title,
               content: content,
               mediaIds: mediaIds,
+              pluginId: _plugin?.id,
             )
           : await widget.service.updatePost(
               widget.post!.id,
               title: title,
               content: content,
               mediaIds: mediaIds,
+              pluginId: _plugin?.id,
             );
       if (!mounted) return;
       Navigator.pop(context, post);

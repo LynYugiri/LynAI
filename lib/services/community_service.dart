@@ -30,6 +30,7 @@ abstract class CommunityService {
     required String title,
     required String content,
     List<String> mediaIds = const [],
+    String? pluginId,
   });
 
   Future<CommunityPost> updatePost(
@@ -37,6 +38,7 @@ abstract class CommunityService {
     required String title,
     required String content,
     List<String> mediaIds = const [],
+    String? pluginId,
   });
 
   Future<void> deletePost(String id);

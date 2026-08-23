@@ -85,6 +85,70 @@ class CommunityMedia {
   }
 }
 
+class CommunityPluginShare {
+  const CommunityPluginShare({
+    required this.id,
+    required this.name,
+    required this.author,
+    this.uploaderName = '',
+    required this.description,
+    required this.version,
+    this.iconUrl,
+    this.screenshots = const [],
+    this.permissions = const [],
+    this.downloadUrl = '',
+    this.sha256,
+    this.category = '',
+    this.status = 'approved',
+  });
+
+  final String id;
+  final String name;
+  final String author;
+  final String uploaderName;
+  final String description;
+  final String version;
+  final String? iconUrl;
+  final List<String> screenshots;
+  final List<String> permissions;
+  final String downloadUrl;
+  final String? sha256;
+  final String category;
+  final String status;
+
+  factory CommunityPluginShare.fromJson(Map<String, dynamic> json) {
+    final icon = _string(json['iconUrl'] ?? json['icon_url']);
+    final sha = _string(json['sha256'] ?? json['sha_256']);
+    return CommunityPluginShare(
+      id: _string(json['id']),
+      name: _string(json['name']).isEmpty
+          ? _string(json['id'])
+          : _string(json['name']),
+      author: _string(json['author']),
+      uploaderName: _string(json['uploaderName'] ?? json['uploader_name']),
+      description: _string(json['description']),
+      version: _string(json['version']).isEmpty
+          ? '0.0.0'
+          : _string(json['version']),
+      iconUrl: icon.isEmpty ? null : icon,
+      screenshots: (json['screenshots'] as List? ?? const [])
+          .map((item) => item.toString())
+          .where((item) => item.isNotEmpty)
+          .toList(growable: false),
+      permissions: (json['permissions'] as List? ?? const [])
+          .map((item) => item.toString())
+          .where((item) => item.isNotEmpty)
+          .toList(growable: false),
+      downloadUrl: _string(json['downloadUrl'] ?? json['download_url']),
+      sha256: sha.isEmpty ? null : sha,
+      category: _string(json['category']),
+      status: _string(json['status']).isEmpty
+          ? 'approved'
+          : _string(json['status']),
+    );
+  }
+}
+
 class CommunityPost {
   const CommunityPost({
     required this.id,
@@ -94,6 +158,7 @@ class CommunityPost {
     this.title = '',
     this.updatedAt,
     this.media = const [],
+    this.plugin,
     this.likeCount = 0,
     this.commentCount = 0,
     this.liked = false,
@@ -108,6 +173,7 @@ class CommunityPost {
   final DateTime createdAt;
   final DateTime? updatedAt;
   final List<CommunityMedia> media;
+  final CommunityPluginShare? plugin;
   final int likeCount;
   final int commentCount;
   final bool liked;
@@ -117,6 +183,7 @@ class CommunityPost {
   factory CommunityPost.fromJson(Map<String, dynamic> json) {
     final authorJson = json['author'] ?? json['user'];
     final mediaJson = json['media'] ?? json['images'] ?? const [];
+    final pluginJson = json['plugin'];
     return CommunityPost(
       id: _string(json['id']),
       author: CommunityUser.fromJson(
@@ -143,6 +210,9 @@ class CommunityPost {
                 )
                 .toList(growable: false)
           : const [],
+      plugin: pluginJson is Map
+          ? CommunityPluginShare.fromJson(Map<String, dynamic>.from(pluginJson))
+          : null,
       likeCount: _integer(json['likeCount'] ?? json['like_count']),
       commentCount: _integer(json['commentCount'] ?? json['comment_count']),
       liked: _boolean(json['liked'] ?? json['isLiked'] ?? json['is_liked']),
@@ -168,6 +238,7 @@ class CommunityPost {
       createdAt: createdAt,
       updatedAt: updatedAt,
       media: media,
+      plugin: plugin,
       likeCount: likeCount ?? this.likeCount,
       commentCount: commentCount ?? this.commentCount,
       liked: liked ?? this.liked,

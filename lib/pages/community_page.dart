@@ -10,6 +10,7 @@ import '../utils/snackbar_utils.dart';
 import '../widgets/community_post_card.dart';
 import '../widgets/login_dialog.dart';
 import 'community_favorites_page.dart';
+import 'community_plugin_share.dart';
 import 'community_post_detail_page.dart';
 import 'community_post_editor_page.dart';
 import 'community_profile_page.dart';
@@ -219,6 +220,9 @@ class _CommunityPageState extends State<CommunityPage> {
           onAuthor: () => _openProfile(post.author.id),
           onLike: () => _toggleLike(post, account),
           onFavorite: () => _toggleFavorite(post, account),
+          onPluginTap: post.plugin == null
+              ? null
+              : () => openCommunitySharedPlugin(context, post.plugin!),
         );
       },
     );

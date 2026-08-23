@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../models/community.dart';
 import '../services/community_service.dart';
 import '../widgets/community_post_card.dart';
+import 'community_plugin_share.dart';
 import 'community_post_detail_page.dart';
 import 'community_profile_page.dart';
 
@@ -95,6 +96,10 @@ class _CommunityFavoritesPageState extends State<CommunityFavoritesPage> {
                         ),
                       ),
                     ),
+                    onPluginTap: post.plugin == null
+                        ? null
+                        : () =>
+                              openCommunitySharedPlugin(context, post.plugin!),
                   );
                 },
               ),
