@@ -1109,7 +1109,7 @@ class _EditModelPageState extends State<_EditModelPage> {
                 child: Text(
                   model.disabledByUser
                       ? '此服务端模型已在本机关闭。服务端仍会同步基线配置，但本机不会优先使用它。'
-                      : 'LynAI 由已登录的后端自动同步，接口地址和鉴权信息不需要手动配置；本机覆盖项优先级高于服务端。',
+                      : 'LynAI 由连接的后端自动同步，无需登录，接口地址和鉴权信息也不需要手动配置；本机覆盖项优先级高于服务端。',
                 ),
               ),
             ],

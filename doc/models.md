@@ -118,7 +118,7 @@
 
 `ModelEntry` 是子模型。子模型可以独立设置启用状态、视觉能力、thinking 能力、工具能力、采样参数和 managed workflow。schema 4 下发的 Vivo LASR workflow 保存在对应 speech 子模型上，不提升到配置级。
 
-登录后端后，`ModelConfigProvider` 只从 `/relay/config` 读取 `schemaVersion: 4` 的平铺模型列表，按规范化 `category` 创建一个名为 `LynAI` 的托管配置，ID 形如 `__lynai_relay_<category>__`；schema v3 wire 响应不受支持。托管 endpoint 派生自 `BackendClient.backendUrl + '/relay'`，请求时由 `ApiService` 使用用户 JWT 鉴权，并只发送 `model`。同步会先完整构建下一份托管集合再替换；离线、请求失败或响应无效时保留当前托管数据。相同 category ID 已存在时保留分类内排序、当前模型、本机禁用状态和用户覆盖。旧客户端或备份中持久化的 Provider-scoped 托管 ID 会在本地按 category 合并为当前 ID，保存待处理映射，并迁移设置、对话、情景演绎和插件配置中的精确引用；该本地兼容不恢复 schema v3 网络协议。
+后端连接后（无需登录），`ModelConfigProvider` 从公开的 `/relay/config` 读取 `schemaVersion: 4` 的平铺模型列表，按规范化 `category` 创建一个名为 `LynAI` 的托管配置，ID 形如 `__lynai_relay_<category>__`；schema v3 wire 响应不受支持。托管 endpoint 派生自 `BackendClient.backendUrl + '/relay'`；已登录时请求可附带用户 JWT，未登录时不发送鉴权头，请求体只发送 `model`。同步会先完整构建下一份托管集合再替换；离线、请求失败或响应无效时保留当前托管数据。相同 category ID 已存在时保留分类内排序、当前模型、本机禁用状态和用户覆盖。旧客户端或备份中持久化的 Provider-scoped 托管 ID 会在本地按 category 合并为当前 ID，保存待处理映射，并迁移设置、对话、情景演绎和插件配置中的精确引用；该本地兼容不恢复 schema v3 网络协议。
 
 Agent 可通过 `model.chat` 调用 Chat 模型，通过 `model.ocr` 调用 OCR 分类模型，通过 `model.recognizeFile` 调用开启视觉能力的 Chat 模型，通过 `model.generateImage` 调用图片生成模型。`model.recognizeFile` 依赖 `supportsVision=true` 的子模型。
 

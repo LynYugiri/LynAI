@@ -351,7 +351,7 @@ class ModelConfigProvider extends ChangeNotifier with SerializedSaveQueue {
     final backendOrigin = backend.backendOrigin;
     final backendScope = backend.backendScope;
     final accessToken = backend.accessToken;
-    // 测试期间暂时注释掉账号认证要求，后端连接后即可同步 relay 模型。
+    // `/relay/config` 无需账号鉴权，后端连接后即可同步托管模型。
     if (!backend.isConnected) {
       return true;
     }

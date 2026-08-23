@@ -138,6 +138,26 @@ void main() {
       expect(backend.requestedPaths, ['/relay/config']);
     });
 
+    test('syncs relay config without an account token', () async {
+      final provider = memoryModelConfigProvider();
+      final backend = _FakeBackendClient(
+        responses: {
+          '/relay/config': _jsonResponse({
+            'object': 'relay_config',
+            'schemaVersion': 4,
+            'data': [_relayModel('anonymous-model')],
+          }),
+        },
+      )..token = null;
+
+      expect(await provider.syncLynaiManagedModels(backend), isTrue);
+
+      final model = provider.models.single;
+      expect(model.id, '__lynai_relay_chat__');
+      expect(model.modelName, 'anonymous-model');
+      expect(backend.requestedPaths, ['/relay/config']);
+    });
+
     test('invalid, failed, and offline sync retain managed models', () async {
       final provider = memoryModelConfigProvider();
       provider.addModel(_managedModel());

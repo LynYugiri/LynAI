@@ -99,6 +99,25 @@ void main() {
       },
     );
 
+    test(
+      'does not attach Authorization when no account token is set',
+      () async {
+        late http.BaseRequest captured;
+        final transport = _TestClient((request) async {
+          captured = request;
+          return _response(200, 'ok');
+        });
+        final client = BackendClient(client: transport)
+          ..configure('http://127.0.0.1:8080');
+
+        await client.get('/relay/config');
+
+        expect(captured.url.path, '/relay/config');
+        expect(captured.headers.containsKey('Authorization'), isFalse);
+        client.dispose();
+      },
+    );
+
     test('close owns injected client and is idempotent', () {
       final transport = _TestClient((_) async => _response(200, 'ok'));
       final client = BackendClient(client: transport);

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lynai/models/account.dart';
 import 'package:lynai/models/app_settings.dart';
+import 'package:lynai/models/model_config.dart';
 import 'package:lynai/models/onboarding/onboarding_input.dart';
 import 'package:lynai/pages/account_detail_page.dart';
 import 'package:lynai/pages/onboarding/onboarding_page.dart';
@@ -75,6 +76,50 @@ void main() {
       expect(find.text('未登录'), findsOneWidget);
     },
   );
+
+  testWidgets('logout keeps LynAI relay models for anonymous use', (
+    tester,
+  ) async {
+    final account = AccountProvider(service: _FakeAccountService());
+    await account.restoreLocalSession();
+    addTearDown(account.dispose);
+    final models = memoryModelConfigProvider();
+    models.addModel(
+      ModelConfig(
+        id: '__lynai_relay_chat__',
+        name: 'LynAI',
+        category: ModelConfig.categoryChat,
+        endpoint: 'https://api.example.com/relay',
+        apiKey: '',
+        modelName: 'gpt-anonymous',
+        apiType: '',
+        priority: 0,
+        managed: true,
+        models: [ModelEntry(name: 'gpt-anonymous', enabled: true)],
+      ),
+    );
+    addTearDown(models.dispose);
+
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider.value(value: account),
+          ChangeNotifierProvider.value(value: models),
+        ],
+        child: const MaterialApp(home: AccountDetailPage()),
+      ),
+    );
+
+    await tester.tap(find.text('退出登录'));
+    await tester.pumpAndSettle();
+
+    expect(account.user, isNull);
+    expect(find.text('未登录'), findsOneWidget);
+    expect(
+      models.models.map((model) => model.id),
+      contains('__lynai_relay_chat__'),
+    );
+  });
 
   testWidgets('onboarding name question prefills the logged-in username', (
     tester,

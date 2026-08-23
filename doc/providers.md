@@ -138,8 +138,8 @@ Provider 的更新策略是：先改内存并通知 UI，再把持久化操作�
 | `enabledModelsByCategory()` | 获取某个分类中至少有一个启用子模型、且未被本机关闭的可调用配置。 |
 | `nextPriorityForCategory()` | 新增配置时计算分类内优先级。 |
 | `peekManagedModelIdMigrations()` / `ackManagedModelIdMigrations()` | 读取并在所有引用持久化成功后确认旧托管模型 ID 到 category ID 的持久迁移。 |
-| `syncLynaiManagedModels()` | 登录后从后端 `/relay/config` 同步 `schemaVersion: 4` 平铺模型，并按规范化 category 创建或更新一个 LynAI 配置。 |
-| `removeLynaiManagedModels()` | 登出或断开后端时移除托管 LynAI 模型配置。 |
+| `syncLynaiManagedModels()` | 后端连接后（无需登录）从公开的 `/relay/config` 同步 `schemaVersion: 4` 平铺模型，并按规范化 category 创建或更新一个 LynAI 配置。 |
+| `removeLynaiManagedModels()` | 显式移除托管 LynAI 模型配置；公开 Relay 期间登出不会调用，客户端重启后会重新同步。 |
 | `setManagedDisabled()` | 在本机启用或关闭托管配置，不改写服务端基线。 |
 | `setManagedUserOverride()` / `clearManagedUserOverride()` | 设置或清除托管配置的本机覆盖项。 |
 | `addModel()` / `updateModel()` / `deleteModel()` | 增删改配置。 |

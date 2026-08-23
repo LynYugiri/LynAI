@@ -3,7 +3,6 @@ import 'package:provider/provider.dart';
 
 import '../models/account.dart';
 import '../providers/account_provider.dart';
-import '../providers/model_config_provider.dart';
 import '../utils/snackbar_utils.dart';
 
 /// 账号详情页。
@@ -55,8 +54,8 @@ class _AccountDetailPageState extends State<AccountDetailPage> {
     final navigator = Navigator.of(context);
     final account = context.read<AccountProvider>();
     await account.logout();
-    if (!mounted) return;
-    await context.read<ModelConfigProvider>().removeLynaiManagedModels();
+    // LynAI 托管模型由公开的 /relay/config 下发，登出后仍需保留，
+    // 保证未登录用户可以继续在模型列表中选择和调用上游模型。
     if (!mounted) return;
     if (account.user == null) {
       showShortSnackBar(context, '已退出登录');
