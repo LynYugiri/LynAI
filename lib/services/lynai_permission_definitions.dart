@@ -42,6 +42,7 @@ class LynAIPermissions {
   static const pluginSkillFilesWrite = 'plugins.skills.files:write';
   static const pluginsFilesRead = 'plugins.files:read';
   static const pluginsFilesWrite = 'plugins.files:write';
+  static const pluginsRun = 'plugins.run';
   static const storageRead = 'storage:read';
   static const storageWrite = 'storage:write';
   static const memoryCardsRead = 'memoryCards:read';
@@ -76,6 +77,7 @@ class LynAIPermissions {
     pluginSkillFilesWrite,
     pluginsFilesRead,
     pluginsFilesWrite,
+    pluginsRun,
     storageRead,
     memoryCardsRead,
     memoryCardsWrite,
@@ -179,6 +181,13 @@ const lynaiPermissionDefinitions = <LynAIPermissionDefinition>[
     id: LynAIPermissions.pluginsFilesWrite,
     title: '修改插件文件',
     description: '允许 Agent 修改草稿/测试中插件或已声明 overlay 的文件内容。',
+    risk: LynAIPermissionRisk.elevated,
+  ),
+  LynAIPermissionDefinition(
+    id: LynAIPermissions.pluginsRun,
+    title: '运行插件',
+    description:
+        '允许 Agent 就地试跑本地插件的 tool/function/command handler（以插件身份、按其已授权权限执行）。',
     risk: LynAIPermissionRisk.elevated,
   ),
   LynAIPermissionDefinition(

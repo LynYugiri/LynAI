@@ -314,11 +314,12 @@ Subagent 适合 QQ/消息应用这类流程：主 Agent 只描述目标，Subage
 
 | 工具 | 权限 | 说明 |
 |------|------|------|
-| `plugin_file_list` / `plugin_file_read` / `plugin_manifest_get` | `plugins.files:read` | 查看插件文件与 manifest；`pluginId` 可省略，缺省使用当前对话的插件工作区。 |
+| `plugin_file_list` / `plugin_file_read` / `plugin_manifest_get` / `plugin_validate` | `plugins.files:read` | 查看插件文件与 manifest；`plugin_validate` 静态校验 manifest 与各文件语法，不执行插件代码，适合功能页等无法运行验证的插件。`pluginId` 可省略，缺省使用当前对话的插件工作区。 |
 | `plugin_file_write` / `plugin_file_delete` / `plugin_file_rename` / `plugin_restore_defaults` / `plugin_manifest_update` | `plugins.files:write` | 修改插件文件；仅草稿/测试中插件可写 manifest 与入口，内置插件核心只读。`pluginId` 同样可省略并回退到工作区。 |
 | `create_plugin` | `plugins.files:write` | 从零创建本地插件草稿（默认禁用），复用 `PluginProvider.createPlugin` 脚手架；`id` 是唯一机器标识、`name` 是显示名称，可经可选 `files` 参数（相对路径 -> 内容）一次写入 plugin.json/main.lua/skills/功能页等完整文件；成功后把当前对话绑定为该插件工作区，生成后需用户审查并启用。 |
+| `plugin_run_handler` | `plugins.run` | 就地试跑本地插件的 tool/function/command handler，复用 `PluginLuaRuntimeService`，以插件身份执行；**非内置插件试跑时自动授予其 manifest 声明的全部权限（开发态默认全权限，仅作用于本次运行的插件副本，不写回安装态授权）**，内置插件按真实授权执行；不要求插件启用，也不改变启用状态。 |
 
-这些工具复用 `PluginProvider` 的串行文件队列与恢复点机制，和 Plugin Studio 编辑同一份状态。`create_plugin` 不会启用插件或授权任何运行时权限，新插件保持草稿态，待用户审查。`buildApiMessages` 在 Agent 开启且绑定工作区时注入插件摘要提示词；插件工坊经 `openPluginAiConversation` 复用同一套对话与工具链路。
+这些工具复用 `PluginProvider` 的串行文件队列与恢复点机制，和 Plugin Studio 编辑同一份状态。`create_plugin` 不会启用插件或授权任何运行时权限，新插件保持草稿态，待用户审查。`buildApiMessages` 在 Agent 开启且绑定工作区时注入插件摘要提示词；插件工坊经 `openPluginAiConversation` 复用同一套对话与工具链路。Agent 的插件开发闭环是「写文件 → `plugin_validate` 静态校验 → `plugin_run_handler` 就地试跑 → 按报错迭代」；试跑对非内置插件默认授予其声明权限，仅作用于当次运行的副本，插件启用后的真实授权仍由用户在插件管理页确认。功能页的视觉/交互效果仍只能由用户在插件工坊或功能页预览确认。
 
 ## 跨插件调用
 

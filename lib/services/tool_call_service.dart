@@ -30,6 +30,7 @@ import '../providers/model_config_provider.dart';
 import '../providers/plugin_provider.dart';
 import '../providers/settings_provider.dart';
 import '../providers/task_provider.dart';
+import '../repositories/plugin_repository.dart';
 import 'backend_client.dart';
 import '../providers/conversation_provider.dart';
 import 'api_service.dart';
@@ -61,6 +62,7 @@ import 'plugin_tool_importer.dart';
 import 'storage_v2_service.dart';
 import 'web_search_service.dart';
 import 'bounded_outbound_http_client.dart';
+import 'code_syntax_service.dart';
 
 class AgentToolRunSnapshot {
   final AgentToolSnapshot tools;
@@ -289,6 +291,7 @@ Plan 创建和更新不需要权限，只用于当前对话的可视化状态。
 如果需要调用插件函数，先调用 list_plugin_functions 查看可用函数，再用 call_plugin_function。该能力需要 plugins.callFunction 权限。
 如果需要了解可用插件 Skill，先调用 list_plugin_skills；Skill 摘要不是完整说明，执行相关流程前调用 load_plugin_skill 加载正文。加载 Skill 不需要额外权限；需要按用户要求沉淀或修正可编辑 Skill 时，在已授权 plugins.skills.files:write 后调用 save_plugin_skill 保存正文。
 如果用户要求从零生成或修改插件，调用 create_plugin / plugin_file_* / plugin_manifest_* 前，先加载 plugin-authoring 插件的 plugin_authoring Skill 了解完整清单与文件规范；涉及网页/功能页视觉设计先加载 web_design，动效先加载 motion_design。创建成功后当前对话会自动绑定该插件为工作区，后续 plugin_file_* / plugin_manifest_* 不传 pluginId 即操作它；写文件需要 plugins.files:write 权限，生成后需用户审查并启用，不能自行启用插件。
+写完插件后先调用 plugin_validate 静态校验 manifest 与文件语法；对 plugin.json 中声明的 tool/function/command 可调用 plugin_run_handler 就地试跑（以插件身份执行，非内置插件试跑自动授予其声明的全部权限），根据报错迭代修改，直到校验与试跑通过。该能力需要 plugins.run 权限。
 如需运行 Lua 或手机自动化，调用 execute_lua；沙箱能力、可用函数与设备 API 用法见该工具的说明，确定步骤尽量在一次脚本内线性编排。
 如果手机自动化子任务会产生很多中间屏幕信息，优先调用 run_subagent。Subagent 使用独立上下文执行多轮工具，只把最终结构化结果返回当前对话。需要读取聊天上下文再生成回复时，先让 Subagent 返回 peer、messages、summary、confidence；用户已经明确要求发送且目标明确时，可让 Subagent/Lua 直接发送，不要二次确认。
 Agent 专用工具成功时返回 {ok:true,result:{...}}，失败时返回 {ok:false,error:{code,message,details?}}；读取数据时优先看 result。
@@ -1373,9 +1376,24 @@ plugin_file_* / plugin_manifest_* 工具不传 pluginId 时默认操作该插件
         {
           'type': 'object',
           'properties': {
-            'pluginId': {'type': 'string', 'description': '插件 ID'},
+            'pluginId': {
+              'type': 'string',
+              'description': '可选，插件 ID；缺省使用当前对话正在创作的插件',
+            },
           },
-          'required': ['pluginId'],
+        },
+      );
+      add(
+        'plugin_validate',
+        '静态校验插件：manifest 完整性与 plugin.json 语法、各文件的 Lua/JSON/HTML/CSS/JS 语法，返回错误清单。不执行任何插件代码，适合功能页等无法运行验证的插件。需要 plugins.files:read 权限。',
+        {
+          'type': 'object',
+          'properties': {
+            'pluginId': {
+              'type': 'string',
+              'description': '可选，插件 ID；缺省使用当前对话正在创作的插件',
+            },
+          },
         },
       );
     }
@@ -1386,11 +1404,14 @@ plugin_file_* / plugin_manifest_* 工具不传 pluginId 时默认操作该插件
         {
           'type': 'object',
           'properties': {
-            'pluginId': {'type': 'string', 'description': '插件 ID'},
+            'pluginId': {
+              'type': 'string',
+              'description': '可选，插件 ID；缺省使用当前对话正在创作的插件',
+            },
             'path': {'type': 'string', 'description': '相对路径'},
             'content': {'type': 'string', 'description': '完整文件内容'},
           },
-          'required': ['pluginId', 'path', 'content'],
+          'required': ['path', 'content'],
         },
       );
       add(
@@ -1399,10 +1420,13 @@ plugin_file_* / plugin_manifest_* 工具不传 pluginId 时默认操作该插件
         {
           'type': 'object',
           'properties': {
-            'pluginId': {'type': 'string', 'description': '插件 ID'},
+            'pluginId': {
+              'type': 'string',
+              'description': '可选，插件 ID；缺省使用当前对话正在创作的插件',
+            },
             'path': {'type': 'string', 'description': '相对路径'},
           },
-          'required': ['pluginId', 'path'],
+          'required': ['path'],
         },
       );
       add(
@@ -1411,11 +1435,14 @@ plugin_file_* / plugin_manifest_* 工具不传 pluginId 时默认操作该插件
         {
           'type': 'object',
           'properties': {
-            'pluginId': {'type': 'string', 'description': '插件 ID'},
+            'pluginId': {
+              'type': 'string',
+              'description': '可选，插件 ID；缺省使用当前对话正在创作的插件',
+            },
             'oldPath': {'type': 'string', 'description': '当前相对路径'},
             'newPath': {'type': 'string', 'description': '目标相对路径'},
           },
-          'required': ['pluginId', 'oldPath', 'newPath'],
+          'required': ['oldPath', 'newPath'],
         },
       );
       add(
@@ -1424,9 +1451,11 @@ plugin_file_* / plugin_manifest_* 工具不传 pluginId 时默认操作该插件
         {
           'type': 'object',
           'properties': {
-            'pluginId': {'type': 'string', 'description': '插件 ID'},
+            'pluginId': {
+              'type': 'string',
+              'description': '可选，插件 ID；缺省使用当前对话正在创作的插件',
+            },
           },
-          'required': ['pluginId'],
         },
       );
       add(
@@ -1474,6 +1503,36 @@ plugin_file_* / plugin_manifest_* 工具不传 pluginId 时默认操作该插件
             },
           },
           'required': ['id', 'name'],
+        },
+      );
+    }
+    if (permissions.contains(LynAIPermissions.pluginsRun)) {
+      add(
+        'plugin_run_handler',
+        '就地试跑本地插件的 tool/function/command handler，返回执行结果 JSON。以插件身份执行：非内置插件试跑时自动授予其 manifest 声明的全部权限（开发态默认全权限，不影响安装态授权），内置插件按真实授权执行；不会启用插件。需要 plugins.run 权限。',
+        {
+          'type': 'object',
+          'properties': {
+            'pluginId': {
+              'type': 'string',
+              'description': '可选，插件 ID；缺省使用当前对话正在创作的插件',
+            },
+            'kind': {
+              'type': 'string',
+              'description': 'handler 类型',
+              'enum': ['tool', 'function', 'command'],
+            },
+            'name': {
+              'type': 'string',
+              'description': 'plugin.json 中声明的 tool/function/command 名称',
+            },
+            'arguments': {
+              'type': 'object',
+              'description': '传给 handler 的参数，默认 {}',
+              'additionalProperties': true,
+            },
+          },
+          'required': ['kind', 'name'],
         },
       );
     }
@@ -1753,10 +1812,7 @@ plugin_file_* / plugin_manifest_* 工具不传 pluginId 时默认操作该插件
               'type': 'string',
               'description': '起始日期 YYYY-MM-DD，含当天',
             },
-            'date_to': {
-              'type': 'string',
-              'description': '结束日期 YYYY-MM-DD，含当天',
-            },
+            'date_to': {'type': 'string', 'description': '结束日期 YYYY-MM-DD，含当天'},
             'limit': {
               'type': 'integer',
               'minimum': 1,
@@ -1873,13 +1929,15 @@ plugin_file_* / plugin_manifest_* 工具不传 pluginId 时默认操作该插件
       'save_plugin_skill' => const [LynAIPermissions.pluginSkillFilesWrite],
       'plugin_file_list' ||
       'plugin_file_read' ||
-      'plugin_manifest_get' => const [LynAIPermissions.pluginsFilesRead],
+      'plugin_manifest_get' ||
+      'plugin_validate' => const [LynAIPermissions.pluginsFilesRead],
       'plugin_file_write' ||
       'plugin_file_delete' ||
       'plugin_file_rename' ||
       'plugin_restore_defaults' ||
       'plugin_manifest_update' ||
       'create_plugin' => const [LynAIPermissions.pluginsFilesWrite],
+      'plugin_run_handler' => const [LynAIPermissions.pluginsRun],
       'get_current_screen' => const [LynAIPermissions.deviceScreenRead],
       'open_app' => const [LynAIPermissions.deviceControl],
       'list_apps' => const [LynAIPermissions.deviceControl],
@@ -1894,7 +1952,9 @@ plugin_file_* / plugin_manifest_* 工具不传 pluginId 时默认操作该插件
       'read_knowledge_entry' => const [LynAIPermissions.storageRead],
       'create_memory_cards' => const [LynAIPermissions.memoryCardsWrite],
       'save_jotting' => const [LynAIPermissions.jottingsWrite],
-      _ when jottingsRead.contains(name) => const [LynAIPermissions.jottingsRead],
+      _ when jottingsRead.contains(name) => const [
+        LynAIPermissions.jottingsRead,
+      ],
       _ when notesRead.contains(name) => const [LynAIPermissions.notesRead],
       _ when notesWrite.contains(name) => const [LynAIPermissions.notesWrite],
       _ when todosRead.contains(name) => const [LynAIPermissions.todosRead],
@@ -1934,6 +1994,9 @@ plugin_file_* / plugin_manifest_* 工具不传 pluginId 时默认操作该插件
       return AgentToolOperation.network;
     }
     if (name == 'knowledge_search' || name == 'search_jottings') {
+      return AgentToolOperation.read;
+    }
+    if (name == 'plugin_validate') {
       return AgentToolOperation.read;
     }
     if (name.startsWith('list_') ||
@@ -2225,6 +2288,12 @@ plugin_file_* / plugin_manifest_* 工具不传 pluginId 时默认操作该插件
       'plugin_manifest_get' => _pluginManifestGetForAgent(call.arguments),
       'plugin_manifest_update' => _pluginManifestUpdateForAgent(call.arguments),
       'create_plugin' => _createPlugin(call.arguments),
+      'plugin_run_handler' => _pluginRunHandler(
+        call.arguments,
+        cancellationToken: context.cancellationToken,
+        deadline: context.deadline,
+      ),
+      'plugin_validate' => _pluginValidate(call.arguments),
       'add_agent_note' => _addAgentNote(call.arguments),
       'call_plugin_function' => _callPluginFunction(
         call.arguments,
@@ -2579,6 +2648,14 @@ plugin_file_* / plugin_manifest_* 工具不传 pluginId 时默认操作该插件
           return await _pluginManifestUpdateForAgent(call.arguments);
         case 'create_plugin':
           return await _createPlugin(call.arguments);
+        case 'plugin_run_handler':
+          return await _pluginRunHandler(
+            call.arguments,
+            cancellationToken: cancellationToken,
+            deadline: deadline,
+          );
+        case 'plugin_validate':
+          return await _pluginValidate(call.arguments);
         case 'add_agent_note':
           return _addAgentNote(call.arguments);
         case 'call_plugin_function':
@@ -3012,26 +3089,33 @@ plugin_file_* / plugin_manifest_* 工具不传 pluginId 时默认操作该插件
     if (base == null) return _error('未找到 id=$id 的知识库');
     if (!base.enabled) return _error('id=$id 的知识库未启用');
     final rawLimit = call.arguments['limit'];
-    final limit = (rawLimit is num ? rawLimit.toInt() : 50).clamp(1, 50).toInt();
-    final categories = knowledge.categoriesForBase(base.id).where((item) => item.enabled).map((item) {
-      return {
-        'id': item.id,
-        'name': item.name,
-        'alias': item.alias,
-      };
-    }).toList(growable: false);
-    final entries = knowledge.entriesForBase(base.id).where((item) => item.enabled).take(limit).map((item) {
-      final content = item.content;
-      final truncated = content.length > 6000;
-      return {
-        'id': item.id,
-        'title': _boundedKnowledgeText(item.title, 240),
-        'content': truncated
-            ? '${content.substring(0, 6000)}\n...(内容已截断)'
-            : content,
-        'contentTruncated': truncated,
-      };
-    }).toList(growable: false);
+    final limit = (rawLimit is num ? rawLimit.toInt() : 50)
+        .clamp(1, 50)
+        .toInt();
+    final categories = knowledge
+        .categoriesForBase(base.id)
+        .where((item) => item.enabled)
+        .map((item) {
+          return {'id': item.id, 'name': item.name, 'alias': item.alias};
+        })
+        .toList(growable: false);
+    final entries = knowledge
+        .entriesForBase(base.id)
+        .where((item) => item.enabled)
+        .take(limit)
+        .map((item) {
+          final content = item.content;
+          final truncated = content.length > 6000;
+          return {
+            'id': item.id,
+            'title': _boundedKnowledgeText(item.title, 240),
+            'content': truncated
+                ? '${content.substring(0, 6000)}\n...(内容已截断)'
+                : content,
+            'contentTruncated': truncated,
+          };
+        })
+        .toList(growable: false);
     return {
       'ok': true,
       'base': {
@@ -3057,13 +3141,16 @@ plugin_file_* / plugin_manifest_* 工具不传 pluginId 时默认操作该插件
       return _error('id=$id 的知识条目所属知识库不存在或未启用');
     }
     if (!entry.enabled) return _error('id=$id 的知识条目未启用');
-    final sources = knowledge.sourcesForEntry(entry.id).map((item) {
-      return {
-        'id': item.id,
-        'title': item.title,
-        if (item.url != null) 'url': item.url,
-      };
-    }).toList(growable: false);
+    final sources = knowledge
+        .sourcesForEntry(entry.id)
+        .map((item) {
+          return {
+            'id': item.id,
+            'title': item.title,
+            if (item.url != null) 'url': item.url,
+          };
+        })
+        .toList(growable: false);
     final content = entry.content;
     final truncated = content.length > 8000;
     return {
@@ -3116,15 +3203,16 @@ plugin_file_* / plugin_manifest_* 工具不传 pluginId 时默认操作该插件
     final matches = jottings.search(filter);
     final result = <Map<String, dynamic>>[];
     var anySnippetTruncated = false;
-    for (var start = 0; start < matches.length; start += _jottingSearchBatchSize) {
+    for (
+      var start = 0;
+      start < matches.length;
+      start += _jottingSearchBatchSize
+    ) {
       cancellationToken?.throwIfCancellationRequested();
       if (_knowledgeSearchDeadlineExceeded(deadline)) {
         return _agentError('deadline_exceeded', '随记检索超过执行时限');
       }
-      final end = (start + _jottingSearchBatchSize).clamp(
-        0,
-        matches.length,
-      );
+      final end = (start + _jottingSearchBatchSize).clamp(0, matches.length);
       for (var index = start; index < end; index++) {
         final item = matches[index];
         final content = item.content.replaceAll(RegExp(r'\s+'), ' ').trim();
@@ -3140,11 +3228,7 @@ plugin_file_* / plugin_manifest_* 工具不传 pluginId 时默认操作该插件
         });
       }
     }
-    return {
-      'ok': true,
-      'jottings': result,
-      'truncated': anySnippetTruncated,
-    };
+    return {'ok': true, 'jottings': result, 'truncated': anySnippetTruncated};
   }
 
   Map<String, dynamic> _readJotting(ChatToolCall call) {
@@ -3186,8 +3270,12 @@ plugin_file_* / plugin_manifest_* 工具不传 pluginId 时默认操作该插件
         'id': id,
         'content': content,
         'tags': Jotting.normalizeTags(tags),
-        'createdAt': (saved?.createdAt ?? DateTime.now()).toUtc().toIso8601String(),
-        'updatedAt': (saved?.updatedAt ?? DateTime.now()).toUtc().toIso8601String(),
+        'createdAt': (saved?.createdAt ?? DateTime.now())
+            .toUtc()
+            .toIso8601String(),
+        'updatedAt': (saved?.updatedAt ?? DateTime.now())
+            .toUtc()
+            .toIso8601String(),
       },
     };
   }
@@ -4285,6 +4373,274 @@ ${ToolCallService.currentTimeContext()}${sharedContext.isEmpty ? '' : '\n\n$shar
     'featurePage' || 'feature_page' || 'page' => PluginScaffoldKind.featurePage,
     _ => PluginScaffoldKind.blank,
   };
+
+  /// 开发态试跑视图：非内置插件以 manifest 声明的权限作为本次执行的授权集合。
+  ///
+  /// 仅影响本次运行传入的插件副本，不写回安装状态——插件管理页的授权清单、
+  /// 运行时启用后的真实授权都不变。内置插件保持真实授权不变。
+  InstalledPlugin _devRunPlugin(InstalledPlugin plugin) {
+    if (PluginRepository.builtInPluginIds.contains(plugin.id)) return plugin;
+    final declared = plugin.manifest.permissions.toSet();
+    final granted = plugin.grantedPermissions.toSet();
+    if (declared.difference(granted).isEmpty) return plugin;
+    return plugin.copyWith(
+      grantedPermissions: {...granted, ...declared}.toList(growable: false),
+    );
+  }
+
+  /// 就地试跑插件 tool/function/command handler。
+  ///
+  /// 复用 [PluginLuaRuntimeService]，以插件身份执行：非内置插件经
+  /// [_devRunPlugin] 自动授予其 manifest 声明的权限（仅本次运行副本），
+  /// 内置插件按真实授权执行。不要求插件已启用，也不会改变插件启用状态。
+  Future<Map<String, dynamic>> _pluginRunHandler(
+    Map<String, dynamic> args, {
+    AgentCancellationToken? cancellationToken,
+    DateTime? deadline,
+  }) async {
+    if (!_agentEnabled) {
+      return _agentError('agent_disabled', '当前对话未启用 Agent 模式');
+    }
+    final plugins = _plugins;
+    if (plugins == null) {
+      return _agentError('plugin_system_unavailable', '插件系统不可用');
+    }
+    final pluginId = _resolvePluginId(args['pluginId']);
+    final kind = (args['kind'] as String? ?? '').trim();
+    final name = (args['name'] as String? ?? '').trim();
+    if (pluginId.isEmpty) {
+      return _agentError(
+        'invalid_arguments',
+        'plugin_run_handler 缺少 pluginId（当前对话未绑定插件工作区）',
+      );
+    }
+    if (kind.isEmpty || name.isEmpty) {
+      return _agentError(
+        'invalid_arguments',
+        'plugin_run_handler 缺少 kind 或 name',
+      );
+    }
+    final plugin = _findAgentPlugin(pluginId);
+    if (plugin == null) {
+      return _agentError('plugin_not_found', '插件不存在: $pluginId');
+    }
+    final runPlugin = _devRunPlugin(plugin);
+    final arguments = args['arguments'] is Map
+        ? (args['arguments'] as Map).map(
+            (key, value) => MapEntry(key.toString(), value),
+          )
+        : <String, dynamic>{};
+    final stopwatch = Stopwatch()..start();
+    try {
+      final Map<String, dynamic> result;
+      switch (kind) {
+        case 'tool':
+          result = await _runPluginToolHandler(
+            runPlugin,
+            name,
+            arguments,
+            cancellationToken: cancellationToken,
+            deadline: deadline,
+          );
+        case 'function':
+          result = await _runPluginFunctionHandler(
+            runPlugin,
+            name,
+            arguments,
+            cancellationToken: cancellationToken,
+            deadline: deadline,
+          );
+        case 'command':
+          result = await _runPluginCommandHandler(
+            runPlugin,
+            name,
+            arguments,
+            cancellationToken: cancellationToken,
+            deadline: deadline,
+          );
+        default:
+          return _agentError('invalid_arguments', 'kind 必须是 tool、function 或 command');
+      }
+      stopwatch.stop();
+      return _agentOk({
+        'pluginId': pluginId,
+        'kind': kind,
+        'name': name,
+        'elapsedMs': stopwatch.elapsedMilliseconds,
+        'result': result,
+      });
+    } catch (e) {
+      return _agentError(
+        'plugin_run_failed',
+        '$e',
+        details: {'pluginId': pluginId, 'kind': kind, 'name': name},
+      );
+    }
+  }
+
+  Future<Map<String, dynamic>> _runPluginToolHandler(
+    InstalledPlugin plugin,
+    String name,
+    Map<String, dynamic> arguments, {
+    AgentCancellationToken? cancellationToken,
+    DateTime? deadline,
+  }) async {
+    PluginToolDefinition? definition;
+    for (final tool in plugin.manifest.tools) {
+      if (tool.name == name) {
+        definition = tool;
+        break;
+      }
+    }
+    if (definition == null) {
+      return {'ok': false, 'error': '插件 ${plugin.id} 未声明工具: $name'};
+    }
+    return PluginLuaRuntimeService().executeTool(
+      plugin: plugin,
+      tool: definition,
+      arguments: arguments,
+      features: _features,
+      tasks: _tasks,
+      calendar: _calendar,
+      modelConfigs: _modelConfigs,
+      plugins: _plugins,
+      settings: _settings,
+      cancellationToken: cancellationToken,
+      deadline: deadline,
+    );
+  }
+
+  Future<Map<String, dynamic>> _runPluginFunctionHandler(
+    InstalledPlugin plugin,
+    String name,
+    Map<String, dynamic> arguments, {
+    AgentCancellationToken? cancellationToken,
+    DateTime? deadline,
+  }) async {
+    PluginFunctionDefinition? definition;
+    for (final function in plugin.manifest.functions) {
+      if (function.name == name) {
+        definition = function;
+        break;
+      }
+    }
+    if (definition == null) {
+      return {'ok': false, 'error': '插件 ${plugin.id} 未声明函数: $name'};
+    }
+    return PluginLuaRuntimeService().executeFunction(
+      plugin: plugin,
+      function: definition,
+      arguments: arguments,
+      features: _features,
+      tasks: _tasks,
+      calendar: _calendar,
+      modelConfigs: _modelConfigs,
+      plugins: _plugins,
+      settings: _settings,
+      cancellationToken: cancellationToken,
+      deadline: deadline,
+    );
+  }
+
+  Future<Map<String, dynamic>> _runPluginCommandHandler(
+    InstalledPlugin plugin,
+    String name,
+    Map<String, dynamic> arguments, {
+    AgentCancellationToken? cancellationToken,
+    DateTime? deadline,
+  }) async {
+    PluginCommandDefinition? definition;
+    for (final command in plugin.manifest.commands) {
+      if (command.name == name) {
+        definition = command;
+        break;
+      }
+    }
+    if (definition == null) {
+      return {'ok': false, 'error': '插件 ${plugin.id} 未声明命令: $name'};
+    }
+    return PluginLuaRuntimeService().executeCommandHandler(
+      plugin: plugin,
+      command: definition,
+      arguments: arguments,
+      features: _features,
+      tasks: _tasks,
+      calendar: _calendar,
+      modelConfigs: _modelConfigs,
+      plugins: _plugins,
+      settings: _settings,
+      cancellationToken: cancellationToken,
+      deadline: deadline,
+    );
+  }
+
+  /// 静态校验插件：manifest 与各文件语法，不执行任何插件代码。
+  Future<Map<String, dynamic>> _pluginValidate(Map<String, dynamic> args) async {
+    if (!_agentEnabled) {
+      return _agentError('agent_disabled', '当前对话未启用 Agent 模式');
+    }
+    final plugins = _plugins;
+    if (plugins == null) {
+      return _agentError('plugin_system_unavailable', '插件系统不可用');
+    }
+    final pluginId = _resolvePluginId(args['pluginId']);
+    if (pluginId.isEmpty) {
+      return _agentError(
+        'invalid_arguments',
+        'plugin_validate 缺少 pluginId（当前对话未绑定插件工作区）',
+      );
+    }
+    final plugin = _findAgentPlugin(pluginId);
+    if (plugin == null) {
+      return _agentError('plugin_not_found', '插件不存在: $pluginId');
+    }
+    final errors = <Map<String, dynamic>>[];
+    if (plugin.hasError) {
+      errors.add({
+        'path': 'plugin.json',
+        'message': plugin.loadError ?? 'manifest 加载失败',
+      });
+    } else {
+      final manifestError = plugin.manifest.validate();
+      if (manifestError != null) {
+        errors.add({'path': 'plugin.json', 'message': manifestError});
+      }
+    }
+    try {
+      final files = await plugins.listDeveloperFiles(pluginId);
+      for (final file in files) {
+        if (file.isDirectory || file.path == 'plugin.json') continue;
+        try {
+          final content = await plugins.readDeveloperFile(pluginId, file.path);
+          if (file.type == 'json') {
+            try {
+              jsonDecode(content);
+            } catch (e) {
+              errors.add({'path': file.path, 'message': 'JSON 解析失败: $e'});
+            }
+          } else if (file.type == 'lua' ||
+              file.type == 'html' ||
+              file.type == 'css' ||
+              file.type == 'javascript') {
+            final summary = parseCodeSyntax(file.type, content);
+            if (summary.supported && summary.parsed && summary.hasError) {
+              errors.add({'path': file.path, 'message': '语法检查未通过'});
+            }
+          }
+        } catch (e) {
+          errors.add({'path': file.path, 'message': '无法读取: $e'});
+        }
+      }
+    } catch (e) {
+      errors.add({'path': '(files)', 'message': '无法列出文件: $e'});
+    }
+    return _agentOk({
+      'pluginId': pluginId,
+      'valid': errors.isEmpty,
+      'errorCount': errors.length,
+      'errors': errors,
+    });
+  }
 
   Future<Map<String, dynamic>> _loadPluginSkill(
     Map<String, dynamic> args,

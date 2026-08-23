@@ -206,11 +206,15 @@ void main() {
       expect(baseNames, isNot(contains('call_plugin_function')));
       expect(baseNames, isNot(contains('plugin_file_write')));
       expect(baseNames, isNot(contains('create_plugin')));
+      expect(baseNames, isNot(contains('plugin_validate')));
+      expect(baseNames, isNot(contains('plugin_run_handler')));
 
       final grantedTools = ToolCallService.openAITools(const [], true, const [
         LynAICapabilities.pluginCallFunction,
         LynAIPermissions.pluginSkillFilesWrite,
         LynAIPermissions.pluginsFilesWrite,
+        LynAIPermissions.pluginsFilesRead,
+        LynAIPermissions.pluginsRun,
       ]);
       final grantedNames = grantedTools
           .map((tool) => tool['function']?['name'])
@@ -220,6 +224,8 @@ void main() {
       expect(grantedNames, contains('save_plugin_skill'));
       expect(grantedNames, contains('plugin_file_write'));
       expect(grantedNames, contains('create_plugin'));
+      expect(grantedNames, contains('plugin_validate'));
+      expect(grantedNames, contains('plugin_run_handler'));
     },
   );
 
@@ -303,6 +309,127 @@ void main() {
         const [],
       );
       expect(duplicate['ok'], isFalse);
+    } finally {
+      await root.delete(recursive: true);
+    }
+  });
+
+  test('plugin_run_handler 试跑草稿插件，plugin_validate 校验文件', () async {
+    final root = await Directory.systemTemp.createTemp(
+      'lynai_plugin_run_tool_',
+    );
+    try {
+      final plugins = PluginProvider(
+        repository: PluginRepository(rootOverride: root),
+      );
+      final conversations = memoryConversationProvider();
+      final cid = conversations.createConversation(
+        ConversationSettings(modelId: 'm1', agentEnabled: true),
+      );
+      conversations.addMessage(cid, 'user', '试跑插件');
+      conversations.addMessage(cid, 'assistant', '', save: false);
+      final service = ToolCallService(
+        FeatureProvider(),
+        plugins: plugins,
+        conversations: conversations,
+        conversationId: cid,
+      );
+
+      // 创建草稿插件并声明一个 function（不启用插件）。
+      final created = await service.execute(
+        const ChatToolCall(
+          id: 'create',
+          name: 'create_plugin',
+          arguments: {
+            'id': 'run-plugin',
+            'name': '试跑插件',
+            'kind': 'blank',
+            'files': {
+              'plugin.json':
+                  '{"id":"run-plugin","name":"试跑插件","version":"0.1.0","entry":"main.lua","permissions":["notes:read"],"functions":[{"name":"greet","title":"Greet","handler":"greet"},{"name":"probe","title":"Probe","handler":"probe"}],"tools":[],"featurePages":[]}',
+              'main.lua':
+                  'function greet(args) args = args or {} return { ok = true, message = "hi " .. tostring(args.name or "world") } end\nfunction probe() return lynai.call("plugin.info", {}) end',
+            },
+          },
+        ),
+        const [],
+      );
+      expect(created['ok'], isTrue);
+
+      // 就地试跑 function handler（工作区绑定后省略 pluginId）。
+      final run = await service.execute(
+        const ChatToolCall(
+          id: 'run',
+          name: 'plugin_run_handler',
+          arguments: {
+            'kind': 'function',
+            'name': 'greet',
+            'arguments': {'name': 'Lyn'},
+          },
+        ),
+        const [],
+      );
+      expect(run['ok'], isTrue);
+      final runResult = run['result'] as Map;
+      expect(runResult['kind'], 'function');
+      expect((runResult['result'] as Map)['message'], 'hi Lyn');
+
+      // 非内置插件试跑时自动授予 manifest 声明的权限（仅本次运行副本）。
+      final probe = await service.execute(
+        const ChatToolCall(
+          id: 'probe',
+          name: 'plugin_run_handler',
+          arguments: {'kind': 'function', 'name': 'probe', 'arguments': {}},
+        ),
+        const [],
+      );
+      expect(probe['ok'], isTrue);
+      final probeResult = (probe['result'] as Map)['result'] as Map;
+      expect(
+        (probeResult['plugin'] as Map)['grantedPermissions'],
+        contains('notes:read'),
+      );
+      // 安装态授权未被改写：草稿插件仍未获得运行时权限。
+      expect(plugins.pluginById('run-plugin')!.grantedPermissions, isEmpty);
+
+      // 未声明的 handler 返回明确错误。
+      final missing = await service.execute(
+        const ChatToolCall(
+          id: 'missing',
+          name: 'plugin_run_handler',
+          arguments: {'kind': 'function', 'name': 'nope', 'arguments': {}},
+        ),
+        const [],
+      );
+      expect(missing['ok'], isTrue);
+      expect((missing['result'] as Map)['result'], containsPair('ok', false));
+
+      // plugin_validate 报出坏 JSON 文件。
+      await service.execute(
+        const ChatToolCall(
+          id: 'bad-file',
+          name: 'plugin_file_write',
+          arguments: {'path': 'data.json', 'content': '{ not json'},
+        ),
+        const [],
+      );
+      final validate = await service.execute(
+        const ChatToolCall(
+          id: 'validate',
+          name: 'plugin_validate',
+          arguments: {},
+        ),
+        const [],
+      );
+      expect(validate['ok'], isTrue);
+      final validateResult = validate['result'] as Map;
+      expect(validateResult['valid'], isFalse);
+      expect(
+        (validateResult['errors'] as List)
+            .cast<Map>()
+            .any((error) => error['path'] == 'data.json'),
+        isTrue,
+      );
     } finally {
       await root.delete(recursive: true);
     }
