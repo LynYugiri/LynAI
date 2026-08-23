@@ -25,6 +25,7 @@ List<Map<String, dynamic>> buildApiMessages(
   String extraSystemPrompt = '',
   String roleMemoryBlock = '',
   String memoryNudge = '',
+  bool roleMemoryAvailable = false,
 }) {
   final msgs = <Map<String, dynamic>>[];
   final promptContent = conv.settings.systemPrompt;
@@ -58,6 +59,7 @@ List<Map<String, dynamic>> buildApiMessages(
   final systemParts = <String>[
     if (promptContent.isNotEmpty) promptContent,
     if (enableTools) fullToolPrompt,
+    if (enableTools && roleMemoryAvailable) ToolCallService.memorySystemPrompt,
     if (enableTools) ToolCallService.currentTimeContext(),
     if (annotationPrompt.isNotEmpty) annotationPrompt,
     if (roleMemoryBlock.isNotEmpty) roleMemoryBlock,

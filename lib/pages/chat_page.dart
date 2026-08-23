@@ -1878,6 +1878,8 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       annotationPrompt: annotationPrompt,
       roleMemoryBlock: roleMemoryBlock,
       memoryNudge: memoryNudge,
+      roleMemoryAvailable:
+          appSettings.roleMemoryEnabled || appSettings.roleUserProfileEnabled,
     );
     unawaited(
       _doStream(

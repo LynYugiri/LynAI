@@ -277,6 +277,8 @@ class FloatingChatSessionController extends ChangeNotifier {
           ? '悬浮聊天已获得用户授权：当用户问题依赖当前 Android 前台页面时，可以调用 get_current_screen 读取可见文本和节点摘要。不要无故读取。'
           : '',
       roleMemoryBlock: roleMemoryBlock,
+      roleMemoryAvailable:
+          appSettings.roleMemoryEnabled || appSettings.roleUserProfileEnabled,
     );
     unawaited(
       _streamTurn(

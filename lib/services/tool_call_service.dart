@@ -316,6 +316,13 @@ Agent 专用工具成功时返回 {ok:true,result:{...}}，失败时返回 {ok:f
   static const webSearchUnconfiguredPromptLine =
       '需要检索互联网时，可用 web_fetch 抓取已知 URL 或搜索引擎结果页。';
 
+  /// 角色记忆已启用时追加的系统提示词。
+  static const memorySystemPrompt =
+      '持久记忆：当用户陈述偏好、纠正你、透露个人细节，或你学到稳定的环境事实、项目约定、工作流时，主动调用 memory 工具保存，让用户以后不必重复。'
+      '优先级：用户偏好与纠正 > 环境事实 > 流程约定。'
+      '跳过琐碎信息、任务进度、临时待办和可轻易重新发现的事实。'
+      '记忆按当前角色隔离，只能写入当前角色。';
+
   /// 返回原生工具系统提示词，并按 web_search 配置状态追加检索提示。
   static String nativeSystemPromptFor({required bool webSearchConfigured}) {
     return '$nativeSystemPrompt${webSearchConfigured ? webSearchConfiguredPromptLine : webSearchUnconfiguredPromptLine}\n';
@@ -1733,6 +1740,7 @@ plugin_file_* / plugin_manifest_* 工具不传 pluginId 时默认操作该插件
     bool memoryCardsAvailable,
     bool jottingsAvailable, {
     bool roleMemoryAvailable = false,
+    List<String> memoryTargets = const ['memory', 'user'],
     bool workspaceManageAvailable = false,
     bool workspaceFileAvailable = false,
   }) {
@@ -1913,7 +1921,7 @@ plugin_file_* / plugin_manifest_* 工具不传 pluginId 时默认操作该插件
           'properties': {
             'target': {
               'type': 'string',
-              'enum': ['memory', 'user'],
+              'enum': memoryTargets,
               'description': '写入哪个记忆区：memory=角色笔记，user=用户画像。',
             },
             'action': {
@@ -2303,6 +2311,11 @@ plugin_file_* / plugin_manifest_* 工具不传 pluginId 时默认操作该插件
       imageGenerationEnabled,
       _allowScreenContextTool,
     );
+    final appSettings = _settings?.settings;
+    final memoryTargets = <String>[
+      if (appSettings?.roleMemoryEnabled ?? true) 'memory',
+      if (appSettings?.roleUserProfileEnabled ?? true) 'user',
+    ];
     _appendFoundationTools(
       definitions,
       agentEnabled,
@@ -2310,7 +2323,8 @@ plugin_file_* / plugin_manifest_* 工具不传 pluginId 时默认操作该插件
       _knowledge != null,
       _memoryCards != null,
       _jottings != null,
-      roleMemoryAvailable: _roleMemory != null,
+      roleMemoryAvailable: _roleMemory != null && memoryTargets.isNotEmpty,
+      memoryTargets: memoryTargets,
       workspaceManageAvailable: _workspaces != null,
       workspaceFileAvailable: _conversationWorkspace != null,
     );
@@ -3525,6 +3539,15 @@ plugin_file_* / plugin_manifest_* 工具不传 pluginId 时默认操作该插件
     }
 
     final target = (call.arguments['target'] as String? ?? '').trim();
+    final appSettings = _settings?.settings;
+    final targetEnabled = switch (target) {
+      'memory' => appSettings?.roleMemoryEnabled ?? true,
+      'user' => appSettings?.roleUserProfileEnabled ?? true,
+      _ => false,
+    };
+    if (!targetEnabled) {
+      return _error('无效 target “$target”。请使用已启用的记忆区。');
+    }
     final operations = call.arguments['operations'];
     if (operations is List && operations.isNotEmpty) {
       final ops = operations

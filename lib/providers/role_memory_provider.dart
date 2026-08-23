@@ -136,11 +136,11 @@ class RoleMemoryProvider extends ChangeNotifier with SerializedSaveQueue {
 
   /// 删除角色时级联删除其全部记忆。
   void removeRole(String roleId) {
+    _consolidationFailures.remove(roleId);
+    _turnsSinceMemoryWrite.remove(roleId);
     final before = _entries.length;
     _entries = _entries.where((entry) => entry.roleId != roleId).toList();
     if (_entries.length == before) return;
-    _consolidationFailures.remove(roleId);
-    _turnsSinceMemoryWrite.remove(roleId);
     _mutationGeneration++;
     _queueSnapshotSave();
     notifyListeners();
