@@ -1,0 +1,74 @@
+{
+  "id": "daily-summary",
+  "name": "每日总结",
+  "version": "1.0.0",
+  "author": "LynAI",
+  "description": "每晚自动回顾当天的笔记、任务与日程，生成一篇可回看的每日总结；支持立即生成。",
+  "icon": "icon.svg",
+  "entry": "main.lua",
+  "permissions": [
+    "webview:bridge",
+    "notes:read",
+    "todos:read",
+    "schedules:read",
+    "model:chat",
+    "scheduledTasks:read",
+    "scheduledTasks:write"
+  ],
+  "scheduledTasks": [
+    {
+      "name": "每日总结",
+      "time": "23:00",
+      "script": "defaults/daily_summary.lua"
+    }
+  ],
+  "featurePages": [
+    {
+      "id": "summary",
+      "title": "每日总结",
+      "icon": "icon.svg",
+      "entry": "summary.html"
+    }
+  ],
+  "functions": [
+    {
+      "name": "generate_now",
+      "title": "立即生成总结",
+      "description": "按 config.json 的模型设置，立即为指定日期生成一篇每日总结。不传 date 时默认为今天。",
+      "handler": "generate_now",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "date": {
+            "type": "string",
+            "description": "目标日期 YYYY-MM-DD，默认今天"
+          }
+        }
+      }
+    }
+  ],
+  "config": {
+    "path": "config.json",
+    "schema": "defaults/config.schema.json"
+  },
+  "editableFiles": [
+    {
+      "path": "summary.html",
+      "title": "每日总结页面",
+      "type": "html",
+      "defaultPath": "defaults/summary.html"
+    },
+    {
+      "path": "summary.css",
+      "title": "每日总结样式",
+      "type": "css",
+      "defaultPath": "defaults/summary.css"
+    },
+    {
+      "path": "summary.js",
+      "title": "每日总结交互",
+      "type": "javascript",
+      "defaultPath": "defaults/summary.js"
+    }
+  ]
+}

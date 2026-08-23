@@ -39,6 +39,7 @@ class PluginRepository {
     'weather-query',
     'mobile-agent-skills',
     'plugin-authoring',
+    'daily-summary',
   ];
   static const builtInPluginFiles = {
     'status-dashboard': [
@@ -78,6 +79,17 @@ class PluginRepository {
       'defaults/skills/plugin_authoring.md',
       'defaults/skills/web_design.md',
       'defaults/skills/motion_design.md',
+    ],
+    'daily-summary': [
+      'plugin.json',
+      'icon.svg',
+      'defaults/config.json',
+      'defaults/config.schema.json',
+      'defaults/main.lua',
+      'defaults/daily_summary.lua',
+      'defaults/summary.html',
+      'defaults/summary.css',
+      'defaults/summary.js',
     ],
   };
 

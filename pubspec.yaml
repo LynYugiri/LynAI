@@ -120,6 +120,8 @@ flutter:
     - assets/plugins/plugin-authoring/
     - assets/plugins/plugin-authoring/defaults/
     - assets/plugins/plugin-authoring/defaults/skills/
+    - assets/plugins/daily-summary/
+    - assets/plugins/daily-summary/defaults/
     - changelogs/
     - third_party/lua_dardo/LICENSE
     - third_party/webview_all_linux/LICENSE

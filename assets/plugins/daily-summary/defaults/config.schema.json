@@ -1,0 +1,30 @@
+{
+  "title": "每日总结设置",
+  "description": "设置每日总结的触发时间与生成模型。模型保持空表示跟随当前对话模型。",
+  "fields": [
+    {
+      "key": "time",
+      "type": "string",
+      "title": "每日触发时间",
+      "description": "每天生成总结的本地时间，24 小时制。修改后将在下一次定时任务运行时自动同步。",
+      "placeholder": "23:00",
+      "default": "23:00",
+      "required": true,
+      "minLength": 5,
+      "maxLength": 5,
+      "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$",
+      "patternMessage": "请使用 HH:mm 格式，例如 23:00"
+    },
+    {
+      "key": "model",
+      "type": "model",
+      "title": "总结模型",
+      "description": "生成每日总结使用的对话模型；清除选择表示跟随当前对话模型。",
+      "category": "chat",
+      "store": "selection",
+      "default": {},
+      "allowClear": true,
+      "required": false
+    }
+  ]
+}

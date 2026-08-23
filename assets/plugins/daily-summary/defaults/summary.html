@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0,viewport-fit=cover"/>
+<meta name="color-scheme" content="light dark"/>
+<title>LynAI 每日总结</title>
+<link rel="stylesheet" href="summary.css"/>
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M20.6 14.2A8.5 8.5 0 1 1 9.8 3.4a7 7 0 0 0 10.8 10.8Z"/>
+          </svg>
+        </span>
+        <div class="brand-copy">
+          <h1>每日总结</h1>
+          <p id="today-line">正在读取日期…</p>
+        </div>
+      </div>
+      <div class="top-actions">
+        <span class="pill plan-pill" id="plan-pill">
+          <span class="pill-dot"></span><span id="plan-text">计划读取中…</span>
+        </span>
+        <button class="icon-btn" id="settings-btn" type="button" title="查看配置">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="3.2"/>
+            <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-1.86 1.86-.06-.06A1.7 1.7 0 0 0 16 18.4a1.7 1.7 0 0 0-1 1.51V20h-2.6v-.09A1.7 1.7 0 0 0 11 18.4a1.7 1.7 0 0 0-1.88.34l-.06.06-1.86-1.86.06-.06A1.7 1.7 0 0 0 7.6 15a1.7 1.7 0 0 0-1.51-1H6v-2.6h.09A1.7 1.7 0 0 0 7.6 10a1.7 1.7 0 0 0-.34-1.88l-.06-.06 1.86-1.86.06.06A1.7 1.7 0 0 0 11 6.6a1.7 1.7 0 0 0 1-1.51V5h2.6v.09A1.7 1.7 0 0 0 16 6.6a1.7 1.7 0 0 0 1.88-.34l.06-.06 1.86 1.86-.06.06A1.7 1.7 0 0 0 19.4 10a1.7 1.7 0 0 0 1.51 1h.09V13"/>
+          </svg>
+        </button>
+        <button class="run-btn" id="run-btn" type="button">
+          <span class="run-btn-label">立即总结</span>
+          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M13 3 4 14h6l-1 7 9-11h-6l1-7Z"/></svg>
+        </button>
+      </div>
+    </header>
+
+    <div class="workspace">
+      <aside class="rail" id="rail" aria-label="往日总结分页">
+        <div class="rail-head">
+          <div>
+            <p class="eyebrow">Daily pages</p>
+            <h2>往日总结</h2>
+          </div>
+          <span class="count-badge" id="page-count">0 篇</span>
+        </div>
+        <div class="rail-list" id="rail-list">
+          <div class="skeleton skeleton-card"></div>
+          <div class="skeleton skeleton-card"></div>
+          <div class="skeleton skeleton-card"></div>
+        </div>
+      </aside>
+
+      <main class="reader" id="reader">
+        <div class="reader-state" id="state-loading">
+          <div class="state-icon shimmer-ring"></div>
+          <p>正在整理每天的总结…</p>
+        </div>
+      </main>
+    </div>
+
+    <footer class="pager" id="pager" hidden>
+      <button class="pager-btn" id="prev-btn" type="button" aria-label="前一天">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+      </button>
+      <div class="pager-meta">
+        <span id="pager-index">— / —</span>
+        <span class="pager-dots" id="pager-dots"></span>
+      </div>
+      <button class="pager-btn" id="next-btn" type="button" aria-label="后一天">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+      </button>
+    </footer>
+  </div>
+
+  <div class="scrim" id="scrim" hidden></div>
+
+  <section class="settings-sheet" id="settings-sheet" aria-label="每日总结设置" aria-hidden="true">
+    <div class="sheet-head">
+      <div>
+        <p class="eyebrow">Config</p>
+        <h2>每日总结设置</h2>
+      </div>
+      <button class="icon-btn" id="settings-close" type="button" aria-label="关闭">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+      </button>
+    </div>
+    <div class="sheet-body">
+      <div class="setting-row">
+        <div class="setting-label">
+          <span class="setting-icon">◷</span>
+          <div><strong>每日触发时间</strong><small>config.json · time</small></div>
+        </div>
+        <div class="setting-value" id="config-time">—</div>
+      </div>
+      <div class="setting-row">
+        <div class="setting-label">
+          <span class="setting-icon">✦</span>
+          <div><strong>总结模型</strong><small>config.json · model</small></div>
+        </div>
+        <div class="setting-value" id="config-model">—</div>
+      </div>
+      <p class="sheet-note">
+        修改配置请到 <strong>插件管理 → 每日总结 → 配置文件</strong>。
+        触发时间变更会在下一次兜底任务（23:00）运行时自动同步到定时计划；
+        不影响「立即总结」。
+      </p>
+    </div>
+  </section>
+
+  <script src="summary.js"></script>
+</body>
+</html>
