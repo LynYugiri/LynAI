@@ -762,3 +762,5 @@ plugin roots, so it exports and restores only the selected dataset.
 文件：`lib/services/tool_call_service.dart`、`lib/services/api_message_builder.dart`
 
 `memory` 工具仅在注入 `RoleMemoryProvider` 且 run snapshot 具有 `roleMemory:write` 权限时注册，操作当前对话 `roleId` 的记忆；工具 schema 不暴露 roleId。`buildApiMessages()` 通过 `roleMemoryBlock` 参数在每次请求注入当前角色最新记忆，`memoryNudge` 参数携带维护提醒。主聊天与悬浮聊天共用该组装路径。
+
+`RoleMemoryReviewService` 在 nudge 到期后的主回复完成时，用当前 Chat 模型关闭 thinking/tools 做后台 review，只接受 JSON `operations` 并原子写入当前角色。`memory_search` 工具检索当前角色的历史对话，要求 `roleMemory:read` 权限。

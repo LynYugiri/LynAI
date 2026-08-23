@@ -55,6 +55,7 @@ import '../services/knowledge_annotation_prompt.dart';
 import '../services/generation_background_service.dart';
 import '../services/model_context_compactor.dart';
 import '../services/model_recognition_service.dart';
+import '../services/role_memory_review_service.dart';
 import '../services/storage_v2_service.dart';
 import '../services/system_scroll_capture_service.dart';
 import '../services/tool_call_service.dart';
@@ -1786,6 +1787,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
         nudgeInterval: settingsProvider.settings.roleMemoryNudgeInterval,
       );
     }
+    final memoryReviewDue = memoryNudge.isNotEmpty;
     _pendingModelId = null;
     _clearRetryState();
     _msgCtrl.clear();
@@ -1809,6 +1811,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
         lastUserContentOverride: preparedUserContent.apiContent,
         createTitle: isNewConversation,
         memoryNudge: memoryNudge,
+        memoryReviewDue: memoryReviewDue,
       ),
     );
   }
@@ -1818,6 +1821,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     Object? lastUserContentOverride,
     bool createTitle = false,
     String memoryNudge = '',
+    bool memoryReviewDue = false,
   }) async {
     final cid = _convId;
     if (cid == null) {
@@ -1888,6 +1892,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
         msgs,
         createTitle: createTitle,
         webSearchConfigured: webSearchConfigured,
+        memoryReviewDue: memoryReviewDue,
       ),
     );
   }
@@ -2018,6 +2023,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     List<Map<String, dynamic>> msgs, {
     bool createTitle = false,
     bool? webSearchConfigured,
+    bool memoryReviewDue = false,
   }) async {
     if (!mounted) return;
     final sendGen = _sendGen;
@@ -2295,9 +2301,42 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
           }
         }
         if (createTitle) unawaited(_maybeCreateConversationTitle(model, cid));
+        if (memoryReviewDue) {
+          unawaited(_runMemoryReview(model, cid));
+        }
         _scrollEnd();
       }),
     );
+  }
+
+  /// Hermes 式后台记忆 review：主回复完成后用当前模型关闭 thinking/tools，
+  /// 只输出 memory operations 并写入当前角色，任何失败都不影响主回复。
+  Future<void> _runMemoryReview(ModelConfig model, String cid) async {
+    try {
+      final cp = context.read<ConversationProvider>();
+      final conv = cp.getConversation(cid);
+      if (conv == null) return;
+      final roleMemoryProvider = context.read<RoleMemoryProvider>();
+      final settings = context.read<SettingsProvider>().settings;
+      if (!settings.roleMemoryEnabled && !settings.roleUserProfileEnabled) {
+        return;
+      }
+      final transcript = <Map<String, dynamic>>[
+        for (final message in conv.messages)
+          if ((message.role == 'user' || message.role == 'assistant') &&
+              message.content.trim().isNotEmpty)
+            {'role': message.role, 'content': message.content},
+      ];
+      await const RoleMemoryReviewService().reviewAndPersist(
+        api: _api,
+        model: model,
+        roleId: conv.roleId,
+        messages: transcript,
+        memory: roleMemoryProvider,
+      );
+    } catch (error) {
+      debugPrint('启动角色记忆后台 review 失败: $error');
+    }
   }
 
   void _switchModel(ModelConfig model) {

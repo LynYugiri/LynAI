@@ -51,6 +51,7 @@ class LynAIPermissions {
   static const memoryCardsWrite = 'memoryCards:write';
   static const jottingsRead = 'jottings:read';
   static const jottingsWrite = 'jottings:write';
+  static const roleMemoryRead = 'roleMemory:read';
   static const roleMemoryWrite = 'roleMemory:write';
   static const recycleBinRead = 'recycleBin:read';
   static const recycleBinWrite = 'recycleBin:write';
@@ -65,6 +66,8 @@ class LynAIPermissions {
   static const deviceScreenRead = 'device:screen:read';
   static const deviceControl = 'device:control';
   static const deviceOverlay = 'device:overlay';
+  static const scheduledTasksRead = 'scheduledTasks:read';
+  static const scheduledTasksWrite = 'scheduledTasks:write';
 
   /// 所有可分配给对话/Agent 的权限。
   static const agentAssignable = [
@@ -88,6 +91,7 @@ class LynAIPermissions {
     memoryCardsWrite,
     jottingsRead,
     jottingsWrite,
+    roleMemoryRead,
     roleMemoryWrite,
     networkAccess,
     modelChat,
@@ -97,10 +101,47 @@ class LynAIPermissions {
     deviceScreenRead,
     deviceControl,
     deviceOverlay,
+    scheduledTasksRead,
+    scheduledTasksWrite,
   ];
 
-  /// 新对话默认授予全部可分配权限，演示/首次使用时开箱即可调用能力。
-  static const defaultAgent = agentAssignable;
+  /// 新对话默认授权集合。
+  ///
+  /// `scheduledTasks:write` 会创建跨会话的持久化自动化，默认不授予，
+  /// 需要用户在权限设置中显式开启。
+  static const defaultAgent = [
+    luaExecute,
+    pluginCallFunction,
+    notesRead,
+    notesWrite,
+    notesPropose,
+    todosRead,
+    todosWrite,
+    schedulesRead,
+    schedulesWrite,
+    pluginSkillFilesWrite,
+    pluginsFilesRead,
+    pluginsFilesWrite,
+    pluginsRun,
+    workspaceRead,
+    workspaceWrite,
+    storageRead,
+    memoryCardsRead,
+    memoryCardsWrite,
+    jottingsRead,
+    jottingsWrite,
+    roleMemoryRead,
+    roleMemoryWrite,
+    networkAccess,
+    modelChat,
+    modelOcr,
+    modelRecognizeFile,
+    modelGenerateImage,
+    deviceScreenRead,
+    deviceControl,
+    deviceOverlay,
+    scheduledTasksRead,
+  ];
 }
 
 class LynAIPermissionDefinition {
@@ -173,6 +214,17 @@ const lynaiPermissionDefinitions = <LynAIPermissionDefinition>[
     risk: LynAIPermissionRisk.elevated,
   ),
   LynAIPermissionDefinition(
+    id: LynAIPermissions.scheduledTasksRead,
+    title: '读取定时任务',
+    description: '允许查看本机定时任务列表与最近执行结果。',
+  ),
+  LynAIPermissionDefinition(
+    id: LynAIPermissions.scheduledTasksWrite,
+    title: '管理定时任务',
+    description: '允许创建、修改和立即运行插件定时任务；跨会话自动执行，风险较高。',
+    risk: LynAIPermissionRisk.elevated,
+  ),
+  LynAIPermissionDefinition(
     id: LynAIPermissions.pluginSkillFilesWrite,
     title: '修改插件 Skill 文件',
     description: '允许 Agent 写入插件清单中声明为可编辑的 Skill Markdown 文件。',
@@ -233,6 +285,11 @@ const lynaiPermissionDefinitions = <LynAIPermissionDefinition>[
     title: '新建随记',
     description: '允许 Agent 为用户新建随记；修改和删除暂不开放给 Agent。',
     risk: LynAIPermissionRisk.elevated,
+  ),
+  LynAIPermissionDefinition(
+    id: LynAIPermissions.roleMemoryRead,
+    title: '搜索角色历史记忆',
+    description: '允许 Agent 搜索当前角色的历史对话，用于跨会话召回。',
   ),
   LynAIPermissionDefinition(
     id: LynAIPermissions.roleMemoryWrite,

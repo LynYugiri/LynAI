@@ -120,15 +120,63 @@ void main() {
     expect(retry['done'], isNot(true));
   });
 
-  test('角色记忆写权限已加入 Agent 可分配权限', () {
+  test('角色记忆读写权限已加入 Agent 可分配权限', () {
+    expect(
+      LynAIPermissions.agentAssignable,
+      contains(LynAIPermissions.roleMemoryRead),
+    );
     expect(
       LynAIPermissions.agentAssignable,
       contains(LynAIPermissions.roleMemoryWrite),
     );
     expect(
       LynAIPermissions.defaultAgent,
+      contains(LynAIPermissions.roleMemoryRead),
+    );
+    expect(
+      LynAIPermissions.defaultAgent,
       contains(LynAIPermissions.roleMemoryWrite),
     );
+  });
+
+  test('replaceAt/removeAt 按索引精确编辑', () {
+    provider.add('role-a', RoleMemoryProvider.targetMemory, 'abc');
+    provider.add('role-a', RoleMemoryProvider.targetMemory, 'abcd');
+
+    final replaced = provider.replaceAt(
+      'role-a',
+      RoleMemoryProvider.targetMemory,
+      0,
+      'xyz',
+    );
+    expect(replaced['success'], isTrue);
+    expect(provider.entryTextsFor('role-a', RoleMemoryProvider.targetMemory), [
+      'xyz',
+      'abcd',
+    ]);
+
+    final removed = provider.removeAt(
+      'role-a',
+      RoleMemoryProvider.targetMemory,
+      1,
+    );
+    expect(removed['success'], isTrue);
+    expect(provider.entryTextsFor('role-a', RoleMemoryProvider.targetMemory), [
+      'xyz',
+    ]);
+  });
+
+  test('nudge 计数跨 Provider 重载恢复', () async {
+    provider.noteUserTurn('role-a');
+    provider.noteUserTurn('role-a');
+    await provider.flushPendingSaves();
+
+    final reloaded = RoleMemoryProvider(repository: repository);
+    await reloaded.load();
+
+    expect(reloaded.takeNudgeIfDue('role-a', nudgeInterval: 3), isEmpty);
+    reloaded.noteUserTurn('role-a');
+    expect(reloaded.takeNudgeIfDue('role-a', nudgeInterval: 3), isNotEmpty);
   });
 
   test('load 去重并恢复条目', () async {

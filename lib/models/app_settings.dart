@@ -664,6 +664,7 @@ class AppSettings {
       LynAIPermissions.memoryCardsWrite,
       LynAIPermissions.pluginsFilesRead,
       LynAIPermissions.pluginsFilesWrite,
+      LynAIPermissions.roleMemoryRead,
       LynAIPermissions.roleMemoryWrite,
     };
     return LynAIPermissions.defaultAgent

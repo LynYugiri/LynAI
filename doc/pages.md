@@ -405,3 +405,5 @@ firewall prompt.
 文件：`lib/pages/memory_settings_page.dart`、`memory_manage_page.dart`
 
 设置页“记忆管理”入口进入 `MemorySettingsPage`，收纳角色笔记/用户画像开关、两个 target 的字符预算、维护提醒间隔和条目管理。`MemoryManagePage` 按角色查看/添加/替换/删除记忆条目并显示用量。
+
+记忆管理页的替换/删除改为按索引定位，避免包含关系的子串歧义。

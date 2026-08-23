@@ -1740,6 +1740,7 @@ plugin_file_* / plugin_manifest_* 工具不传 pluginId 时默认操作该插件
     bool memoryCardsAvailable,
     bool jottingsAvailable, {
     bool roleMemoryAvailable = false,
+    bool memorySearchAvailable = false,
     List<String> memoryTargets = const ['memory', 'user'],
     bool workspaceManageAvailable = false,
     bool workspaceFileAvailable = false,
@@ -1959,6 +1960,21 @@ plugin_file_* / plugin_manifest_* 工具不传 pluginId 时默认操作该插件
         },
       );
     }
+    if (memorySearchAvailable) {
+      add(
+        'memory_search',
+        '搜索当前角色的历史对话（跨会话召回）。返回匹配会话的 id、标题、匹配片段和更新时间，'
+            '用于回忆用户之前说过的事实、决策或偏好；只搜索当前角色，不跨角色。',
+        {
+          'type': 'object',
+          'properties': {
+            'query': {'type': 'string', 'minLength': 1, 'maxLength': 256},
+            'limit': {'type': 'integer', 'minimum': 1, 'maximum': 10},
+          },
+          'required': ['query'],
+        },
+      );
+    }
     if (workspaceManageAvailable) {
       add('list_workspaces', '列出本地工作区（不返回挂载文件夹的绝对路径）。', {
         'type': 'object',
@@ -2140,6 +2156,7 @@ plugin_file_* / plugin_manifest_* 工具不传 pluginId 时默认操作该插件
       'read_knowledge_entry' => const [LynAIPermissions.storageRead],
       'create_memory_cards' => const [LynAIPermissions.memoryCardsWrite],
       'memory' => const [LynAIPermissions.roleMemoryWrite],
+      'memory_search' => const [LynAIPermissions.roleMemoryRead],
       'save_jotting' => const [LynAIPermissions.jottingsWrite],
       _ when jottingsRead.contains(name) => const [
         LynAIPermissions.jottingsRead,
@@ -2182,7 +2199,9 @@ plugin_file_* / plugin_manifest_* 工具不传 pluginId 时默认操作该插件
     if (name == 'web_fetch' || name == 'web_search') {
       return AgentToolOperation.network;
     }
-    if (name == 'knowledge_search' || name == 'search_jottings') {
+    if (name == 'knowledge_search' ||
+        name == 'search_jottings' ||
+        name == 'memory_search') {
       return AgentToolOperation.read;
     }
     if (name == 'plugin_validate') {
@@ -2324,6 +2343,7 @@ plugin_file_* / plugin_manifest_* 工具不传 pluginId 时默认操作该插件
       _memoryCards != null,
       _jottings != null,
       roleMemoryAvailable: _roleMemory != null && memoryTargets.isNotEmpty,
+      memorySearchAvailable: _roleMemory != null && _conversations != null,
       memoryTargets: memoryTargets,
       workspaceManageAvailable: _workspaces != null,
       workspaceFileAvailable: _conversationWorkspace != null,
@@ -2932,6 +2952,8 @@ plugin_file_* / plugin_manifest_* 工具不传 pluginId 时默认操作该插件
           return await _createMemoryCards(call);
         case 'memory':
           return _executeRoleMemory(call);
+        case 'memory_search':
+          return _executeRoleMemorySearch(call);
         case 'search_jottings':
           return await _searchJottings(
             call,
@@ -3578,6 +3600,40 @@ plugin_file_* / plugin_manifest_* 工具不传 pluginId 时默认操作该插件
           '或使用 operations 批量操作。',
         );
     }
+  }
+
+  Map<String, dynamic> _executeRoleMemorySearch(ChatToolCall call) {
+    final conversations = _conversations;
+    if (conversations == null) return _error('对话搜索未提供给当前工具会话');
+    final conversationId = _conversationId;
+    final conversation = conversations.getConversation(conversationId ?? '');
+    final roleId = conversation?.roleId;
+    if (roleId == null || roleId.isEmpty) {
+      return _error('当前对话没有绑定角色，无法搜索角色历史记忆');
+    }
+    final query = (call.arguments['query'] as String? ?? '').trim();
+    if (query.isEmpty) return _error('query 不能为空');
+    final limit = ((call.arguments['limit'] as num?)?.toInt() ?? 5).clamp(
+      1,
+      10,
+    );
+    final results = conversations.searchConversationsByRole(query, roleId);
+    final rows = <Map<String, dynamic>>[
+      for (final result in results.take(limit))
+        {
+          'conversationId': result.conversation.id,
+          'title': result.conversation.title,
+          'updatedAt': result.conversation.updatedAt.toIso8601String(),
+          'snippet': result.snippet,
+          'matchType': result.matchType.name,
+        },
+    ];
+    return {
+      'ok': true,
+      'roleId': roleId,
+      'count': rows.length,
+      'results': rows,
+    };
   }
 
   Future<Map<String, dynamic>> _createMemoryCards(ChatToolCall call) async {

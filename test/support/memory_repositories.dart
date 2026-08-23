@@ -184,15 +184,23 @@ RoleplayProvider memoryRoleplayProvider() {
 
 class MemoryRoleMemoryRepository extends RoleMemoryRepository {
   List<RoleMemoryEntry> entries = const [];
+  Map<String, int> counters = const {};
 
   @override
   Future<RoleMemoryLoadResult> load() async {
-    return RoleMemoryLoadResult(entries: List<RoleMemoryEntry>.from(entries));
+    return RoleMemoryLoadResult(
+      entries: List<RoleMemoryEntry>.from(entries),
+      turnsSinceMemoryWrite: Map<String, int>.from(counters),
+    );
   }
 
   @override
-  Future<void> replace(List<RoleMemoryEntry> entries) async {
+  Future<void> replace(
+    List<RoleMemoryEntry> entries, {
+    Map<String, int> turnsSinceMemoryWrite = const {},
+  }) async {
     this.entries = List<RoleMemoryEntry>.from(entries);
+    counters = Map<String, int>.from(turnsSinceMemoryWrite);
   }
 }
 

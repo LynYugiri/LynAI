@@ -5,9 +5,15 @@ import '../services/storage_v2_service.dart';
 
 /// 从 storage_v2 读取的角色记忆快照。
 final class RoleMemoryLoadResult {
-  const RoleMemoryLoadResult({required this.entries});
+  const RoleMemoryLoadResult({
+    required this.entries,
+    this.turnsSinceMemoryWrite = const {},
+  });
 
   final List<RoleMemoryEntry> entries;
+
+  /// roleId -> 距上次成功写入记忆的用户轮数（用于 nudge 跨重启恢复）。
+  final Map<String, int> turnsSinceMemoryWrite;
 }
 
 /// 角色记忆与 storage_v2 数据文件之间的转换。
@@ -50,14 +56,29 @@ class RoleMemoryRepository {
         debugPrint('跳过损坏的角色记忆条目: $error');
       }
     }
-    return RoleMemoryLoadResult(entries: entries);
+    final rawCounters = data['turnsSinceMemoryWrite'];
+    final counters = <String, int>{};
+    if (rawCounters is Map) {
+      for (final item in rawCounters.entries) {
+        final value = (item.value as num?)?.toInt();
+        if (value != null && value > 0) counters[item.key.toString()] = value;
+      }
+    }
+    return RoleMemoryLoadResult(
+      entries: entries,
+      turnsSinceMemoryWrite: counters,
+    );
   }
 
-  /// 全量替换当前角色记忆。
-  Future<void> replace(List<RoleMemoryEntry> entries) {
+  /// 全量替换当前角色记忆与 nudge 计数。
+  Future<void> replace(
+    List<RoleMemoryEntry> entries, {
+    Map<String, int> turnsSinceMemoryWrite = const {},
+  }) {
     return _storageV2.writeDataFile(fileName, {
       'version': currentVersion,
       'entries': entries.map((entry) => entry.toJson()).toList(),
+      'turnsSinceMemoryWrite': turnsSinceMemoryWrite,
     });
   }
 }

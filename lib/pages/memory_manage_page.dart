@@ -108,13 +108,18 @@ class _MemoryManagePageState extends State<MemoryManagePage> {
                 tooltip: '替换',
                 icon: const Icon(Icons.edit_outlined),
                 onPressed: () =>
-                    _showReplaceDialog(memoryProvider, roleId, entry),
+                    _showReplaceDialog(memoryProvider, roleId, index, entry),
               ),
               IconButton(
                 tooltip: '删除',
                 icon: const Icon(Icons.delete_outline),
                 onPressed: () {
-                  memoryProvider.remove(roleId, _target, entry);
+                  final response = memoryProvider.removeAt(
+                    roleId,
+                    _target,
+                    index,
+                  );
+                  _showResultSnackBar(response);
                 },
               ),
             ],
@@ -166,6 +171,7 @@ class _MemoryManagePageState extends State<MemoryManagePage> {
   Future<void> _showReplaceDialog(
     RoleMemoryProvider memoryProvider,
     String roleId,
+    int index,
     String oldEntry,
   ) async {
     final controller = TextEditingController(text: oldEntry);
@@ -192,10 +198,10 @@ class _MemoryManagePageState extends State<MemoryManagePage> {
       ),
     );
     if (result == true && controller.text.trim().isNotEmpty) {
-      final response = memoryProvider.replace(
+      final response = memoryProvider.replaceAt(
         roleId,
         _target,
-        oldEntry,
+        index,
         controller.text,
       );
       if (mounted) _showResultSnackBar(response);

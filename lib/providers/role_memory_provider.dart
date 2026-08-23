@@ -118,7 +118,9 @@ class RoleMemoryProvider extends ChangeNotifier with SerializedSaveQueue {
           entry,
     ];
     _consolidationFailures.clear();
-    _turnsSinceMemoryWrite.clear();
+    _turnsSinceMemoryWrite
+      ..clear()
+      ..addAll(result.turnsSinceMemoryWrite);
     notifyListeners();
   }
 
@@ -131,6 +133,7 @@ class RoleMemoryProvider extends ChangeNotifier with SerializedSaveQueue {
   /// 记录一轮用户输入；只有模型本轮具备 memory 工具时才调用。
   void noteUserTurn(String roleId) {
     _turnsSinceMemoryWrite[roleId] = (_turnsSinceMemoryWrite[roleId] ?? 0) + 1;
+    _queueSnapshotSave();
   }
 
   void resetConsolidationFailures(String roleId) {
@@ -143,6 +146,7 @@ class RoleMemoryProvider extends ChangeNotifier with SerializedSaveQueue {
     final turns = _turnsSinceMemoryWrite[roleId] ?? 0;
     if (turns < nudgeInterval) return '';
     _turnsSinceMemoryWrite[roleId] = 0;
+    _queueSnapshotSave();
     return '［记忆维护提醒］已经连续 $turns 轮没有写入持久记忆。'
         '结合本轮对话检查是否有值得保存的用户偏好、纠正、环境事实或约定：'
         '有就调用 memory 工具写入；没有就正常回答，不要为了写而写。';
@@ -235,6 +239,44 @@ class RoleMemoryProvider extends ChangeNotifier with SerializedSaveQueue {
       return _error('“$oldTrim” 匹配到多条不同条目，请提供更精确的子串。');
     }
     final working = List<String>.from(texts)..removeAt(matches.first);
+    _replaceRoleTargetEntries(roleId, target, working);
+    return _success(target, working, '条目已删除。');
+  }
+
+  /// 按索引替换条目（管理页使用，避免子串歧义）。
+  Map<String, dynamic> replaceAt(
+    String roleId,
+    String target,
+    int index,
+    String newContent,
+  ) {
+    if (!_validTarget(target)) return _invalidTarget(target);
+    final texts = entryTextsFor(roleId, target);
+    if (index < 0 || index >= texts.length) {
+      return _error('条目索引越界。');
+    }
+    final newTrim = newContent.trim();
+    if (newTrim.isEmpty) {
+      return _error('new_content 不能为空；删除条目请使用 removeAt。');
+    }
+    final working = List<String>.from(texts);
+    working[index] = newTrim;
+    final newTotal = working.join(entryDelimiter).length;
+    if (newTotal > _charLimit(target)) {
+      return _overflow(target, texts, newTotal);
+    }
+    _replaceRoleTargetEntries(roleId, target, working);
+    return _success(target, working, '条目已替换。');
+  }
+
+  /// 按索引删除条目（管理页使用，避免子串歧义）。
+  Map<String, dynamic> removeAt(String roleId, String target, int index) {
+    if (!_validTarget(target)) return _invalidTarget(target);
+    final texts = entryTextsFor(roleId, target);
+    if (index < 0 || index >= texts.length) {
+      return _error('条目索引越界。');
+    }
+    final working = List<String>.from(texts)..removeAt(index);
     _replaceRoleTargetEntries(roleId, target, working);
     return _success(target, working, '条目已删除。');
   }
@@ -355,7 +397,10 @@ class RoleMemoryProvider extends ChangeNotifier with SerializedSaveQueue {
 
   void _queueSnapshotSave() {
     final snapshot = List<RoleMemoryEntry>.from(_entries);
-    enqueueSave(() => _repository.replace(snapshot));
+    final counters = Map<String, int>.from(_turnsSinceMemoryWrite);
+    enqueueSave(
+      () => _repository.replace(snapshot, turnsSinceMemoryWrite: counters),
+    );
   }
 
   void _markMemoryWritten(String roleId) {
