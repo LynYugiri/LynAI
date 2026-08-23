@@ -124,6 +124,8 @@ Agent 可通过 `model.chat` 调用 Chat 模型，通过 `model.ocr` 调用 OCR 
 
 `ModelConfig.localOcrId`（`'__local_ppocrv5__'`）是内置本地 OCR 的保留 sentinel ID。当 `imageModelId` 等于此值时，OCR 路径跳过云端 API，直接调用 Android 端 ncnn + PPOCRv5 本地推理（离线、免费、支持 17+ 语言和竖排文字）。该 ID 不对应持久化的 `ModelConfig`，仅在对话设置 UI 中作为虚拟条目显示（仅 Android）。
 
+`ModelConfig.localBlueLmId`（`'__local_bluelm_3b__'`）和 `ModelConfig.localBlueLm()` 描述内置本地 BlueLM 3B Chat 模型。该配置是普通一等 `ModelConfig`（`apiType='local_bluelm'`），由 `ModelConfigProvider` 在本地模型状态为 `validated/initializing/ready` 时注入模型列表，不持久化、不进入云/LAN 同步和备份。默认参数与 Demo 一致：`maxTokens=200`、`contextWindow=4096`、`temperature=0.0`、`topP=1.0`；能力为 `supportsVision=false`、`supportsThinking=false`、`supportsTools=false`。
+
 OCR 悬浮翻译使用请求内轻量文本组。Native OCR 输出 `text`、识别用 `recognitionPolygon/recognitionBounds`、显示用 `polygon/displayBounds`、`orientation`、浮点 `angle`、`fontSize`、`confidence` 以及兼容字段 `bounds/boxW/boxH/prob`。Android `OcrTextGrouper` 按几何关系把 OCR 行合为 `g_N` 文本组，Dart `FloatingTranslationController` 只按组 ID 映射 AI 译文；这些 ID 不用于跨屏缓存。
 
 请求参数优先级：托管配置的 `userOverrides` 高于子模型参数，高于 Provider 参数，高于接口默认值。

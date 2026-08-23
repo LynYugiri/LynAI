@@ -274,6 +274,7 @@ Agent 工具轮数上限保存为 `ConversationSettings.maxToolRounds`（新建�
 | 功能引导 | `home_page.dart` | 把 `hasCompletedGuidedTour` 置回 `false`，HomePage 会切回对话 Tab 并重新弹出聚光灯引导。 |
 | 背景 | `background_page.dart` | 背景图、清除背景、模糊开关和强度。 |
 | API | `api_models_page.dart` | 模型配置分类、编辑、排序和模型拉取。 |
+| 本地模型 | `local_model_settings_page.dart` | BlueLM 3B 路径（默认 `/sdcard/1225`）、所有文件访问授权、模型文件检测、初始化/释放和错误信息。该入口始终显示；聊天模型列表中的本地模型只在状态为 `validated/initializing/ready` 时出现。 |
 | 网页搜索 | `web_search_settings_page.dart` | 管理 client/backend/auto 路由、Tavily/SearXNG 首选项和 SearXNG endpoint；Tavily key 与 SearXNG bearer token 只写入 `SecretStore`。SearXNG HTTP 必须显式勾选精确 origin 明文授权，保存 Bearer token 时再次显示明文确认。 |
 | 对话权限 | `agent_defaults_settings_page.dart` | 控制之后创建的主聊天和悬浮聊天是否默认启用 Agent、默认权限以及单次任务最大工具轮数（默认 24）。默认权限为全部可分配权限，用户可逐项收回。历史对话不随默认值变化；对话设置弹窗只编辑当前对话权限，Agent 模式由输入区按钮切换。 |
 | 悬浮窗 | `floating_assistant_settings_page.dart` | Android 系统悬浮助手设置。原生面板分为 Chat、Translation、Agent；翻译支持一次翻译和停止滚动后自动翻译，Agent 模式展示运行状态与完整 Plan。 |

@@ -42,6 +42,7 @@ import 'services/dataset_secret_store.dart';
 import 'services/dataset_runtime_coordinator.dart';
 import 'services/dataset_runtime_barrier.dart';
 import 'services/device_settings_service.dart';
+import 'services/on_device_llm_service.dart';
 import 'services/agent_tool_registry.dart';
 import 'services/agent_persistence_lifecycle.dart';
 import 'services/agent_tool_result_sanitizer.dart';
@@ -227,10 +228,14 @@ Future<void> main() async {
           create: (ctx) =>
               CalendarProvider(storageV2: ctx.read<StorageV2Service>()),
         ),
+        Provider<OnDeviceLlmService>(
+          create: (_) => OnDeviceLlmService.instance,
+        ),
         ChangeNotifierProvider(
           create: (ctx) => ModelConfigProvider(
             storageV2: ctx.read<StorageV2Service>(),
             secretStore: ctx.read<DatasetSecretStore>(),
+            onDeviceLlm: ctx.read<OnDeviceLlmService>(),
           ),
         ),
         ChangeNotifierProvider(
@@ -653,6 +658,16 @@ Future<void> main() async {
       child: const LynAIApp(),
     ),
   );
+
+  // 首帧后再刷新本地 BlueLM 状态，避免在 MethodChannel 注册完成前调用。
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    unawaited(
+      OnDeviceLlmService.instance.refreshStatus().then(
+        (_) {},
+        onError: (Object _) {},
+      ),
+    );
+  });
 }
 
 /// 应用根组件。

@@ -11,6 +11,7 @@ import 'api_models_page.dart';
 import 'data_management_page.dart';
 import 'floating_assistant_settings_page.dart';
 import 'lan_sync_page.dart';
+import 'local_model_settings_page.dart';
 import 'mcp_settings_page.dart';
 import 'onboarding/onboarding_page.dart';
 import 'plugin_capability_management_page.dart';
@@ -121,6 +122,17 @@ class _SettingsPageState extends State<SettingsPage> {
             () => Navigator.push(
               context,
               MaterialPageRoute(builder: (_) => const ApiModelsPage()),
+            ),
+          ),
+          _buildItem(
+            context,
+            Icons.smart_toy_outlined,
+            '本地模型',
+            'BlueLM 3B 路径、权限与初始化',
+            Colors.teal,
+            () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const LocalModelSettingsPage()),
             ),
           ),
           _buildItem(

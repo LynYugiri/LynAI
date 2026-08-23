@@ -144,7 +144,10 @@ class ApiModelsPage extends StatelessWidget {
         itemCount: _categories.length,
         itemBuilder: (context, index) {
           final category = _categories[index];
-          final count = provider.modelsByCategory(category.id).length;
+          final count = provider
+              .modelsByCategory(category.id)
+              .where((model) => !model.isBuiltInLocalModel)
+              .length;
           return Card(
             margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
             child: ListTile(
@@ -179,7 +182,10 @@ class _ApiCategoryPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final provider = context.watch<ModelConfigProvider>();
-    final models = provider.modelsByCategory(category.id);
+    final models = provider
+        .modelsByCategory(category.id)
+        .where((model) => !model.isBuiltInLocalModel)
+        .toList(growable: false);
     return Scaffold(
       appBar: AppBar(title: Text(category.title), centerTitle: true),
       body: models.isEmpty

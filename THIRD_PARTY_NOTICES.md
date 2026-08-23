@@ -27,6 +27,7 @@ LynAI 自身遵循 GPL-3.0，完整文本见仓库根目录 `LICENSE`。
 | PPOCRv5 mobile models | Android OCR 构建时由 `scripts/fetch-ncnn-deps.sh` 从 `nihui/ncnn-android-ppocrv5` 下载到 `android/app/src/main/assets/ocr_models/` | Apache-2.0 | 用于本地 OCR 模型推理；模型文件未提交到 git。 |
 | Tree-sitter core 0.25.10 | `native/tree_sitter/CMakeLists.txt` 在配置阶段拉取 | MIT | 拉取目录为 gitignored 的 `native/tree_sitter/.fetch-cache/`。 |
 | Tree-sitter grammars | `native/tree_sitter/CMakeLists.txt` 拉取 JavaScript、TypeScript/TSX、HTML、CSS、Python、Go、Rust、C、C++、Java、JSON、Bash、YAML、TOML、Markdown 语法 | MIT | 各 grammar 的 `LICENSE` 保留在构建拉取目录中，发布构建仅打包编译产物。 |
+| vivo BlueLM LLM SDK | `android/app/libs/llm-sdk-release.aar` | vivo 专有授权 | 仅用于 MediaTek DX5 设备的本地 BlueLM 推理；发布前请确认 vivo SDK 分发条款。 |
 
 ## Notes
 

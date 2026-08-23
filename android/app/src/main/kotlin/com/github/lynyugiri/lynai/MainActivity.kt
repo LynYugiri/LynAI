@@ -32,6 +32,7 @@ class MainActivity : FlutterActivity() {
         if (isFinishing) stopGenerationService()
         // 释放悬浮窗持有的广播接收器和 Activity 引用，避免内存泄漏。
         FloatingAssistantOverlay.uninstall(this)
+        OnDeviceLlmBridge.uninstall()
         super.onDestroy()
     }
 
@@ -110,6 +111,11 @@ class MainActivity : FlutterActivity() {
             MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "lynai/device_control"),
             EventChannel(flutterEngine.dartExecutor.binaryMessenger, "lynai/device_events")
         )
+        OnDeviceLlmBridge.install(
+            this,
+            MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "lynai/on_device_llm"),
+            EventChannel(flutterEngine.dartExecutor.binaryMessenger, "lynai/on_device_llm/events")
+        )
         FloatingAssistantOverlay.install(
             this,
             MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "lynai/floating_assistant")
@@ -148,6 +154,7 @@ class MainActivity : FlutterActivity() {
         backgroundServiceChannel?.setMethodCallHandler(null)
         backgroundServiceChannel = null
         stopGenerationService()
+        OnDeviceLlmBridge.uninstall()
         super.cleanUpFlutterEngine(flutterEngine)
     }
 

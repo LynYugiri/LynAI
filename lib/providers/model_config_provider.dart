@@ -6,6 +6,7 @@ import 'package:uuid/uuid.dart';
 import '../models/model_config.dart';
 import '../repositories/model_config_repository.dart';
 import '../services/backend_client.dart';
+import '../services/on_device_llm_service.dart';
 import '../services/secret_store.dart';
 import '../services/storage_v2_service.dart';
 import 'serialized_save_queue.dart';
@@ -18,10 +19,12 @@ class ModelConfigProvider extends ChangeNotifier with SerializedSaveQueue {
   static const lynaiManagedIdPrefix = '__lynai_relay_';
 
   List<ModelConfig> _models = [];
+  List<ModelConfig> _builtInModels = [];
   final _uuid = const Uuid();
   int _mutationGeneration = 0;
   int _managedSyncGeneration = 0;
   final ModelConfigRepository _repository;
+  final OnDeviceLlmService? _onDeviceLlm;
   bool _usingStorageV2 = false;
   final Map<String, String> _pendingManagedModelIdMigrations = {};
 
@@ -29,15 +32,27 @@ class ModelConfigProvider extends ChangeNotifier with SerializedSaveQueue {
     StorageV2Service? storageV2,
     SecretStore? secretStore,
     ModelConfigRepository? repository,
+    OnDeviceLlmService? onDeviceLlm,
   }) : _repository =
            repository ??
            ModelConfigRepository(
              storageV2: storageV2,
              secretStore: secretStore,
-           );
+           ),
+       _onDeviceLlm = onDeviceLlm {
+    _onDeviceLlm?.addListener(_syncBuiltInModels);
+    _syncBuiltInModels();
+  }
 
-  /// 所有模型配置，按分类和优先级排序。
-  List<ModelConfig> get models => List.unmodifiable(_models);
+  /// 所有模型配置（内置 + 持久化），按分类和优先级排序。
+  ///
+  /// 内置本地模型只在 [OnDeviceLlmService.status] 允许显示时出现，且不会
+  /// 进入 repository、云/LAN 同步或备份。
+  List<ModelConfig> get models {
+    final combined = [..._builtInModels, ..._models]..sort(_compareModels);
+    return List.unmodifiable(combined);
+  }
+
   bool get usingStorageV2 => _usingStorageV2;
 
   Map<String, String> peekManagedModelIdMigrations() {
@@ -60,6 +75,41 @@ class ModelConfigProvider extends ChangeNotifier with SerializedSaveQueue {
       ..addAll(remaining);
   }
 
+  /// 用本地 BlueLM 状态刷新内置模型覆盖层。
+  ///
+  /// 只在 `validated` / `initializing` / `ready` 时注入
+  /// [ModelConfig.localBlueLm]；路径、权限、设备或初始化失败时不显示。
+  void _syncBuiltInModels() {
+    final service = _onDeviceLlm;
+    if (service == null) {
+      updateBuiltInModels(const []);
+      return;
+    }
+    updateBuiltInModels(
+      service.status.isVisibleToUser ? [ModelConfig.localBlueLm()] : const [],
+    );
+  }
+
+  /// 替换内置（不持久化）模型列表并通知 UI。
+  void updateBuiltInModels(List<ModelConfig> builtInModels) {
+    final next = builtInModels
+        .where((model) => model.isBuiltInLocalModel)
+        .toList(growable: false);
+    if (_sameModelList(_builtInModels, next)) return;
+    _builtInModels = next;
+    notifyListeners();
+  }
+
+  bool _sameModelList(List<ModelConfig> left, List<ModelConfig> right) {
+    if (left.length != right.length) return false;
+    for (var i = 0; i < left.length; i++) {
+      if (jsonEncode(left[i].toJson()) != jsonEncode(right[i].toJson())) {
+        return false;
+      }
+    }
+    return true;
+  }
+
   Future<void> replaceModels(List<ModelConfig> models) async {
     _models = List<ModelConfig>.from(models);
     _normalizeManagedIds();
@@ -69,7 +119,7 @@ class ModelConfigProvider extends ChangeNotifier with SerializedSaveQueue {
   }
 
   List<ModelConfig> modelsByCategory(String category) {
-    return _models.where((m) => m.category == category).toList(growable: false);
+    return models.where((m) => m.category == category).toList(growable: false);
   }
 
   List<ModelConfig> enabledModelsByCategory(String category) {
@@ -543,6 +593,12 @@ class ModelConfigProvider extends ChangeNotifier with SerializedSaveQueue {
       default:
         return ModelConfig.categoryChat;
     }
+  }
+
+  @override
+  void dispose() {
+    _onDeviceLlm?.removeListener(_syncBuiltInModels);
+    super.dispose();
   }
 
   static const _managedCapabilityKeys = {

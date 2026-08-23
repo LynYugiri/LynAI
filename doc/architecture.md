@@ -95,7 +95,7 @@ HomePage (NavigationBar, 5 tabs)
 2. 附件复制到应用私有目录，形成 `MessageImage` 元数据。
 3. 如果没有当前对话，`ConversationProvider.createConversation()` 创建对话并保存设置快照。
 4. 添加 user 消息，再添加空 assistant 消息作为流式占位。
-5. `ApiService.sendStreamRequest()` 由 `StreamChunkAgentAdapter` 转成统一 Agent 流事件。
+5. `ApiService.sendStreamRequest()` 由 `StreamChunkAgentAdapter` 转成统一 Agent 流事件；当模型 `apiType` 为 `local_bluelm` 时，`ApiService` 内部经 `OnDeviceLlmService` 走 Android 端 BlueLM APU 推理，对调用方接口和返回类型与其他模型一致。
 6. `AgentLoopRuntime` 消费模型 turn；每个正文/思考 delta 刷新最后一条 assistant 消息。
 7. 如有工具调用，runtime 把执行交给 `ToolCallService`；插件工具由 `PluginLuaRuntimeService` 执行，MCP 工具由共享 `AgentToolRegistry` 转发。
 8. Agent 可通过 `read_agent_memory` / `update_agent_memory` 维护对话级工作记忆，并通过 `run_subagent` 把高噪声子任务放入独立上下文，主对话只接收最终结构化结果。

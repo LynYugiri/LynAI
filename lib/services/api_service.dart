@@ -8,6 +8,8 @@ import 'package:uuid/uuid.dart';
 import '../models/model_config.dart';
 import '../models/ocr_text_block.dart';
 import 'backend_client.dart';
+import 'local_bluelm_prompt_codec.dart';
+import 'on_device_llm_service.dart';
 import 'sse_decoder.dart';
 import 'tool_call_service.dart';
 
@@ -86,8 +88,11 @@ class ApiService {
   static const _sseDiagnosticMaxLineLength = 220;
 
   final BackendClient? _backend;
+  final OnDeviceLlmService _localLlm;
 
-  ApiService({BackendClient? backend}) : _backend = backend;
+  ApiService({BackendClient? backend, OnDeviceLlmService? localLlm})
+    : _backend = backend,
+      _localLlm = localLlm ?? OnDeviceLlmService.instance;
 
   http.Client? _client;
   http.Client get client => _client ??= http.Client();
@@ -1097,6 +1102,9 @@ class ApiService {
     Object? toolChoice,
   }) async {
     try {
+      if (config.apiType == ModelConfig.localBlueLmApiType) {
+        return await _sendLocalBlueLmRequest(config, messages, tools: tools);
+      }
       if (config.managed) {
         return await _sendManagedChatRequest(
           config,
@@ -1129,7 +1137,9 @@ class ApiService {
     } on TimeoutException {
       throw Exception('请求超时，请检查网络连接或稍后重试');
     } catch (e) {
-      if (e is AgentContextOverflowException) rethrow;
+      if (e is AgentContextOverflowException || e is LocalLlmException) {
+        rethrow;
+      }
       if (_looksLikeContextOverflow(e)) {
         throw AgentContextOverflowException(e.toString());
       }
@@ -1145,6 +1155,10 @@ class ApiService {
     Object? toolChoice,
   }) async* {
     try {
+      if (config.apiType == ModelConfig.localBlueLmApiType) {
+        yield* _sendLocalBlueLmStreamRequest(config, messages, tools: tools);
+        return;
+      }
       if (config.managed) {
         yield* _sendManagedChatStreamRequest(
           config,
@@ -1175,12 +1189,60 @@ class ApiService {
         );
       }
     } catch (e) {
-      if (e is AgentContextOverflowException) rethrow;
+      if (e is AgentContextOverflowException || e is LocalLlmException) {
+        rethrow;
+      }
       if (_looksLikeContextOverflow(e)) {
         throw AgentContextOverflowException(e.toString());
       }
       throw Exception('流式请求异常: $e');
     }
+  }
+
+  Future<ChatResponse> _sendLocalBlueLmRequest(
+    ModelConfig config,
+    List<Map<String, dynamic>> messages, {
+    required List<Map<String, dynamic>> tools,
+  }) async {
+    _ensureNoLocalTools(tools);
+    final chunks = await _sendLocalBlueLmStreamRequest(
+      config,
+      messages,
+      tools: tools,
+    ).toList();
+    return ChatResponse(
+      content: chunks.map((chunk) => chunk.content ?? '').join(),
+    );
+  }
+
+  Stream<StreamChunk> _sendLocalBlueLmStreamRequest(
+    ModelConfig config,
+    List<Map<String, dynamic>> messages, {
+    required List<Map<String, dynamic>> tools,
+  }) async* {
+    _ensureNoLocalTools(tools);
+    final prompt = buildLocalBlueLmPrompt(messages);
+    var done = false;
+    await for (final delta in _localLlm.generate(config, prompt)) {
+      final token = delta.token;
+      if (token != null && token.isNotEmpty) {
+        yield StreamChunk(content: token);
+      }
+      if (delta.completed) {
+        done = true;
+        yield const StreamChunk(isDone: true);
+        return;
+      }
+    }
+    if (!done) yield const StreamChunk(isDone: true);
+  }
+
+  void _ensureNoLocalTools(List<Map<String, dynamic>> tools) {
+    if (tools.isEmpty) return;
+    throw const LocalLlmException(
+      'tools_not_supported',
+      '本地 BlueLM 3B 不支持工具调用',
+    );
   }
 
   Map<String, dynamic> _managedChatBody(

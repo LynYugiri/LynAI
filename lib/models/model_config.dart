@@ -165,6 +165,15 @@ class ModelConfig {
   /// 值时，OCR 路径跳过云端 API，直接调用本地推理。
   static const localOcrId = '__local_ppocrv5__';
 
+  /// 内置本地 BlueLM 3B 的保留模型 ID。
+  ///
+  /// 该配置由 [ModelConfigProvider] 在本地模型状态可用时注入模型列表，
+  /// 不持久化到 `model_configs.json`，也不参与云/LAN 同步和备份。
+  static const localBlueLmId = '__local_bluelm_3b__';
+
+  /// 本地 BlueLM 3B 使用的 `apiType`，[ApiService] 据此走端侧推理分支。
+  static const localBlueLmApiType = 'local_bluelm';
+
   /// 配置唯一标识符。
   final String id;
 
@@ -247,6 +256,40 @@ class ModelConfig {
        extraParams = extraParams ?? {},
        userOverrides = userOverrides ?? {},
        models = models ?? [ModelEntry(name: modelName, enabled: true)];
+
+  /// 内置本地 BlueLM 3B 模型，采样与上下文默认值和 Demo 保持一致。
+  static ModelConfig localBlueLm() {
+    const modelName = 'BlueLM-3B-MTK';
+    return ModelConfig(
+      id: localBlueLmId,
+      name: '本地 BlueLM 3B',
+      endpoint: '',
+      apiKey: '',
+      modelName: modelName,
+      apiType: localBlueLmApiType,
+      priority: -1,
+      maxTokens: 200,
+      temperature: 0.0,
+      topP: 1.0,
+      contextWindow: 4096,
+      models: [
+        ModelEntry(
+          name: modelName,
+          enabled: true,
+          supportsVision: false,
+          supportsThinking: false,
+          supportsTools: false,
+          maxTokens: 200,
+          temperature: 0.0,
+          topP: 1.0,
+          contextWindow: 4096,
+        ),
+      ],
+    );
+  }
+
+  /// 是否为内置本地 BlueLM 3B 配置。
+  bool get isBuiltInLocalModel => id == localBlueLmId;
 
   /// 所有已启用的子模型名称列表。
   List<String> get enabledModelNames => disabledByUser

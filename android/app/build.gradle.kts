@@ -56,9 +56,8 @@ android {
         applicationId = "com.github.lynyugiri.lynai"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
-        // Flutter 3.44 currently defaults to API 24; keep it explicit so the
-        // supported Android floor stays stable across Flutter upgrades.
-        minSdk = 24
+        // BlueLM on-device SDK (com.vivo.llmsdk) requires API 28.
+        minSdk = 28
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
@@ -113,6 +112,7 @@ flutter {
 }
 
 dependencies {
+    implementation(files("libs/llm-sdk-release.aar"))
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20250517")
 }

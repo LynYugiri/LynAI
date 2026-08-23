@@ -67,6 +67,9 @@ OpenAI 兼容和 Anthropic 流使用共享 `SseDecoder`，按空行分隔完整�
 | `anthropic` | Anthropic Messages API。 | SSE `data:`。 |
 | `openai_image` | OpenAI Images。 | 非流式 JSON。 |
 | `vivo_image` | vivo 图片生成。 | 非流式 JSON。 |
+| `local_bluelm` | 内置本地 BlueLM 3B（`OnDeviceLlmService`）。 | 原生 token 事件流。 |
+
+本地 BlueLM 与其他 Chat 模型共用 `sendChatRequest` / `sendStreamRequest` 接口和 `StreamChunk` / `ChatResponse` 返回。`ApiService` 在该分支把 OpenAI 风格消息通过 `local_bluelm_prompt_codec.dart` 转成 Demo 模板（`[|Human|]:...` / `[|AI|]:`），再交给 `OnDeviceLlmService`。本地模型不支持 tools/thinking/vision，请求携带 tools 时返回类型化错误；SDK 的上下文过长错误会保留为 `LocalLlmException` 供运行时压缩重试。
 
 ### 请求体约定
 
@@ -106,6 +109,25 @@ OCR 和文件识别是发送前处理。处理结果会替换历史附件并标�
 | Anthropic `type:error` | 转成异常进入失败路径。 |
 | 单个坏 chunk | 跳过该 chunk，保留已收到正文。 |
 | 工具参数不是 JSON 对象 | 作为协议错误终止该次请求。 |
+
+## OnDeviceLlmService
+
+文件：`lib/services/on_device_llm_service.dart`
+
+本地 BlueLM 3B 的服务入口。模型不打进 APK，按 Demo 方式从设备路径（默认 `/sdcard/1225`）读取；路径由 Android 原生桥保存到 `SharedPreferences`，不进入 storage_v2、云/LAN 同步或备份。
+
+| 状态 | 说明 | 聊天模型列表是否可见 |
+|------|------|----------------------|
+| `unsupported` | 非 arm64 / 非目标设备 | 否 |
+| `not_configured` | 未设置路径 | 否 |
+| `permission_required` | 缺少所有文件访问权限 | 否 |
+| `model_not_found` / `invalid_model` | 路径或模型文件错误 | 否 |
+| `validated` | 文件校验通过，尚未加载权重 | 是 |
+| `initializing` | SDK 初始化中 | 是 |
+| `ready` | 已就绪 | 是 |
+| `error` | 初始化失败 | 否 |
+
+服务为单实例单生成：并发 `generate` 返回 `busy` 错误流。推理参数默认与 Demo 一致（`nPredict=200`、`nCtx=4096`、`nThreads=4`、`topK=1`、`topP=1.0`、`temperature=0.0`、`npuPower=100`），同时接受 `ModelConfig.effective*` 覆盖。取消流时后台调用原生 `interrupt`，不阻塞流关闭。
 
 ## ToolCallService
 

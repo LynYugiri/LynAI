@@ -49,7 +49,7 @@ Flutter 工程包含 Android、iOS、Linux、macOS、Windows 和 Web 目标。�
 
 | 平台 | 说明 |
 |------|------|
-| Android | 支持定位、打开应用、保存图库、任务/日历小组件、系统提醒通知、前台生成服务、系统长截图。系统提醒投递仅 Android 可用。 |
+| Android | 支持定位、打开应用、保存图库、任务/日历小组件、系统提醒通知、前台生成服务、系统长截图。系统提醒投递仅 Android 可用。支持内置本地 BlueLM 3B（MediaTek DX5/MT6993，arm64，模型放在设备目录，默认 `/sdcard/1225`）。 |
 | Linux | 桌面端构建；图片分享优先走剪贴板或文件。 |
 | Windows | 桌面端构建；依赖 Flutter Windows 能力。 |
 | macOS | 桌面端构建；语音插件需要构建时兼容处理。 |

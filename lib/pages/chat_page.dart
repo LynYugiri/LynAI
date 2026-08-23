@@ -37,6 +37,7 @@ import '../providers/task_provider.dart';
 import '../services/attachment_storage_service.dart';
 import '../services/api_message_builder.dart';
 import '../services/api_service.dart';
+import '../services/on_device_llm_service.dart';
 import '../services/composer_selector_registry.dart';
 import '../services/agent_context_builder.dart';
 import '../services/agent_loop_runtime.dart';
@@ -1993,6 +1994,31 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     void clearWaitTimeout() {
       _streamWaitTimer?.cancel();
       _streamWaitTimer = null;
+    }
+
+    if (model.apiType == ModelConfig.localBlueLmApiType) {
+      final localLlm = context.read<OnDeviceLlmService>();
+      if (!localLlm.status.isReady) {
+        emitDraft(status: '正在初始化本地模型…');
+      }
+      try {
+        await localLlm.ensureReady(model);
+      } catch (error) {
+        if (!mounted || gen != _streamGen || !_streaming) return;
+        clearWaitTimeout();
+        _clearAbortedStreaming('本地模型初始化失败');
+        final conv = cp.getConversation(cid);
+        final last = conv?.messages.lastOrNull;
+        if (last != null && last.role == 'assistant') {
+          cp.updateMessageContent(
+            cid,
+            last.id,
+            '本地模型初始化失败：${localLlmErrorMessage(error)}',
+          );
+        }
+        return;
+      }
+      if (!mounted || gen != _streamGen || !_streaming) return;
     }
 
     final externalToolSnapshot = _externalToolRegistry?.snapshot();
