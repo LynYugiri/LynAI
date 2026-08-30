@@ -343,6 +343,7 @@ void main() {
       modelName: 'sub-model',
       imageGenerationModelId: 'image-gen-1',
       imageGenerationEnabled: true,
+      contextCompressionEnabled: false,
     );
     final restoredSettings = ConversationSettings.fromJson(settings.toJson());
 
@@ -350,6 +351,13 @@ void main() {
     expect(restoredSettings.modelName, 'sub-model');
     expect(restoredSettings.imageGenerationModelId, 'image-gen-1');
     expect(restoredSettings.imageGenerationEnabled, isTrue);
+    expect(restoredSettings.contextCompressionEnabled, isFalse);
+    expect(
+      settings
+          .copyWith(contextCompressionEnabled: true)
+          .contextCompressionEnabled,
+      isTrue,
+    );
     expect(settings.copyWith(modelName: null).modelName, isNull);
   });
 
@@ -1051,6 +1059,7 @@ void main() {
     });
 
     expect(settings.imageRecognitionPrompt, 'legacy prompt');
+    expect(settings.contextCompressionEnabled, isTrue);
   });
 
   test('OpenAI messages clear assistant reasoning content', () {

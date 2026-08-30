@@ -15,6 +15,7 @@ import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'package:super_clipboard/super_clipboard.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../models/agent_runtime.dart';
+import '../models/agent_defaults.dart';
 import '../models/agent_user_interaction.dart';
 import '../models/agent_trace.dart';
 import '../models/conversation.dart';
@@ -2047,6 +2048,9 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     final allowTools = _supportsNativeTools(model);
     final cp = context.read<ConversationProvider>();
     final streamSettings = cp.getConversation(cid)?.settings;
+    final contextCompressionEnabled =
+        streamSettings?.contextCompressionEnabled ??
+        defaultContextCompressionEnabled;
     final gen = ++_streamGen;
     String buf = '', thinkBuf = '';
     var timeoutDisplayed = false;
@@ -2162,8 +2166,11 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       contextBuilder: AgentContextBuilder(
         budget: AgentContextBudget(modelTokenBudget: contextWindow),
       ),
+      contextBudgetingEnabled: contextCompressionEnabled,
     );
-    final compactor = ModelContextCompactor(api: _api, model: model);
+    final compactor = contextCompressionEnabled
+        ? ModelContextCompactor(api: _api, model: model)
+        : null;
     final run = runtime.start(
       messages: msgs,
       maxToolRounds: toolService.runMaxToolRounds,
@@ -2173,7 +2180,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
         conversationId: cid,
         permissionPolicy: resolvedPermissionSnapshot,
       ),
-      compactContext: compactor.compact,
+      compactContext: compactor?.compact,
       isContextOverflow: (error) => error is AgentContextOverflowException,
       model: (request) => const StreamChunkAgentAdapter().adapt(
         _api.sendStreamRequest(

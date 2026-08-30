@@ -14,7 +14,7 @@
 - 主聊天、悬浮聊天和 Subagent 的模型多轮工具循环统一走 `AgentLoopRuntime`，不得在 Page、Controller 或具体工具中重建 continuation、轮数上限、强制最终 turn 或取消语义。
 - 取消后 run 只产生一个 terminal result，不等待晚到工具结果，不继续下一 turn，也不把迟到结果追加回上下文。每个 tool invocation 必须得到对应终态结果。
 - 单次 run 的工具轮数上限来自 `ConversationSettings.maxToolRounds`，共享默认值在 `lib/models/agent_defaults.dart`（默认 24，范围 4–64）；`ToolCallService.runMaxToolRounds` 必须落在同一范围内。达到上限后 runtime 注入 final instruction、隐藏 tools 并执行一次强制最终 turn；最终 turn 仍返回工具调用时不执行，并在完成结果上设置 `toolRoundLimitReached=true`。每个 tool result 完成后 runtime 发出 `toolCompleted` 事件供 UI 清除“正在调用工具”状态。
-- `AgentContextBuilder` 使用字符数近似 token、保留最新用户输入、移除历史 reasoning、限制 tool result，并最多执行一次 context-overflow 压缩重试；不要把它描述为精确 tokenizer。生产调用方现在注入 `ModelContextCompactor`（`lib/services/model_context_compactor.dart`）：用当前 Chat 模型关闭 thinking/tools 压缩被裁剪历史；任何异常、超时或空摘要都回退到现有截断策略。
+- `AgentContextBuilder` 使用结构化近似 token（文本按字符数，图片按固定每图近似值、不计 base64）、保留最新用户输入、移除历史 reasoning；工具结果不再预截断，并在 `AgentLoopRuntime.contextBudgetingEnabled` 开启时最多执行一次 context-overflow 压缩重试。不要把它描述为精确 tokenizer。主对话和悬浮聊天按 `ConversationSettings.contextCompressionEnabled` 注入 `ModelContextCompactor`（`lib/services/model_context_compactor.dart`）：用当前 Chat 模型关闭 thinking/tools 压缩被裁剪历史；任何异常、超时或空摘要都回退到现有截断策略；开关关闭时不压缩、不截断、不重试。
 - `ApiService` 将常见上下文超限错误包装为 `AgentContextOverflowException`，runtime 按类型触发压缩重试而不是匹配字符串。上下文预算按 `ModelConfig.effectiveContextWindow`（用户本地覆盖 > 托管 `/relay/config` > endpoint 拉取 > 默认）构造。
 - lifecycle hooks 默认超时、异常隔离且只读，不能修改请求、工具参数、结果、权限或 snapshot；持久化正确性不得依赖 hooks。
 

@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 
 import '../models/chat_role.dart';
 import '../models/agent_runtime.dart';
+import '../models/agent_defaults.dart';
 import '../models/agent_user_interaction.dart';
 import '../models/app_settings.dart';
 import '../models/conversation.dart';
@@ -511,6 +512,9 @@ class FloatingChatSessionController extends ChangeNotifier {
     final conversationSettings = _conversations
         .getConversation(conversationId)
         ?.settings;
+    final contextCompressionEnabled =
+        conversationSettings?.contextCompressionEnabled ??
+        defaultContextCompressionEnabled;
     var buffer = '';
     var thinkingBuffer = '';
     final externalToolSnapshot = _externalToolRegistry?.snapshot();
@@ -565,8 +569,11 @@ class FloatingChatSessionController extends ChangeNotifier {
       contextBuilder: AgentContextBuilder(
         budget: AgentContextBudget(modelTokenBudget: contextWindow),
       ),
+      contextBudgetingEnabled: contextCompressionEnabled,
     );
-    final compactor = ModelContextCompactor(api: _api, model: model);
+    final compactor = contextCompressionEnabled
+        ? ModelContextCompactor(api: _api, model: model)
+        : null;
     final run = runtime.start(
       messages: working,
       maxToolRounds: toolService.runMaxToolRounds,
@@ -576,7 +583,7 @@ class FloatingChatSessionController extends ChangeNotifier {
         conversationId: conversationId,
         permissionPolicy: _settings.settings.agentPermissionSnapshot,
       ),
-      compactContext: compactor.compact,
+      compactContext: compactor?.compact,
       isContextOverflow: (error) => error is AgentContextOverflowException,
       model: (request) => const StreamChunkAgentAdapter().adapt(
         _api.sendStreamRequest(

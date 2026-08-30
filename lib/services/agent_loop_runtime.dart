@@ -18,11 +18,18 @@ class AgentLoopRuntime {
     this.codec = const AgentProtocolCodec(),
     this.contextBuilder = const AgentContextBuilder(),
     this.cleanupTimeout = const Duration(seconds: 2),
+    this.contextBudgetingEnabled = true,
   });
 
   final AgentProtocolCodec codec;
   final AgentContextBuilder contextBuilder;
   final Duration cleanupTimeout;
+
+  /// 是否按上下文预算裁剪/压缩历史消息。
+  ///
+  /// 关闭后每轮直接发送完整上下文，模型返回 context overflow 时不强制
+  /// 压缩重试，而是原样抛出错误。
+  final bool contextBudgetingEnabled;
 
   AgentRunHandle start({
     required Iterable<Map<String, dynamic>> messages,
@@ -122,6 +129,7 @@ class AgentLoopRuntime {
             messages: working,
             cancellationToken: handle.token,
             forceCompaction: forceCompaction,
+            applyBudget: contextBudgetingEnabled,
             compact: compactContext == null
                 ? null
                 : (request) async {
@@ -164,7 +172,9 @@ class AgentLoopRuntime {
             final overflow =
                 isContextOverflow?.call(error) ??
                 _defaultContextOverflow(error);
-            if (!overflow || overflowRetried) rethrow;
+            if (!overflow || overflowRetried || !contextBudgetingEnabled) {
+              rethrow;
+            }
             overflowRetried = true;
             context = await buildContext(true);
           }

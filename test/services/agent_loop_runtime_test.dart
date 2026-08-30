@@ -413,6 +413,55 @@ void main() {
     expect(attempts, 2);
     expect(compactions, greaterThanOrEqualTo(1));
   });
+
+  test(
+    'contextBudgetingEnabled false does not retry context overflow',
+    () async {
+      var attempts = 0;
+      var compactions = 0;
+      final result =
+          await AgentLoopRuntime(
+                contextBuilder: const AgentContextBuilder(
+                  budget: AgentContextBudget(
+                    modelTokenBudget: 100,
+                    reservedOutputTokens: 20,
+                    charactersPerToken: 2,
+                  ),
+                ),
+                contextBudgetingEnabled: false,
+              )
+              .start(
+                messages: List.generate(
+                  8,
+                  (index) => {
+                    'role': 'user',
+                    'content': 'old context $index ${'x' * 30}',
+                  },
+                ),
+                maxToolRounds: 0,
+                compactContext: (request) async {
+                  compactions++;
+                  return const AgentCompactionCheckpoint(summary: 'summary');
+                },
+                isContextOverflow: (error) => error is _ContextOverflow,
+                model: (request) async* {
+                  attempts++;
+                  yield AgentModelStreamFailure(
+                    _ContextOverflow(),
+                    StackTrace.current,
+                  );
+                },
+                executeTools: (calls, identity, cancellationToken) async =>
+                    const [],
+              )
+              .result;
+
+      expect(result.status, AgentRunStatus.failed);
+      expect(result.error, isA<_ContextOverflow>());
+      expect(attempts, 1);
+      expect(compactions, 0);
+    },
+  );
 }
 
 class _ContextOverflow implements Exception {}

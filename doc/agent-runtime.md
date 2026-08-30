@@ -70,13 +70,13 @@ Run 同时固定权限快照。后续模型 turn、Agent Lua 同步预检、异�
 
 ## 上下文预算
 
-`AgentContextBuilder` 当前使用 JSON 字符数除以 `charactersPerToken` 估算 token，不调用具体模型 tokenizer。默认预算保留输出空间，并分别限制单个 tool result 与 compaction checkpoint。
+`AgentContextBuilder` 使用结构化近似估算 token，不调用具体模型 tokenizer：普通文本按 `字符数 / charactersPerToken` 估算；多模态内容里的图片 part 会把 base64 替换成占位符，并按每张图片固定近似值（当前 1024）计数，避免把图片字节误算成文本 token。默认预算保留输出空间，并限制 compaction checkpoint。
 
-构建过程会移除 reasoning 字段，只保留完整的 assistant tool-call/tool-result 配对，截断过大的 tool result，从新到旧选择可容纳单元，并尽量保留 system 消息。调用方提供 compactor 时，被丢弃消息可压缩为 bounded system checkpoint。
+构建过程会移除 reasoning 字段，只保留完整的 assistant tool-call/tool-result 配对；工具结果不再做 token 预截断，原样进入后续的预算选择。`applyBudget` 为 true 时，构建器从新到旧选择可容纳单元，并尽量保留 system 消息；调用方提供 compactor 时，被丢弃消息可压缩为 bounded system checkpoint。`applyBudget` 为 false 时不做选择、截断或压缩，只返回归一化后的完整上下文。
 
-模型返回 context overflow 时，runtime 最多强制压缩重试一次；第二次 overflow 直接失败。`ApiService` 会把常见上下文超限错误包装为 `AgentContextOverflowException`，主对话、悬浮聊天和 Subagent 都通过类型判断触发这次重试。生产调用方现在注入了 `ModelContextCompactor`：它用当前 Chat 模型（关闭 thinking/tools）把被裁消息压缩为有界 checkpoint；compactor 失败、超时或返回空摘要时回退到现有截断策略，不使 run 失败。
+模型返回 context overflow 时，runtime 在 `contextBudgetingEnabled` 为 true 时最多强制压缩重试一次，第二次 overflow 直接失败；关闭该开关后不重试，原样抛出错误。`ApiService` 会把常见上下文超限错误包装为 `AgentContextOverflowException`，主对话、悬浮聊天和 Subagent 都通过类型判断触发这次重试。主对话和悬浮聊天按 `ConversationSettings.contextCompressionEnabled` 同时控制压缩与预算截断；Subagent 的短暂隔离上下文仍保持启用。生产调用方在启用时注入 `ModelContextCompactor`：它用当前 Chat 模型（关闭 thinking/tools）把被裁消息压缩为有界 checkpoint；compactor 失败、超时或返回空摘要时回退到现有截断策略，不使 run 失败。
 
-上下文预算按模型生效值 `ModelConfig.effectiveContextWindow` 构造，来源优先级为用户本地覆盖 > 托管 `/relay/config` 下发 > 从模型 endpoint 拉取 > 默认 262144（`defaultAgentContextWindow`，256k）。估算仍是字符数近似，不是精确 tokenizer。
+上下文预算按模型生效值 `ModelConfig.effectiveContextWindow` 构造，来源优先级为用户本地覆盖 > 托管 `/relay/config` 下发 > 从模型 endpoint 拉取 > 默认 262144（`defaultAgentContextWindow`，256k）。估算仍是近似，不是精确 tokenizer。
 
 ## Tool Result Sanitization Foundation
 

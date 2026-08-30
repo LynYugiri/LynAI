@@ -18,7 +18,8 @@ import 'prompt_role_dialogs.dart';
 
 /// 对话设置弹窗内容。
 ///
-/// 整合模型选择器、思维链开关、系统提示词编辑、语音和图片模型配置。
+/// 整合模型选择器、思维链开关、系统提示词编辑、上下文压缩开关、语音和
+/// 图片模型配置。
 class DialogSettingsContent extends StatefulWidget {
   final ConversationSettings settings;
   final ValueChanged<ConversationSettings> onChanged;
@@ -225,6 +226,28 @@ class _DialogSettingsContentState extends State<DialogSettingsContent> {
                 const SizedBox(height: 4),
                 _systemPromptList(set),
               ],
+              const SizedBox(height: 20),
+              Text(
+                '上下文',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(height: 8),
+              SwitchListTile(
+                dense: true,
+                value: _settings.contextCompressionEnabled,
+                title: const Text('上下文自动压缩'),
+                subtitle: const Text('超预算时压缩较早历史；关闭后不压缩、不截断，超长时直接失败'),
+                controlAffinity: ListTileControlAffinity.leading,
+                onChanged: (value) {
+                  _updateSettings(
+                    _settings.copyWith(contextCompressionEnabled: value),
+                  );
+                },
+              ),
               const SizedBox(height: 20),
               Text(
                 '对话权限',

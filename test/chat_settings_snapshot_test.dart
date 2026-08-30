@@ -360,4 +360,70 @@ void main() {
     await conversations.flushPendingSaves();
     await settings.flushPendingSaves();
   });
+
+  testWidgets('context compression switch updates conversation settings', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    final conversations = memoryConversationProvider();
+    final settings = memorySettingsProvider();
+    final models = memoryModelConfigProvider()
+      ..addModel(
+        ModelConfig(
+          id: 'm1',
+          name: 'test',
+          endpoint: 'https://example.test',
+          apiKey: '',
+          modelName: 'model',
+          apiType: 'openai',
+          priority: 0,
+        ),
+      );
+    final conversationId = conversations.createConversation(
+      ConversationSettings(modelId: 'm1', contextCompressionEnabled: true),
+    );
+
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider.value(value: conversations),
+          ChangeNotifierProvider.value(value: memoryWorkspaceProvider()),
+          ChangeNotifierProvider.value(value: settings),
+          ChangeNotifierProvider.value(value: models),
+          ChangeNotifierProvider(create: (_) => FeatureProvider()),
+          ChangeNotifierProvider(create: (_) => MemoryCardProvider()),
+          ChangeNotifierProvider.value(value: memoryRoleMemoryProvider()),
+          ChangeNotifierProvider(create: (_) => JottingProvider()),
+          ChangeNotifierProvider(create: (_) => TaskProvider()),
+          ChangeNotifierProvider(create: (_) => CalendarProvider()),
+          ChangeNotifierProvider(create: (_) => PluginProvider()),
+          ChangeNotifierProvider(create: (_) => KnowledgeProvider()),
+          ChangeNotifierProvider(create: (_) => BackendClient()),
+          Provider.value(value: storage),
+        ],
+        child: MaterialApp(home: ChatPage(conversationId: conversationId)),
+      ),
+    );
+    await tester.pump();
+
+    await tester.tap(find.byIcon(Icons.tune));
+    await tester.pumpAndSettle();
+
+    expect(find.text('上下文自动压缩'), findsOneWidget);
+    final switchTile = find.widgetWithText(SwitchListTile, '上下文自动压缩');
+    expect(switchTile, findsOneWidget);
+    await tester.ensureVisible(switchTile);
+    await tester.pump();
+    await tester.tap(switchTile);
+    await tester.pump();
+
+    expect(
+      conversations
+          .getConversation(conversationId)
+          ?.settings
+          .contextCompressionEnabled,
+      isFalse,
+    );
+    await conversations.flushPendingSaves();
+  });
 }

@@ -55,6 +55,9 @@ class ConversationSettings {
   /// 单次 Agent run 允许的最大工具轮数。
   final int maxToolRounds;
 
+  /// 是否启用上下文自动压缩与预算截断。
+  final bool contextCompressionEnabled;
+
   /// 创建一个对话设置快照实例。
   ConversationSettings({
     required this.modelId,
@@ -72,6 +75,7 @@ class ConversationSettings {
     this.imageGenerationEnabled = false,
     this.agentEnabled = false,
     this.maxToolRounds = defaultAgentMaxToolRounds,
+    this.contextCompressionEnabled = defaultContextCompressionEnabled,
   });
 
   static const _sentinel = Object();
@@ -93,6 +97,7 @@ class ConversationSettings {
     bool? imageGenerationEnabled,
     bool? agentEnabled,
     int? maxToolRounds,
+    bool? contextCompressionEnabled,
   }) {
     return ConversationSettings(
       modelId: modelId ?? this.modelId,
@@ -125,6 +130,8 @@ class ConversationSettings {
           imageGenerationEnabled ?? this.imageGenerationEnabled,
       agentEnabled: agentEnabled ?? this.agentEnabled,
       maxToolRounds: maxToolRounds ?? this.maxToolRounds,
+      contextCompressionEnabled:
+          contextCompressionEnabled ?? this.contextCompressionEnabled,
     );
   }
 
@@ -157,6 +164,9 @@ class ConversationSettings {
           ((json['maxToolRounds'] as num?)?.toInt() ??
                   defaultAgentMaxToolRounds)
               .clamp(minAgentMaxToolRounds, maxAgentMaxToolRounds),
+      contextCompressionEnabled:
+          json['contextCompressionEnabled'] as bool? ??
+          defaultContextCompressionEnabled,
     );
   }
 
@@ -181,6 +191,7 @@ class ConversationSettings {
       'imageGenerationEnabled': imageGenerationEnabled,
       'agentEnabled': agentEnabled,
       'maxToolRounds': maxToolRounds,
+      'contextCompressionEnabled': contextCompressionEnabled,
     };
   }
 }

@@ -6,14 +6,12 @@ import '../models/agent_runtime.dart';
 class AgentContextBudget {
   final int modelTokenBudget;
   final int reservedOutputTokens;
-  final int maxToolResultTokens;
   final int maxCompactionTokens;
   final int charactersPerToken;
 
   const AgentContextBudget({
     this.modelTokenBudget = defaultAgentContextWindow,
     this.reservedOutputTokens = 4096,
-    this.maxToolResultTokens = 2048,
     this.maxCompactionTokens = 2048,
     this.charactersPerToken = 4,
   });
@@ -27,15 +25,91 @@ class AgentContextBudget {
 class AgentCharacterContextEstimator {
   final int charactersPerToken;
 
-  const AgentCharacterContextEstimator({this.charactersPerToken = 4});
+  /// 每张图片内容的保守 token 估算。
+  ///
+  /// 视觉模型按像素/图块计算图片 token，而不是按 base64 长度计算；这里用
+  /// 固定值避免把图片字节误算成文本 token，同时不声称是精确 tokenizer。
+  final int imageTokensPerImage;
+
+  const AgentCharacterContextEstimator({
+    this.charactersPerToken = 4,
+    this.imageTokensPerImage = 1024,
+  });
 
   int estimateMessages(Iterable<Map<String, dynamic>> messages) {
-    return estimateText(jsonEncode(messages));
+    var tokens = 0;
+    for (final message in messages) {
+      tokens += estimateText(jsonEncode(_budgetSafeMessage(message)));
+      tokens += _imagePartCount(message['content']) * imageTokensPerImage;
+    }
+    return tokens;
   }
 
   int estimateText(String value) {
     if (value.isEmpty) return 0;
     return (value.length + charactersPerToken - 1) ~/ charactersPerToken;
+  }
+
+  Map<String, dynamic> _budgetSafeMessage(Map<String, dynamic> message) {
+    final safe = Map<String, dynamic>.from(message);
+    final content = message['content'];
+    if (content is! List) return safe;
+    safe['content'] = content
+        .map<Object?>((part) {
+          if (part is! Map) return part;
+          final safePart = Map<String, dynamic>.from(part);
+          switch (safePart['type']) {
+            case 'input_file':
+              final mimeType = safePart['mime_type']?.toString() ?? '';
+              if (mimeType.startsWith('image/')) {
+                safePart['data'] = '<base64 image omitted>';
+              }
+              break;
+            case 'image_url':
+              final imageUrl = safePart['image_url'];
+              if (imageUrl is Map) {
+                final safeImageUrl = Map<String, dynamic>.from(imageUrl);
+                final url = safeImageUrl['url']?.toString() ?? '';
+                if (url.startsWith('data:')) {
+                  safeImageUrl['url'] =
+                      'data:image/placeholder;base64,<base64 image omitted>';
+                }
+                safePart['image_url'] = safeImageUrl;
+              }
+              break;
+            case 'image':
+              final source = safePart['source'];
+              if (source is Map) {
+                final safeSource = Map<String, dynamic>.from(source);
+                if (safeSource['data'] is String) {
+                  safeSource['data'] = '<base64 image omitted>';
+                }
+                safePart['source'] = safeSource;
+              }
+              break;
+          }
+          return safePart;
+        })
+        .toList(growable: false);
+    return safe;
+  }
+
+  int _imagePartCount(Object? content) {
+    if (content is! List) return 0;
+    var count = 0;
+    for (final part in content) {
+      if (part is! Map) continue;
+      final type = part['type'];
+      if (type == 'image_url' || type == 'image') {
+        count++;
+        continue;
+      }
+      if (type == 'input_file' &&
+          (part['mime_type']?.toString() ?? '').startsWith('image/')) {
+        count++;
+      }
+    }
+    return count;
   }
 }
 
@@ -91,12 +165,21 @@ class AgentContextBuilder {
     required AgentRunCancellation cancellationToken,
     AgentContextCompactor? compact,
     bool forceCompaction = false,
+    bool applyBudget = true,
   }) async {
     cancellationToken.throwIfCancellationRequested();
     final estimator = AgentCharacterContextEstimator(
       charactersPerToken: budget.charactersPerToken,
     );
     final normalized = _normalize(messages);
+    if (!applyBudget) {
+      return AgentContextBuildResult(
+        messages: normalized,
+        estimatedTokens: estimator.estimateMessages(normalized),
+        droppedMessageCount: 0,
+        compacted: false,
+      );
+    }
     final targetTokens = forceCompaction
         ? (budget.inputTokenBudget * 3 ~/ 4).clamp(1, budget.inputTokenBudget)
         : budget.inputTokenBudget;
@@ -139,7 +222,7 @@ class AgentContextBuilder {
       final message = input[index];
       final calls = message['tool_calls'];
       if (message['role'] != 'assistant' || calls is! List || calls.isEmpty) {
-        if (message['role'] != 'tool') output.add(_boundToolResult(message));
+        if (message['role'] != 'tool') output.add(message);
         continue;
       }
       final resultMessages = <String, Map<String, dynamic>>{};
@@ -147,7 +230,7 @@ class AgentContextBuilder {
       while (cursor < input.length && input[cursor]['role'] == 'tool') {
         final result = input[cursor];
         final id = result['tool_call_id']?.toString();
-        if (id != null) resultMessages[id] = _boundToolResult(result);
+        if (id != null) resultMessages[id] = result;
         cursor++;
       }
       final completeCalls = <Object?>[];
@@ -185,19 +268,6 @@ class AgentContextBuilder {
       message.remove(key);
     }
     return message;
-  }
-
-  Map<String, dynamic> _boundToolResult(Map<String, dynamic> message) {
-    if (message['role'] != 'tool') return message;
-    final content = message['content']?.toString() ?? '';
-    final maxCharacters =
-        budget.maxToolResultTokens * budget.charactersPerToken;
-    if (content.length <= maxCharacters) return message;
-    return {
-      ...message,
-      'content':
-          '${content.substring(0, maxCharacters)}\n[tool result truncated]',
-    };
   }
 
   List<Map<String, dynamic>> _selectWithinBudget(
@@ -248,34 +318,13 @@ class AgentContextBuilder {
     int targetTokens,
     AgentCharacterContextEstimator estimator,
   ) {
-    final result = unit;
-    if (estimator.estimateMessages(result) <= targetTokens) return result;
-    final userIndex = result.lastIndexWhere(
+    if (estimator.estimateMessages(unit) <= targetTokens) return unit;
+    final userIndex = unit.lastIndexWhere(
       (message) => message['role'] == 'user',
     );
-    if (userIndex < 0) return result;
-    final message = result[userIndex];
-    final content = message['content']?.toString() ?? '';
-    const suffix = '\n[earlier content truncated]';
-    var low = 0;
-    var high = content.length;
-    while (low < high) {
-      final length = (low + high + 1) ~/ 2;
-      message['content'] =
-          '${content.substring(content.length - length)}$suffix';
-      if (estimator.estimateMessages(result) <= targetTokens) {
-        low = length;
-      } else {
-        high = length - 1;
-      }
-    }
-    message['content'] = low == content.length
-        ? content
-        : '${content.substring(content.length - low)}$suffix';
-    if (estimator.estimateMessages(result) > targetTokens) {
-      message['content'] = '';
-    }
-    return result;
+    if (userIndex < 0) return unit;
+    _truncateMessageTextAt(unit, userIndex, targetTokens, estimator);
+    return unit;
   }
 
   List<List<Map<String, dynamic>>> _units(List<Map<String, dynamic>> messages) {
@@ -417,13 +466,74 @@ class AgentContextBuilder {
     if (result.isEmpty || estimator.estimateMessages(result) <= targetTokens) {
       return result;
     }
-    final message = result.single;
-    final content = message['content']?.toString() ?? '';
-    final maxCharacters = targetTokens * budget.charactersPerToken ~/ 2;
-    message['content'] = content.length <= maxCharacters
-        ? content
-        : '${content.substring(content.length - maxCharacters)}\n[earlier content truncated]';
+    _truncateMessageTextAt(result, 0, targetTokens, estimator);
     return result;
+  }
+
+  void _truncateMessageTextAt(
+    List<Map<String, dynamic>> unit,
+    int messageIndex,
+    int targetTokens,
+    AgentCharacterContextEstimator estimator,
+  ) {
+    if (messageIndex < 0 || messageIndex >= unit.length) return;
+    final message = unit[messageIndex];
+    final content = message['content'];
+    const suffix = '\n[earlier content truncated]';
+
+    if (content is String) {
+      if (content.isEmpty) return;
+      var low = 0;
+      var high = content.length;
+      while (low < high) {
+        final length = (low + high + 1) ~/ 2;
+        message['content'] =
+            '${content.substring(content.length - length)}$suffix';
+        if (estimator.estimateMessages(unit) <= targetTokens) {
+          low = length;
+        } else {
+          high = length - 1;
+        }
+      }
+      message['content'] = low == content.length
+          ? content
+          : '${content.substring(content.length - low)}$suffix';
+      if (estimator.estimateMessages(unit) > targetTokens) {
+        message['content'] = '';
+      }
+      return;
+    }
+
+    if (content is! List) return;
+    final parts = List<Object?>.from(content);
+    message['content'] = parts;
+    for (var index = 0; index < parts.length; index++) {
+      final rawPart = parts[index];
+      if (rawPart is! Map || rawPart['type'] != 'text') continue;
+      final part = Map<String, dynamic>.from(rawPart);
+      parts[index] = part;
+      final text = part['text'];
+      if (text is! String || text.isEmpty) continue;
+      var low = 0;
+      var high = text.length;
+      while (low < high) {
+        final length = (low + high + 1) ~/ 2;
+        part['text'] = '${text.substring(text.length - length)}$suffix';
+        if (estimator.estimateMessages(unit) <= targetTokens) {
+          low = length;
+        } else {
+          high = length - 1;
+        }
+      }
+      if (low == text.length) {
+        part['text'] = text;
+        if (estimator.estimateMessages(unit) <= targetTokens) return;
+        continue;
+      }
+      part['text'] = '${text.substring(text.length - low)}$suffix';
+      if (estimator.estimateMessages(unit) <= targetTokens) return;
+      part['text'] = text;
+    }
   }
 
   bool _hasContent(Map<String, dynamic> message) {
