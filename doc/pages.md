@@ -131,7 +131,7 @@ Agent 工具轮数上限保存为 `ConversationSettings.maxToolRounds`（新建�
 |--------|------|--------------|
 | 功能总览 | `features/dashboard.dart` | 查看功能入口卡片并快速进入子功能。 |
 | 对话历史 | `features/feature_shell.dart` | 搜索历史、按角色分组、删除对话、跳转对话、切换角色。 |
-| 日历 | `features/schedule_page.dart` | 查看月/日/年发生记录，创建和编辑事件、任务、纪念日及提醒。 |
+| 日历 | `features/schedule_page.dart` | 查看月/日/年发生记录，创建和编辑事件、任务、纪念日及提醒；日视图支持捏合或 Ctrl/滚轮缩放，上滑收起模式切换与新建按钮；月视图点击日期从底部弹出当日事项列表，日期格用小红点标记。 |
 | 笔记 | `features/notes_page.dart`, `features/note_detail_page.dart` | 文件夹、Markdown/LaTeX 编辑、分页、修订时间线、导入导出。 |
 | 任务清单 | `features/todo_lists_page.dart` | 未完成/已完成聚合、可展开自定义清单、任务日期、提醒、排序、Markdown 导入导出和长图分享。 |
 | 情景演绎 | `features/roleplay_page.dart` | 情景模板、多角色线程、导演决策、玩家消息、附件和导出。 |

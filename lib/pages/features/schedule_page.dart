@@ -1,5 +1,7 @@
 import 'dart:async';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../../models/anniversary.dart';
 import '../../models/calendar_event.dart';
@@ -37,6 +39,8 @@ class SchedulePageState extends State<SchedulePage> {
   static const _dayCount = 31;
   static const _dayHalf = _dayCount ~/ 2;
   static const _dayHeaderHeight = 58.0;
+  static const _minDayZoom = 0.7;
+  static const _maxDayZoom = 1.8;
 
   final _verticalController = ScrollController(
     initialScrollOffset: 8 * _hourHeight,
@@ -47,12 +51,14 @@ class SchedulePageState extends State<SchedulePage> {
   final _headerController = ScrollController(
     initialScrollOffset: _dayHalf * _dayColumnWidth,
   );
-  final _summaryController = ScrollController(
-    initialScrollOffset: _dayHalf * _dayColumnWidth,
-  );
   bool _syncingScroll = false;
   bool _completedExpanded = false;
   bool _dayNeedsCenter = true;
+  double _dayZoom = 1.0;
+  double _dayScaleStartZoom = 1.0;
+  double? _dayScaleStartDistance;
+  final Map<int, Offset> _dayPointerPositions = {};
+  double _scheduleControlsCollapse = 0;
   _CalendarMode _mode = _CalendarMode.month;
   DateTime _focus = DateTime.now();
   DateTime? _selectedDate;
@@ -66,9 +72,6 @@ class SchedulePageState extends State<SchedulePage> {
       _updateDayFocus();
     });
     _headerController.addListener(() => _syncHorizontalFrom(_headerController));
-    _summaryController.addListener(
-      () => _syncHorizontalFrom(_summaryController),
-    );
   }
 
   @override
@@ -76,18 +79,13 @@ class SchedulePageState extends State<SchedulePage> {
     _verticalController.dispose();
     _horizontalController.dispose();
     _headerController.dispose();
-    _summaryController.dispose();
     super.dispose();
   }
 
   void _syncHorizontalFrom(ScrollController source) {
     if (_syncingScroll || !source.hasClients) return;
     _syncingScroll = true;
-    for (final target in [
-      _horizontalController,
-      _headerController,
-      _summaryController,
-    ]) {
+    for (final target in [_horizontalController, _headerController]) {
       if (identical(source, target) || !target.hasClients) continue;
       target.jumpTo(
         source.offset
@@ -101,6 +99,75 @@ class SchedulePageState extends State<SchedulePage> {
     _syncingScroll = false;
   }
 
+  void _setDayZoom(double value) {
+    final next = value.clamp(_minDayZoom, _maxDayZoom).toDouble();
+    if ((next - _dayZoom).abs() < 0.01) return;
+    setState(() => _dayZoom = next);
+  }
+
+  void _handleDayPointerSignal(PointerSignalEvent event) {
+    if (event is! PointerScrollEvent) return;
+    final keyboard = HardwareKeyboard.instance;
+    if (!keyboard.isControlPressed && !keyboard.isMetaPressed) return;
+    GestureBinding.instance.pointerSignalResolver.register(event, (event) {
+      if (event is! PointerScrollEvent) return;
+      final delta = event.scrollDelta.dy < 0 ? 0.08 : -0.08;
+      _setDayZoom(_dayZoom + delta);
+    });
+  }
+
+  void _handleDayPointerDown(PointerDownEvent event) {
+    _dayPointerPositions[event.pointer] = event.localPosition;
+    if (_dayPointerPositions.length == 2) {
+      _dayScaleStartZoom = _dayZoom;
+      _dayScaleStartDistance = _dayPointerDistance();
+    }
+  }
+
+  void _handleDayPointerMove(PointerMoveEvent event) {
+    if (!_dayPointerPositions.containsKey(event.pointer)) return;
+    _dayPointerPositions[event.pointer] = event.localPosition;
+    final startDistance = _dayScaleStartDistance;
+    final currentDistance = _dayPointerDistance();
+    if (_dayPointerPositions.length < 2 ||
+        startDistance == null ||
+        startDistance <= 0 ||
+        currentDistance == null) {
+      return;
+    }
+    _setDayZoom(_dayScaleStartZoom * currentDistance / startDistance);
+  }
+
+  void _handleDayPointerEnd(PointerEvent event) {
+    _dayPointerPositions.remove(event.pointer);
+    if (_dayPointerPositions.length < 2) {
+      _dayScaleStartDistance = null;
+      _dayScaleStartZoom = _dayZoom;
+    } else {
+      _dayScaleStartDistance = _dayPointerDistance();
+      _dayScaleStartZoom = _dayZoom;
+    }
+  }
+
+  double? _dayPointerDistance() {
+    if (_dayPointerPositions.length < 2) return null;
+    final values = _dayPointerPositions.values.take(2).toList();
+    return (values[0] - values[1]).distance;
+  }
+
+  bool _onScheduleScroll(ScrollNotification notification) {
+    if (notification.metrics.axis != Axis.vertical) return false;
+    if (notification is ScrollUpdateNotification) {
+      final delta = notification.scrollDelta;
+      if (delta == null || delta == 0) return false;
+      final next = (_scheduleControlsCollapse + delta / 72).clamp(0.0, 1.0);
+      if ((next - _scheduleControlsCollapse).abs() >= 0.01) {
+        setState(() => _scheduleControlsCollapse = next);
+      }
+    }
+    return false;
+  }
+
   @override
   Widget build(BuildContext context) {
     final calendar = context.watch<CalendarProvider>();
@@ -109,11 +176,14 @@ class SchedulePageState extends State<SchedulePage> {
       children: [
         _header(),
         Expanded(
-          child: switch (_mode) {
-            _CalendarMode.month => _monthView(calendar, tasks),
-            _CalendarMode.day => _dayView(calendar, tasks),
-            _CalendarMode.year => _yearView(calendar, tasks),
-          },
+          child: NotificationListener<ScrollNotification>(
+            onNotification: _onScheduleScroll,
+            child: switch (_mode) {
+              _CalendarMode.month => _monthView(calendar, tasks),
+              _CalendarMode.day => _dayView(calendar, tasks),
+              _CalendarMode.year => _yearView(calendar, tasks),
+            },
+          ),
         ),
       ],
     );
@@ -121,6 +191,7 @@ class SchedulePageState extends State<SchedulePage> {
 
   Widget _header() {
     final compact = MediaQuery.sizeOf(context).width < 620;
+    final progress = _scheduleControlsCollapse;
     final navigator = Row(
       children: [
         IconButton.filledTonal(
@@ -156,45 +227,69 @@ class SchedulePageState extends State<SchedulePage> {
         ),
       ],
     );
-    final controls = Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        SegmentedButton<_CalendarMode>(
-          segments: const [
-            ButtonSegment(value: _CalendarMode.month, label: Text('月')),
-            ButtonSegment(value: _CalendarMode.day, label: Text('日')),
-            ButtonSegment(value: _CalendarMode.year, label: Text('年')),
-          ],
-          selected: {_mode},
-          onSelectionChanged: (value) => setState(() {
-            _mode = value.first;
-            if (_mode == _CalendarMode.day) {
-              _dayWindowStart = _dateOnly(
-                _focus,
-              ).subtract(const Duration(days: _dayHalf));
-              _dayNeedsCenter = true;
-            }
-          }),
+    final controls = ClipRect(
+      child: Align(
+        alignment: Alignment.centerRight,
+        widthFactor: compact ? 1 : 1 - progress,
+        heightFactor: compact ? 1 - progress : 1,
+        child: Opacity(
+          opacity: 1 - progress,
+          child: Transform.translate(
+            offset: Offset(0, -12 * progress),
+            child: IgnorePointer(
+              key: const ValueKey('schedule-controls'),
+              ignoring: progress > 0.6,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  SegmentedButton<_CalendarMode>(
+                    key: const ValueKey('calendar-mode-switch'),
+                    segments: const [
+                      ButtonSegment(
+                        value: _CalendarMode.month,
+                        label: Text('月'),
+                      ),
+                      ButtonSegment(value: _CalendarMode.day, label: Text('日')),
+                      ButtonSegment(
+                        value: _CalendarMode.year,
+                        label: Text('年'),
+                      ),
+                    ],
+                    selected: {_mode},
+                    onSelectionChanged: (value) => setState(() {
+                      _mode = value.first;
+                      if (_mode == _CalendarMode.day) {
+                        _dayWindowStart = _dateOnly(
+                          _focus,
+                        ).subtract(const Duration(days: _dayHalf));
+                        _dayNeedsCenter = true;
+                      }
+                    }),
+                  ),
+                  const SizedBox(width: 8),
+                  AddMenuButton(
+                    items: const [
+                      AddMenuItem('event', Icons.event_outlined, '新建事件'),
+                      AddMenuItem('task', Icons.task_alt, '新建任务'),
+                      AddMenuItem('anniversary', Icons.cake_outlined, '新建纪念日'),
+                    ],
+                    onSelected: (value) {
+                      switch (value) {
+                        case 'event':
+                          _openEventEditor();
+                        case 'task':
+                          _openTaskEditor();
+                        case 'anniversary':
+                          _openAnniversaryEditor();
+                      }
+                    },
+                  ),
+                ],
+              ),
+            ),
+          ),
         ),
-        const SizedBox(width: 8),
-        AddMenuButton(
-          items: const [
-            AddMenuItem('event', Icons.event_outlined, '新建事件'),
-            AddMenuItem('task', Icons.task_alt, '新建任务'),
-            AddMenuItem('anniversary', Icons.cake_outlined, '新建纪念日'),
-          ],
-          onSelected: (value) {
-            switch (value) {
-              case 'event':
-                _openEventEditor();
-              case 'task':
-                _openTaskEditor();
-              case 'anniversary':
-                _openAnniversaryEditor();
-            }
-          },
-        ),
-      ],
+      ),
     );
     return Container(
       margin: const EdgeInsets.fromLTRB(12, 10, 12, 6),
@@ -210,7 +305,7 @@ class SchedulePageState extends State<SchedulePage> {
           ? Column(
               children: [
                 navigator,
-                const SizedBox(height: 10),
+                SizedBox(height: 10 * (1 - progress)),
                 Align(alignment: Alignment.centerRight, child: controls),
               ],
             )
@@ -291,20 +386,17 @@ class SchedulePageState extends State<SchedulePage> {
           child: Row(
             children: [
               TextButton.icon(
-                onPressed: () => setState(() {
-                  _focus = DateTime.now();
-                  _selectedDate = _dateOnly(DateTime.now());
-                }),
+                onPressed: () {
+                  final now = DateTime.now();
+                  setState(() {
+                    _focus = DateTime(now.year, now.month, 1);
+                  });
+                  _openDaySheet(_dateOnly(now), calendar, tasks);
+                },
                 icon: const Icon(Icons.today, size: 18),
                 label: const Text('今天'),
               ),
               const Spacer(),
-              if (selected != null)
-                IconButton(
-                  tooltip: '关闭日期详情',
-                  onPressed: () => setState(() => _selectedDate = null),
-                  icon: const Icon(Icons.close),
-                ),
             ],
           ),
         ),
@@ -351,19 +443,12 @@ class SchedulePageState extends State<SchedulePage> {
                 date,
                 _onDate(occurrences, date),
                 selected != null && _sameDate(selected, date),
+                calendar,
+                tasks,
               );
             },
           ),
         ),
-        if (selected != null)
-          Expanded(
-            child: _dateDetail(
-              selected,
-              _onDate(occurrences, selected),
-              calendar,
-              tasks,
-            ),
-          ),
       ],
     );
   }
@@ -372,6 +457,8 @@ class SchedulePageState extends State<SchedulePage> {
     DateTime date,
     List<CalendarOccurrence> occurrences,
     bool selected,
+    CalendarProvider calendar,
+    TaskProvider tasks,
   ) {
     final scheme = Theme.of(context).colorScheme;
     final today = _sameDate(date, DateTime.now());
@@ -390,7 +477,7 @@ class SchedulePageState extends State<SchedulePage> {
       borderRadius: BorderRadius.circular(11),
       child: InkWell(
         borderRadius: BorderRadius.circular(11),
-        onTap: () => setState(() => _selectedDate = date),
+        onTap: () => _openDaySheet(date, calendar, tasks),
         child: Container(
           padding: const EdgeInsets.all(5),
           decoration: BoxDecoration(
@@ -415,10 +502,11 @@ class SchedulePageState extends State<SchedulePage> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  if (hasCalendar) _marker(scheme.primary),
-                  if (hasCalendar && hasIncompleteTask)
-                    const SizedBox(width: 4),
-                  if (hasIncompleteTask) _marker(scheme.error),
+                  if (hasCalendar || hasIncompleteTask)
+                    _marker(
+                      scheme.error,
+                      key: const ValueKey('month-date-dot'),
+                    ),
                 ],
               ),
               if (occurrences.isNotEmpty)
@@ -433,105 +521,128 @@ class SchedulePageState extends State<SchedulePage> {
     );
   }
 
-  Widget _marker(Color color) => Container(
+  Widget _marker(Color color, {Key? key}) => Container(
+    key: key,
     width: 7,
     height: 7,
     decoration: BoxDecoration(color: color, shape: BoxShape.circle),
   );
 
-  Widget _dateDetail(
+  Future<void> _openDaySheet(
     DateTime date,
-    List<CalendarOccurrence> occurrences,
     CalendarProvider calendar,
     TaskProvider tasks,
-  ) {
-    final anniversaries = occurrences
-        .where((value) => value.kind == CalendarOccurrenceKind.anniversary)
-        .toList();
-    final allDay = occurrences.where((value) {
-      return value.kind == CalendarOccurrenceKind.event &&
-          (value.isAllDay || value.endDateExclusive != value.date.addDays(1));
-    }).toList();
-    final timed = occurrences.where((value) {
-      return value.kind == CalendarOccurrenceKind.event &&
-          !allDay.contains(value);
-    }).toList();
-    final incomplete = occurrences
-        .where((value) => _isTask(value) && !value.isCompleted)
-        .toList();
-    final completed = occurrences
-        .where((value) => _isTask(value) && value.isCompleted)
-        .toList();
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-      child: Material(
-        color: Theme.of(
-          context,
-        ).colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
-        borderRadius: BorderRadius.circular(16),
-        clipBehavior: Clip.antiAlias,
-        child: ListView(
-          padding: const EdgeInsets.all(12),
-          children: [
-            Text(
-              '${date.year}-${_two(date.month)}-${_two(date.day)}  周${_weekday(date.weekday)}',
-              style: Theme.of(
-                context,
-              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
-            ),
-            if (occurrences.isEmpty)
-              const Padding(
-                padding: EdgeInsets.symmetric(vertical: 28),
-                child: Center(child: Text('这一天没有事项')),
-              ),
-            _detailGroup(
-              '纪念日',
-              Icons.cake_outlined,
-              anniversaries,
-              calendar,
-              tasks,
-            ),
-            _detailGroup('全天 / 跨日', Icons.event_note, allDay, calendar, tasks),
-            _detailGroup('定时事件', Icons.schedule, timed, calendar, tasks),
-            _detailGroup('未完成任务', Icons.task_alt, incomplete, calendar, tasks),
-            if (completed.isNotEmpty)
-              ExpansionTile(
-                tilePadding: EdgeInsets.zero,
-                initiallyExpanded: _completedExpanded,
-                onExpansionChanged: (value) => _completedExpanded = value,
-                title: Text('已完成 (${completed.length})'),
-                children: completed
-                    .map((value) => _occurrenceTile(value, calendar, tasks))
-                    .toList(),
-              ),
-          ],
-        ),
-      ),
+  ) async {
+    final day = _dateOnly(date);
+    setState(() => _selectedDate = day);
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (sheetContext) =>
+          _daySheetContent(sheetContext, day, calendar, tasks),
     );
+    if (!mounted) return;
+    final selected = _selectedDate;
+    if (selected != null && _sameDate(selected, day)) {
+      setState(() => _selectedDate = null);
+    }
   }
 
-  Widget _detailGroup(
-    String title,
-    IconData icon,
-    List<CalendarOccurrence> values,
+  Widget _daySheetContent(
+    BuildContext sheetContext,
+    DateTime date,
     CalendarProvider calendar,
     TaskProvider tasks,
   ) {
-    if (values.isEmpty) return const SizedBox.shrink();
-    return Padding(
-      padding: const EdgeInsets.only(top: 12),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(icon, size: 17),
-              const SizedBox(width: 6),
-              Text(title, style: const TextStyle(fontWeight: FontWeight.w700)),
-            ],
+    return SafeArea(
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.sizeOf(sheetContext).height * 0.72,
+        ),
+        child: Padding(
+          padding: EdgeInsets.fromLTRB(
+            16,
+            4,
+            16,
+            MediaQuery.viewInsetsOf(sheetContext).bottom + 16,
           ),
-          ...values.map((value) => _occurrenceTile(value, calendar, tasks)),
-        ],
+          child: ListenableBuilder(
+            listenable: Listenable.merge([calendar, tasks]),
+            builder: (context, _) {
+              final dayStart = _dateOnly(date);
+              final occurrences = _occurrences(
+                calendar,
+                tasks,
+                dayStart,
+                dayStart.add(const Duration(days: 1)),
+              );
+              final visible = occurrences
+                  .where((value) => !_isTask(value) || !value.isCompleted)
+                  .toList();
+              final completed = occurrences
+                  .where((value) => _isTask(value) && value.isCompleted)
+                  .toList();
+              return ListView(
+                shrinkWrap: true,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          '${date.year}-${_two(date.month)}-${_two(date.day)}  周${_weekday(date.weekday)}',
+                          style: Theme.of(context).textTheme.titleMedium
+                              ?.copyWith(fontWeight: FontWeight.w700),
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: '关闭',
+                        onPressed: () => Navigator.of(sheetContext).pop(),
+                        icon: const Icon(Icons.close),
+                      ),
+                    ],
+                  ),
+                  if (visible.isEmpty && completed.isEmpty)
+                    const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 28),
+                      child: Center(child: Text('这一天没有事项')),
+                    ),
+                  ...visible.map(
+                    (value) => _occurrenceTile(
+                      value,
+                      calendar,
+                      tasks,
+                      onTap: () {
+                        Navigator.of(sheetContext).pop();
+                        _editOccurrence(value, calendar, tasks);
+                      },
+                    ),
+                  ),
+                  if (completed.isNotEmpty)
+                    ExpansionTile(
+                      tilePadding: EdgeInsets.zero,
+                      initiallyExpanded: _completedExpanded,
+                      onExpansionChanged: (value) => _completedExpanded = value,
+                      title: Text('已完成 (${completed.length})'),
+                      children: completed
+                          .map(
+                            (value) => _occurrenceTile(
+                              value,
+                              calendar,
+                              tasks,
+                              onTap: () {
+                                Navigator.of(sheetContext).pop();
+                                _editOccurrence(value, calendar, tasks);
+                              },
+                            ),
+                          )
+                          .toList(),
+                    ),
+                ],
+              );
+            },
+          ),
+        ),
       ),
     );
   }
@@ -539,8 +650,9 @@ class SchedulePageState extends State<SchedulePage> {
   Widget _occurrenceTile(
     CalendarOccurrence occurrence,
     CalendarProvider calendar,
-    TaskProvider tasks,
-  ) {
+    TaskProvider tasks, {
+    VoidCallback? onTap,
+  }) {
     return ListTile(
       dense: true,
       contentPadding: EdgeInsets.zero,
@@ -565,7 +677,7 @@ class SchedulePageState extends State<SchedulePage> {
         ),
       ),
       subtitle: Text(_occurrenceSubtitle(occurrence)),
-      onTap: () => _editOccurrence(occurrence, calendar, tasks),
+      onTap: onTap ?? () => _editOccurrence(occurrence, calendar, tasks),
     );
   }
 
@@ -580,7 +692,10 @@ class SchedulePageState extends State<SchedulePage> {
       (index) => windowStart.add(Duration(days: index)),
     );
     final scheme = Theme.of(context).colorScheme;
-    final timelineHeight = 24 * _hourHeight;
+    final hourRowHeight = _hourHeight * _dayZoom;
+    final dayColumnWidth = _dayColumnWidth * _dayZoom;
+    final timelineHeight = 24 * hourRowHeight;
+    final timelineWidth = _dayCount * dayColumnWidth;
     if (_dayNeedsCenter) {
       _dayNeedsCenter = false;
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -589,232 +704,277 @@ class SchedulePageState extends State<SchedulePage> {
         }
       });
     }
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 6, 12, 12),
-      child: Container(
-        clipBehavior: Clip.antiAlias,
-        decoration: BoxDecoration(
-          color: scheme.surface,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: scheme.outlineVariant),
-        ),
-        child: Column(
-          children: [
-            SizedBox(
-              height: _dayHeaderHeight,
-              child: Row(
-                children: [
-                  const SizedBox(width: _timeColumnWidth),
-                  Expanded(
-                    child: SingleChildScrollView(
-                      controller: _headerController,
-                      scrollDirection: Axis.horizontal,
-                      child: Row(
-                        children: days.map((date) {
-                          final values = _onDate(occurrences, date);
-                          final hasIncompleteTask = values.any(
-                            (value) => _isTask(value) && !value.isCompleted,
-                          );
-                          return InkWell(
-                            onTap: () => setState(() => _focus = date),
-                            child: Container(
-                              width: _dayColumnWidth,
-                              height: _dayHeaderHeight,
-                              decoration: BoxDecoration(
-                                color: _sameDate(date, _focus)
-                                    ? scheme.primaryContainer
-                                    : null,
-                                border: Border(
-                                  left: BorderSide(
-                                    color: scheme.outlineVariant,
-                                  ),
-                                  bottom: BorderSide(
-                                    color: scheme.outlineVariant,
-                                  ),
-                                ),
-                              ),
-                              child: Stack(
-                                alignment: Alignment.center,
-                                children: [
-                                  Column(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Text('周${_weekday(date.weekday)}'),
-                                      Text(
-                                        '${date.month}/${date.day}',
-                                        style: const TextStyle(
-                                          fontWeight: FontWeight.w800,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  if (hasIncompleteTask)
-                                    Positioned(
-                                      right: 8,
-                                      top: 8,
-                                      child: _marker(scheme.error),
-                                    ),
-                                ],
-                              ),
-                            ),
-                          );
-                        }).toList(),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            _daySummaryRow(days, occurrences, calendar, tasks),
-            Expanded(
-              child: SingleChildScrollView(
-                controller: _verticalController,
+    return Listener(
+      onPointerSignal: _handleDayPointerSignal,
+      onPointerDown: _handleDayPointerDown,
+      onPointerMove: _handleDayPointerMove,
+      onPointerUp: _handleDayPointerEnd,
+      onPointerCancel: _handleDayPointerEnd,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 6, 12, 12),
+        child: Container(
+          clipBehavior: Clip.antiAlias,
+          decoration: BoxDecoration(
+            color: scheme.surface,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: scheme.outlineVariant),
+          ),
+          child: Column(
+            children: [
+              SizedBox(
+                height: _dayHeaderHeight,
                 child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     SizedBox(
                       width: _timeColumnWidth,
-                      height: timelineHeight,
-                      child: Stack(
-                        children: [
-                          for (var hour = 0; hour < 24; hour++)
-                            Positioned(
-                              top: hour * _hourHeight,
-                              right: 4,
-                              child: Text(
-                                '${_two(hour)}:00',
-                                style: TextStyle(
-                                  fontSize: 10,
-                                  color: scheme.onSurfaceVariant,
-                                ),
-                              ),
-                            ),
-                        ],
+                      child: Center(
+                        child: Text(
+                          '${(_dayZoom * 100).round()}%',
+                          style: TextStyle(
+                            fontSize: 10.5,
+                            color: scheme.onSurfaceVariant,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
                       ),
                     ),
                     Expanded(
                       child: SingleChildScrollView(
-                        controller: _horizontalController,
+                        controller: _headerController,
                         scrollDirection: Axis.horizontal,
-                        child: SizedBox(
-                          width: _dayCount * _dayColumnWidth,
-                          height: timelineHeight,
-                          child: Stack(
-                            children: [
-                              for (var hour = 0; hour < 24; hour++)
-                                Positioned(
-                                  top: hour * _hourHeight,
-                                  left: 0,
-                                  right: 0,
-                                  child: Divider(
-                                    height: 1,
-                                    color: scheme.outlineVariant,
-                                  ),
-                                ),
-                              for (var index = 0; index < days.length; index++)
-                                Positioned(
-                                  left: index * _dayColumnWidth,
-                                  top: 0,
-                                  width: _dayColumnWidth,
-                                  height: timelineHeight,
-                                  child: DecoratedBox(
-                                    decoration: BoxDecoration(
-                                      border: Border(
-                                        left: BorderSide(
-                                          color: scheme.outlineVariant,
-                                        ),
-                                      ),
+                        child: Row(
+                          children: days.map((date) {
+                            final values = _onDate(occurrences, date);
+                            final hasIncompleteTask = values.any(
+                              (value) => _isTask(value) && !value.isCompleted,
+                            );
+                            return InkWell(
+                              onTap: () => setState(() => _focus = date),
+                              child: Container(
+                                width: dayColumnWidth,
+                                height: _dayHeaderHeight,
+                                decoration: BoxDecoration(
+                                  color: _sameDate(date, _focus)
+                                      ? scheme.primaryContainer
+                                      : null,
+                                  border: Border(
+                                    left: BorderSide(
+                                      color: scheme.outlineVariant,
+                                    ),
+                                    bottom: BorderSide(
+                                      color: scheme.outlineVariant,
                                     ),
                                   ),
                                 ),
-                              for (var index = 0; index < days.length; index++)
-                                ..._timelineBlocks(
-                                  days[index],
-                                  _onDate(occurrences, days[index]),
-                                  index,
-                                  calendar,
-                                  tasks,
+                                child: Stack(
+                                  alignment: Alignment.center,
+                                  children: [
+                                    Column(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Text('周${_weekday(date.weekday)}'),
+                                        Text(
+                                          '${date.month}/${date.day}',
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.w800,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    if (hasIncompleteTask)
+                                      Positioned(
+                                        right: 8,
+                                        top: 8,
+                                        child: _marker(scheme.error),
+                                      ),
+                                  ],
                                 ),
-                              if (days.any(
-                                (value) => _sameDate(value, DateTime.now()),
-                              ))
-                                _nowLine(days, DateTime.now(), scheme),
-                            ],
-                          ),
+                              ),
+                            );
+                          }).toList(),
                         ),
                       ),
                     ),
                   ],
                 ),
               ),
-            ),
-          ],
+              Expanded(
+                child: SingleChildScrollView(
+                  controller: _verticalController,
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      SizedBox(
+                        width: _timeColumnWidth,
+                        height: timelineHeight,
+                        child: Stack(
+                          children: [
+                            for (var hour = 0; hour < 24; hour++)
+                              Positioned(
+                                top: hour * hourRowHeight,
+                                right: 4,
+                                child: Text(
+                                  '${_two(hour)}:00',
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    color: scheme.onSurfaceVariant,
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                      Expanded(
+                        child: SingleChildScrollView(
+                          controller: _horizontalController,
+                          scrollDirection: Axis.horizontal,
+                          child: SizedBox(
+                            width: timelineWidth,
+                            height: timelineHeight,
+                            child: Stack(
+                              children: [
+                                for (var hour = 0; hour < 24; hour++)
+                                  Positioned(
+                                    top: hour * hourRowHeight,
+                                    left: 0,
+                                    right: 0,
+                                    child: Divider(
+                                      height: 1,
+                                      color: scheme.outlineVariant,
+                                    ),
+                                  ),
+                                for (
+                                  var index = 0;
+                                  index < days.length;
+                                  index++
+                                )
+                                  Positioned(
+                                    left: index * dayColumnWidth,
+                                    top: 0,
+                                    width: dayColumnWidth,
+                                    height: timelineHeight,
+                                    child: DecoratedBox(
+                                      decoration: BoxDecoration(
+                                        border: Border(
+                                          left: BorderSide(
+                                            color: scheme.outlineVariant,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                for (
+                                  var index = 0;
+                                  index < days.length;
+                                  index++
+                                )
+                                  ..._timelineBlocks(
+                                    days[index],
+                                    _onDate(occurrences, days[index]),
+                                    index,
+                                    calendar,
+                                    tasks,
+                                    hourRowHeight: hourRowHeight,
+                                    dayColumnWidth: dayColumnWidth,
+                                  ),
+                                for (
+                                  var index = 0;
+                                  index < days.length;
+                                  index++
+                                )
+                                  ..._dayTopChips(
+                                    days[index],
+                                    _onDate(occurrences, days[index]),
+                                    index,
+                                    calendar,
+                                    tasks,
+                                    dayColumnWidth: dayColumnWidth,
+                                  ),
+                                if (days.any(
+                                  (value) => _sameDate(value, DateTime.now()),
+                                ))
+                                  _nowLine(
+                                    days,
+                                    DateTime.now(),
+                                    scheme,
+                                    hourRowHeight: hourRowHeight,
+                                    dayColumnWidth: dayColumnWidth,
+                                  ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
   }
 
-  Widget _daySummaryRow(
-    List<DateTime> days,
+  List<Widget> _dayTopChips(
+    DateTime date,
     List<CalendarOccurrence> occurrences,
+    int dayIndex,
+    CalendarProvider calendar,
+    TaskProvider tasks, {
+    required double dayColumnWidth,
+  }) {
+    final values = occurrences
+        .where((value) {
+          return value.kind == CalendarOccurrenceKind.anniversary ||
+              value.isAllDay ||
+              _isTask(value);
+        })
+        .take(3)
+        .toList();
+    final scheme = Theme.of(context).colorScheme;
+    return [
+      for (var index = 0; index < values.length; index++)
+        Positioned(
+          left: dayIndex * dayColumnWidth + 3,
+          top: 4 + index * 20.0,
+          width: dayColumnWidth - 8,
+          height: 18,
+          child: _dayTopChip(values[index], calendar, tasks, scheme),
+        ),
+    ];
+  }
+
+  Widget _dayTopChip(
+    CalendarOccurrence occurrence,
     CalendarProvider calendar,
     TaskProvider tasks,
+    ColorScheme scheme,
   ) {
-    return SizedBox(
-      height: 76,
-      child: Row(
-        children: [
-          const SizedBox(
-            width: _timeColumnWidth,
-            child: Center(child: Text('全天')),
-          ),
-          Expanded(
-            child: SingleChildScrollView(
-              controller: _summaryController,
-              scrollDirection: Axis.horizontal,
-              child: Row(
-                children: days.map((date) {
-                  final values = _onDate(occurrences, date).where((value) {
-                    return value.kind == CalendarOccurrenceKind.anniversary ||
-                        value.isAllDay ||
-                        _isTask(value);
-                  }).toList();
-                  return Container(
-                    width: _dayColumnWidth,
-                    height: 76,
-                    padding: const EdgeInsets.all(4),
-                    decoration: BoxDecoration(
-                      border: Border(
-                        left: BorderSide(
-                          color: Theme.of(context).colorScheme.outlineVariant,
-                        ),
-                        bottom: BorderSide(
-                          color: Theme.of(context).colorScheme.outlineVariant,
-                        ),
-                      ),
-                    ),
-                    child: values.isEmpty
-                        ? null
-                        : ListView(
-                            children: values.take(3).map((value) {
-                              return InkWell(
-                                onTap: () =>
-                                    _editOccurrence(value, calendar, tasks),
-                                child: Text(
-                                  '${_occurrenceIconText(value)} ${value.title}',
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(fontSize: 10),
-                                ),
-                              );
-                            }).toList(),
-                          ),
-                  );
-                }).toList(),
+    final task = _isTask(occurrence);
+    return Material(
+      color: task ? scheme.errorContainer : scheme.primaryContainer,
+      borderRadius: BorderRadius.circular(5),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(5),
+        onTap: () => _editOccurrence(occurrence, calendar, tasks),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 4),
+          child: Align(
+            alignment: Alignment.centerLeft,
+            child: Text(
+              '${_occurrenceIconText(occurrence)} ${occurrence.title}',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 9.5,
+                color: task
+                    ? scheme.onErrorContainer
+                    : scheme.onPrimaryContainer,
               ),
             ),
           ),
-        ],
+        ),
       ),
     );
   }
@@ -824,8 +984,10 @@ class SchedulePageState extends State<SchedulePage> {
     List<CalendarOccurrence> occurrences,
     int dayIndex,
     CalendarProvider calendar,
-    TaskProvider tasks,
-  ) {
+    TaskProvider tasks, {
+    required double hourRowHeight,
+    required double dayColumnWidth,
+  }) {
     final timed = occurrences.where((value) {
       if (value.kind == CalendarOccurrenceKind.anniversary) return false;
       if (_isTask(value)) {
@@ -848,17 +1010,17 @@ class SchedulePageState extends State<SchedulePage> {
       );
     });
     return layoutCalendarTimeline(intervals).map((placement) {
-      final laneWidth = (_dayColumnWidth - 6) / placement.laneCount;
-      final top = placement.startMinute / 60 * _hourHeight;
+      final laneWidth = (dayColumnWidth - 6) / placement.laneCount;
+      final top = placement.startMinute / 60 * hourRowHeight;
       final height =
-          ((placement.endMinute - placement.startMinute) / 60 * _hourHeight)
-              .clamp(24.0, 24 * _hourHeight)
+          ((placement.endMinute - placement.startMinute) / 60 * hourRowHeight)
+              .clamp(24.0, 24 * hourRowHeight)
               .toDouble();
       final occurrence = placement.value;
       final task = _isTask(occurrence);
       final scheme = Theme.of(context).colorScheme;
       return Positioned(
-        left: dayIndex * _dayColumnWidth + 3 + placement.lane * laneWidth,
+        left: dayIndex * dayColumnWidth + 3 + placement.lane * laneWidth,
         top: top,
         width: laneWidth - 2,
         height: height,
@@ -904,22 +1066,29 @@ class SchedulePageState extends State<SchedulePage> {
     return (start, end);
   }
 
-  Widget _nowLine(List<DateTime> days, DateTime now, ColorScheme scheme) {
+  Widget _nowLine(
+    List<DateTime> days,
+    DateTime now,
+    ColorScheme scheme, {
+    required double hourRowHeight,
+    required double dayColumnWidth,
+  }) {
     final index = days.indexWhere((value) => _sameDate(value, now));
     return Positioned(
-      left: index * _dayColumnWidth,
-      top: (now.hour * 60 + now.minute) / 60 * _hourHeight,
-      width: _dayColumnWidth,
+      left: index * dayColumnWidth,
+      top: (now.hour * 60 + now.minute) / 60 * hourRowHeight,
+      width: dayColumnWidth,
       child: Container(height: 2, color: scheme.error),
     );
   }
 
   void _updateDayFocus() {
     if (_mode != _CalendarMode.day || !_horizontalController.hasClients) return;
+    final dayColumnWidth = _dayColumnWidth * _dayZoom;
     final center =
         _horizontalController.offset +
         _horizontalController.position.viewportDimension / 2;
-    final index = (center / _dayColumnWidth).floor().clamp(0, _dayCount - 1);
+    final index = (center / dayColumnWidth).floor().clamp(0, _dayCount - 1);
     final start = _dayWindowStart;
     if (start == null) return;
     final next = start.add(Duration(days: index));
@@ -930,12 +1099,12 @@ class SchedulePageState extends State<SchedulePage> {
     if (!_horizontalController.hasClients) return;
     final start = _dayWindowStart;
     if (start == null) return;
+    final dayColumnWidth = _dayColumnWidth * _dayZoom;
     final index = _dateOnly(_focus).difference(start).inDays;
     if (index < 0 || index >= _dayCount) return;
     final target =
-        index * _dayColumnWidth -
-        (_horizontalController.position.viewportDimension - _dayColumnWidth) /
-            2;
+        index * dayColumnWidth -
+        (_horizontalController.position.viewportDimension - dayColumnWidth) / 2;
     if (jump) {
       _horizontalController.jumpTo(
         target.clamp(0, _horizontalController.position.maxScrollExtent),
