@@ -219,6 +219,28 @@ class _RetryEntry {
       (assistantContent?.isNotEmpty ?? false) || assistantImages.isNotEmpty;
 }
 
+/// 一次撤回的完整快照，用于在撤销窗口内恢复现场。
+///
+/// 除了被丢弃的消息尾部，还记录撤回前的输入框片段和暂存附件，这样撤销不会
+/// 顺带丢掉用户正在编辑的内容。
+class _WithdrawSnapshot {
+  const _WithdrawSnapshot({
+    required this.conversationId,
+    required this.prefixLength,
+    required this.removedMessages,
+    required this.composerSegments,
+    required this.pendingImages,
+  });
+
+  final String conversationId;
+
+  /// 撤回后应保留的消息数量，恢复时用于确认对话没有被继续发送改变。
+  final int prefixLength;
+  final List<Message> removedMessages;
+  final List<ComposerSegment> composerSegments;
+  final List<_PendingImage> pendingImages;
+}
+
 /// 待发送图片的数据模型。
 ///
 /// 存储图片本地路径、文件名、大小和 MIME 类型，可转换为 [MessageImage]。
@@ -416,6 +438,9 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
   final List<_RetryEntry> _retryHistory = [];
   String? _retryMsgId;
   int _retryIdx = 0;
+
+  // 每次撤回都会作废上一次的撤销入口，避免连续撤回时恢复了错误的消息尾部。
+  int _withdrawUndoGeneration = 0;
 
   late final ChatImageExporter _imageExporter = ChatImageExporter(
     controller: ScreenshotController(),
@@ -1911,13 +1936,20 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     }
   }
 
+  /// 用编辑后的正文就地重发最后一条用户消息。
+  ///
+  /// 生成过程中点「编辑 → 发送」时先停流，正在生成的这轮回复作为旧版本进入重试
+  /// 历史，再按重试语义替换掉。`_stopStreaming()` 把停止内容写回消息是异步的，
+  /// 因此这里额外抓一份实时草稿兜底，避免这段正文还没来得及落盘就被替换掉。
   Future<void> _sendRetry(String text) async {
     final cid = _convId;
-    if (_streaming || _preparingSend || cid == null) return;
+    if (_preparingSend || cid == null) return;
     final cp = context.read<ConversationProvider>();
     final mp = context.read<ModelConfigProvider>();
     final model = _getModel(mp);
     if (model == null) return;
+    final interrupted = _streaming ? _streamDraft.value : null;
+    if (_streaming) _stopStreaming();
     final conv = cp.getConversation(cid);
     if (conv == null) return;
     final lastUser = conv.messages.where((m) => m.role == 'user').last;
@@ -1938,20 +1970,28 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     }
     _retryMsgId = lastUser.id;
 
-    final lastAssistant = conv.messages
+    final lastAssistant = (cp.getConversation(cid)?.messages ?? conv.messages)
         .where((m) => m.role == 'assistant')
         .toList();
-    if (lastAssistant.isNotEmpty &&
-        (lastAssistant.last.content.isNotEmpty ||
-            lastAssistant.last.images.isNotEmpty)) {
-      _saveRetryHistoryEntry(
-        lastUser.content,
-        lastUser.images,
-        lastAssistant.last.id,
-        lastAssistant.last.content,
-        lastAssistant.last.images,
-        lastAssistant.last.thinkingContent,
-      );
+    if (lastAssistant.isNotEmpty) {
+      final previous = lastAssistant.last;
+      // 生成中被停下的这轮：落盘的停止内容与页面实时草稿都只是同一段正文的
+      // 前缀，取更长的一份，避免旧版本比实际生成的内容更短。
+      final draft = interrupted?.content.trim();
+      final content = draft != null && draft.length > previous.content.length
+          ? draft
+          : previous.content;
+      final thinking = previous.thinkingContent ?? interrupted?.thinking;
+      if (content.isNotEmpty || previous.images.isNotEmpty) {
+        _saveRetryHistoryEntry(
+          lastUser.content,
+          lastUser.images,
+          previous.id,
+          content,
+          previous.images,
+          thinking,
+        );
+      }
     }
 
     _retryHistory.add(_RetryEntry(text, lastUser.images));
@@ -3947,26 +3987,9 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
                   ),
                 ),
                 const SizedBox(width: 4),
-                if (!_shareSelecting)
-                  InkWell(
-                    onTap: () => _showEditDialog(msg, isLastUserMsg),
-                    borderRadius: BorderRadius.circular(12),
-                    child: Padding(
-                      padding: const EdgeInsets.all(4),
-                      child: Icon(
-                        Icons.edit_outlined,
-                        size: 16,
-                        color: Theme.of(context).colorScheme.outline,
-                      ),
-                    ),
-                  ),
               ],
             ),
-            if (!_shareSelecting &&
-                isLastUserMsg &&
-                _retryMsgId != null &&
-                _retryHistory.length > 1)
-              _retryNav(),
+            if (!_shareSelecting) _userActions(msg, isLastUserMsg),
           ],
         ),
       );
@@ -4834,12 +4857,18 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     child: Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        _actBtn(Icons.copy, () => _copy(msg.content)),
+        _actBtn(Icons.copy, () => _copy(msg.content), tooltip: '复制'),
         const SizedBox(width: 4),
-        _actBtn(Icons.share, () => _startShareSelection(msg)),
+        _actBtn(Icons.share, () => _startShareSelection(msg), tooltip: '分享'),
+        const SizedBox(width: 4),
+        _actBtn(
+          Icons.call_split,
+          () => unawaited(_branchConversation(msg, includeMessage: true)),
+          tooltip: '分支',
+        ),
         if (canRetry) ...[
           const SizedBox(width: 4),
-          _actBtn(Icons.refresh, () => unawaited(_retry())),
+          _actBtn(Icons.refresh, () => unawaited(_retry()), tooltip: '重新生成'),
         ],
         if (msg.id == _toolRoundLimitMessageId) ...[
           const SizedBox(width: 6),
@@ -4857,12 +4886,55 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     ),
   );
 
+  /// 用户消息气泡下方的操作行。
+  ///
+  /// 与助手消息的 [_actions] 对称，但靠右对齐。撤回会截断这条消息之后的全部
+  /// 内容，因此用错误色把它和其余按钮区分开。
+  Widget _userActions(Message msg, bool isLastUserMsg) => Padding(
+    padding: const EdgeInsets.only(right: 8, top: 2),
+    child: Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _actBtn(Icons.copy, () => _copy(msg.content), tooltip: '复制'),
+        const SizedBox(width: 4),
+        _actBtn(
+          Icons.edit_outlined,
+          () => _showEditDialog(msg, isLastUserMsg),
+          tooltip: '编辑',
+        ),
+        const SizedBox(width: 4),
+        _actBtn(
+          Icons.undo,
+          () => _withdrawMessage(msg),
+          tooltip: '撤回',
+          destructive: true,
+        ),
+        const SizedBox(width: 4),
+        _actBtn(
+          Icons.call_split,
+          () => unawaited(_branchConversation(msg, includeMessage: false)),
+          tooltip: '分支',
+        ),
+        if (isLastUserMsg &&
+            _retryMsgId != null &&
+            _retryHistory.length > 1) ...[
+          const SizedBox(width: 8),
+          _retryNav(),
+        ],
+      ],
+    ),
+  );
+
   Widget _retryOnlyAction() => Padding(
     padding: const EdgeInsets.only(left: 8, top: 2),
     child: Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        _actBtn(Icons.refresh, () => unawaited(_retryWithoutHistory())),
+        _actBtn(
+          Icons.refresh,
+          () => unawaited(_retryWithoutHistory()),
+          tooltip: '重新生成',
+        ),
       ],
     ),
   );
@@ -4876,14 +4948,30 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     return _actions(msg, canRetry: canRetry);
   }
 
-  Widget _actBtn(IconData i, VoidCallback t) => InkWell(
-    onTap: t,
-    borderRadius: BorderRadius.circular(12),
-    child: Padding(
-      padding: const EdgeInsets.all(4),
-      child: Icon(i, size: 16, color: Theme.of(context).colorScheme.outline),
-    ),
-  );
+  Widget _actBtn(
+    IconData i,
+    VoidCallback t, {
+    String? tooltip,
+    bool destructive = false,
+  }) {
+    final scheme = Theme.of(context).colorScheme;
+    final button = InkWell(
+      onTap: t,
+      borderRadius: BorderRadius.circular(12),
+      child: Padding(
+        padding: const EdgeInsets.all(6),
+        child: Icon(
+          i,
+          size: 16,
+          color: destructive
+              ? scheme.error.withValues(alpha: 0.85)
+              : scheme.outline,
+        ),
+      ),
+    );
+    if (tooltip == null) return button;
+    return Tooltip(message: tooltip, child: button);
+  }
 
   Widget _retryNav() {
     final total = _retryHistory.length;
@@ -5000,12 +5088,16 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     _scrollEnd();
   }
 
+  /// 打开编辑弹窗。
+  ///
+  /// 最后一条用户消息可以就地改完重发；历史消息改完必须从该处另开对话，否则
+  /// 后续上下文会失效，因此这里走分支路径并立即发送。
   void _showEditDialog(Message msg, bool isLastUserMsg) {
     final ctrl = TextEditingController(text: msg.content);
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: Text(isLastUserMsg ? '编辑消息' : '从此处开始新对话'),
+        title: Text(isLastUserMsg ? '编辑消息' : '编辑消息 · 从此处开始新对话'),
         content: TextField(
           controller: ctrl,
           maxLines: 5,
@@ -5018,17 +5110,6 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
         ),
         actions: [
           TextButton(
-            onPressed: () async {
-              if (!isLastUserMsg && !await _confirmWithdrawHistorical(ctx)) {
-                return;
-              }
-              if (!ctx.mounted) return;
-              Navigator.pop(ctx);
-              if (mounted) _withdrawMessage(msg);
-            },
-            child: Text(isLastUserMsg ? '撤回' : '撤回并删除后续'),
-          ),
-          TextButton(
             onPressed: () => Navigator.pop(ctx),
             child: const Text('取消'),
           ),
@@ -5040,7 +5121,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
               if (isLastUserMsg) {
                 unawaited(_sendRetry(text));
               } else {
-                unawaited(_editStartNewConversation(msg, text));
+                unawaited(_editInBranch(msg, text));
               }
             },
             child: Text(isLastUserMsg ? '发送' : '开始新对话'),
@@ -5052,34 +5133,30 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     });
   }
 
-  Future<bool> _confirmWithdrawHistorical(BuildContext dialogContext) async {
-    final result = await showDialog<bool>(
-      context: dialogContext,
-      builder: (ctx) => AlertDialog(
-        title: const Text('撤回历史消息'),
-        content: const Text('撤回这条消息会删除它之后的所有对话内容，并把原消息放回输入框。'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('撤回'),
-          ),
-        ],
-      ),
+  /// 历史消息编辑：另开分支后立刻发送修改后的内容。
+  Future<void> _editInBranch(Message msg, String text) async {
+    final newConvId = await _branchConversation(
+      msg,
+      includeMessage: false,
+      replaceWithText: text,
     );
-    return result == true;
+    if (newConvId == null || !mounted) return;
+    unawaited(_send());
   }
 
+  /// 撤回一条用户消息。
+  ///
+  /// 撤回是一次就地分支重置：这条消息回到输入框，它之后的所有消息被丢弃，
+  /// 使上下文保持有效。删除立即生效，但在撤销窗口内可以完整恢复（见
+  /// [_restoreWithdrawnMessages]）。
   void _withdrawMessage(Message msg) {
     final cid = _convId;
     if (cid == null) return;
-    final conv = context.read<ConversationProvider>().getConversation(cid);
-    if (conv == null || !conv.messages.any((m) => m.id == msg.id)) return;
-    // Withdrawal is a branch reset: the selected user message goes back to the
-    // composer and every later message is discarded so the context stays valid.
+    final cp = context.read<ConversationProvider>();
+    final conv = cp.getConversation(cid);
+    if (conv == null) return;
+    final messageIndex = conv.messages.indexWhere((m) => m.id == msg.id);
+    if (messageIndex == -1) return;
     if (_shareSelecting) _cancelShareSelection();
     if (_streaming) _stopStreaming();
     _sendGen++;
@@ -5090,23 +5167,85 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     _expandedThinkIds.clear();
     _thinkMap.clear();
     _updateStreamDraft(const _StreamDraft());
-    if (msg.composerSegments.isNotEmpty) {
-      _msgCtrl.replaceSegments(msg.composerSegments);
-    } else {
-      _msgCtrl.text = msg.content;
-    }
-    _msgCtrl.selection = TextSelection.collapsed(offset: _msgCtrl.text.length);
-    _inputRevision.value++;
+    // 撤回前的输入框和暂存附件要先快照，撤销时一并还原，避免用户正在打的内容
+    // 和已选好的附件被一次撤回清空。
+    final snapshot = _WithdrawSnapshot(
+      conversationId: cid,
+      prefixLength: messageIndex,
+      removedMessages: conv.messages.sublist(messageIndex),
+      composerSegments: _msgCtrl.segments,
+      pendingImages: List<_PendingImage>.of(_pendingImages),
+    );
+    _prefillComposer(msg);
     setState(() {
       _preparingSend = false;
       _pendingImages
         ..clear()
         ..addAll(msg.images.map(_pendingImageFromMessageImage));
     });
-    context.read<ConversationProvider>().deleteMessagesFrom(cid, msg.id);
+    cp.deleteMessagesFrom(cid, msg.id);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted && !_isMobilePlatform) _focusNode.requestFocus();
     });
+    _showWithdrawUndo(snapshot);
+  }
+
+  /// 把一条用户消息的正文（含引用 Chip）和附件回填到输入框。
+  void _prefillComposer(Message msg, {String? replaceWithText}) {
+    // 有引用 Chip 的消息以持久化片段为准；文本被改写后片段已不再对应，退回纯文本。
+    final unchanged = replaceWithText == null || replaceWithText == msg.content;
+    if (unchanged && msg.composerSegments.isNotEmpty) {
+      _msgCtrl.replaceSegments(msg.composerSegments);
+    } else {
+      _msgCtrl.text = replaceWithText ?? msg.content;
+    }
+    _msgCtrl.selection = TextSelection.collapsed(offset: _msgCtrl.text.length);
+    _inputRevision.value++;
+  }
+
+  /// 显示带回滚窗口的撤回提示。
+  ///
+  /// 窗口内点「撤销」会把被删掉的消息尾部、以及撤回前的输入框状态一起还原。
+  void _showWithdrawUndo(_WithdrawSnapshot snapshot) {
+    final messenger = ScaffoldMessenger.of(context);
+    final generation = ++_withdrawUndoGeneration;
+    messenger.hideCurrentSnackBar();
+    messenger.showSnackBar(
+      SnackBar(
+        content: const Text('已撤回，内容回到输入框'),
+        duration: const Duration(seconds: 6),
+        action: SnackBarAction(
+          label: '撤销',
+          onPressed: () {
+            // 期间又撤回或切走会话时，这次撤销已经过期。
+            if (!mounted || generation != _withdrawUndoGeneration) return;
+            _restoreWithdrawnMessages(snapshot);
+          },
+        ),
+      ),
+    );
+  }
+
+  void _restoreWithdrawnMessages(_WithdrawSnapshot snapshot) {
+    if (_convId != snapshot.conversationId) return;
+    final restored = context
+        .read<ConversationProvider>()
+        .restoreWithdrawnMessages(
+          snapshot.conversationId,
+          snapshot.removedMessages,
+          expectedPrefixLength: snapshot.prefixLength,
+        );
+    if (!restored) return;
+    _msgCtrl.replaceSegments(snapshot.composerSegments);
+    _msgCtrl.selection = TextSelection.collapsed(offset: _msgCtrl.text.length);
+    _inputRevision.value++;
+    setState(() {
+      _pendingImages
+        ..clear()
+        ..addAll(snapshot.pendingImages);
+    });
+    // 恢复出来的消息接在末尾，把视图带回底部，否则新内容落在可视区之外。
+    _scrollEnd();
   }
 
   _PendingImage _pendingImageFromMessageImage(MessageImage image) {
@@ -5118,74 +5257,84 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     );
   }
 
-  Future<void> _editStartNewConversation(
-    Message origMsg,
-    String newText,
-  ) async {
+  /// 从一条消息开启分支对话。
+  ///
+  /// [includeMessage] 为真时把该消息本身也复制进分支（助手回复分支）；
+  /// 为假时只用它的前缀，并把该消息回填到输入框等待用户自己发送（用户消息
+  /// 分支）。分支只复制到截止点为止的上下文，不自动发起模型请求。
+  ///
+  /// 返回新对话 ID；无法分支时返回 null。
+  Future<String?> _branchConversation(
+    Message msg, {
+    required bool includeMessage,
+    String? replaceWithText,
+  }) async {
     final sourceCid = _convId;
+    if (sourceCid == null) return null;
     final cp = context.read<ConversationProvider>();
-    final mp = context.read<ModelConfigProvider>();
-    final editModel = _getModel(mp);
-    if (editModel == null || sourceCid == null) {
-      if (editModel == null) _showMissingChatModelTip();
-      return;
-    }
-    final origConv = cp.getConversation(sourceCid);
-    if (origConv == null) return;
-    final allMsgs = origConv.messages;
-    final origMsgIdx = allMsgs.indexWhere((m) => m.id == origMsg.id);
-    if (origMsgIdx == -1) return;
-    final sendGen = ++_sendGen;
-    final preparedUserContent = await _prepareUserContent(
-      newText,
-      origMsg.images,
+    // 先停流再读消息：`_stopStreaming()` 是异步写回停止时内容的，先复制会把
+    // 流式中间态当成最终回复带进分支。
+    if (_shareSelecting) _cancelShareSelection();
+    if (_streaming) _stopStreaming();
+    final sourceConv = cp.getConversation(sourceCid);
+    if (sourceConv == null) return null;
+    final allMessages = sourceConv.messages;
+    final copyEnd = branchCopyEnd(
+      allMessages,
+      msg.id,
+      includeMessage: includeMessage,
     );
-    if (!mounted || preparedUserContent == null) return;
-    if (sendGen != _sendGen || _convId != sourceCid) return;
+    if (copyEnd < 0) return null;
+    _sendGen++;
     _clearRetryState();
     _pendingModelId = null;
-    final newConvId = cp.createConversation(
-      origConv.settings.copyWith(modelId: editModel.id, thinking: _thinking),
-      roleId: origConv.roleId,
-      workspaceId: origConv.workspaceId,
-      workspaceName: origConv.workspaceName,
+    _thinkingTxt = null;
+    _thinkExpanded = false;
+    _expandedThinkIds.clear();
+    _thinkMap.clear();
+    _updateStreamDraft(const _StreamDraft());
+    final copied = allMessages.take(copyEnd).toList(growable: false);
+    final newConvId = cp.createConversationWithMessages(
+      sourceConv.settings,
+      roleId: sourceConv.roleId,
+      workspaceId: sourceConv.workspaceId,
+      workspaceName: sourceConv.workspaceName,
+      messages: [
+        for (final message in copied)
+          (
+            role: message.role,
+            content: message.content,
+            images: message.images,
+            composerSegments: message.composerSegments,
+          ),
+      ],
+      modelContextByIndex: {
+        for (var index = 0; index < copied.length; index++)
+          if (copied[index].modelContextContent != null)
+            index: copied[index].modelContextContent!,
+      },
     );
-    for (int i = 0; i < origMsgIdx; i++) {
-      cp.addMessage(
-        newConvId,
-        allMsgs[i].role,
-        allMsgs[i].content,
-        modelContextContent: allMsgs[i].modelContextContent,
-        images: allMsgs[i].images,
-        thinkingContent: allMsgs[i].thinkingContent,
-      );
-    }
-    cp.addMessage(
+    cp.updateConversationTitle(
       newConvId,
-      'user',
-      newText,
-      modelContextContent: preparedUserContent.textContext,
-      images: origMsg.images,
+      branchConversationTitle(sourceConv.title),
     );
-    setState(() {
-      _convId = newConvId;
-      _clearPendingState();
-      _beginStreaming(newConvId);
-    });
-    _scrollEnd();
-    cp.addMessage(newConvId, 'assistant', '', save: false);
-    await WidgetsBinding.instance.endOfFrame;
-    if (!mounted) return;
-    if (!_streaming || _convId != newConvId || sendGen != _sendGen) {
-      _clearAbortedStreaming('编辑消息新建对话后状态已失效', conversationId: newConvId);
-      return;
+    if (!includeMessage) {
+      _prefillComposer(msg, replaceWithText: replaceWithText);
+      setState(() {
+        _preparingSend = false;
+        _pendingImages
+          ..clear()
+          ..addAll(msg.images.map(_pendingImageFromMessageImage));
+      });
     }
-    unawaited(
-      _doSend(
-        editModel,
-        lastUserContentOverride: preparedUserContent.apiContent,
-      ),
-    );
+    setState(() => _convId = newConvId);
+    _applyConversationSettings(newConvId);
+    _closeSearch();
+    _scrollEnd();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && !_isMobilePlatform) _focusNode.requestFocus();
+    });
+    return newConvId;
   }
 
   Widget _inputArea(ModelConfig? model, ModelConfigProvider mp) {
@@ -6253,6 +6402,43 @@ Future<Object?> retryUserContent(
   }
   return prepareAttachments();
 }
+
+/// 分支对话的标题：把源标题上的「（N）」序号加一。
+///
+/// 源标题没有序号时用「（1）」；已有「（N）」时替换为「（N+1）」，因此从分支
+/// 再分支会依次得到「（2）」「（3）」，序号即分支深度。
+@visibleForTesting
+String branchConversationTitle(String sourceTitle) {
+  final match = RegExp(r'^（(\d+)）\s*').firstMatch(sourceTitle);
+  if (match == null) return '（1）$sourceTitle';
+  final depth = (int.tryParse(match.group(1)!) ?? 1) + 1;
+  return '（$depth）${sourceTitle.substring(match.end)}';
+}
+
+/// 分支要复制的消息数量（从第一条开始的前缀长度）。
+///
+/// [includeMessage] 为真时把该消息本身也算进去（助手回复分支）；为假时只用它的
+/// 前缀（用户消息分支，该消息本身回填输入框）。找不到该消息时返回 -1。
+/// 结尾的空助手占位（流式中断或失败留下的空气泡）不进分支。
+@visibleForTesting
+int branchCopyEnd(
+  List<Message> messages,
+  String messageId, {
+  required bool includeMessage,
+}) {
+  final index = messages.indexWhere((m) => m.id == messageId);
+  if (index == -1) return -1;
+  var end = includeMessage ? index + 1 : index;
+  while (end > 0 && _isBlankAssistantMessage(messages[end - 1])) {
+    end--;
+  }
+  return end;
+}
+
+bool _isBlankAssistantMessage(Message message) =>
+    message.role == 'assistant' &&
+    message.content.isEmpty &&
+    message.images.isEmpty;
 
 class _PreparedUserContent {
   const _PreparedUserContent({

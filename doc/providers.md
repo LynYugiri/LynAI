@@ -86,6 +86,8 @@ Provider 的更新策略是：先改内存并通知 UI，再把持久化操作�
 | `updateMessageContent()` | 编辑或重试时替换指定消息正文。 |
 | `updateMessageImages()` | 重试版本切换时替换附件。 |
 | `deleteMessage()` / `deleteConversation()` | 删除消息或对话。 |
+| `deleteMessagesFrom()` | 撤回时截断指定消息及其后的全部消息。 |
+| `restoreWithdrawnMessages()` | 撤销撤回：把截断掉的消息尾部原样放回对话末尾。仅在对话当前消息数仍等于撤回时保留的前缀长度时生效，否则拒绝恢复。 |
 | `searchConversations()` | 搜索标题、正文和附件名，返回类型化命中结果和高亮范围。 |
 | `repairModelReferences()` | 修复已删除模型留下的对话引用。 |
 

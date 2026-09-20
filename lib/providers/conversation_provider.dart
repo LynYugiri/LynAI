@@ -573,6 +573,31 @@ class ConversationProvider extends ChangeNotifier with SerializedSaveQueue {
     notifyListeners();
   }
 
+  /// 撤销撤回：把撤回时截断的消息尾部原样放回对话末尾。
+  ///
+  /// [expectedPrefixLength] 是撤回发生时保留下来的消息数量。只有当对话当前消息
+  /// 数仍等于它时才恢复，避免用户在撤销窗口内继续发送后，把旧消息插进新内容中间。
+  /// 返回是否真的恢复。
+  bool restoreWithdrawnMessages(
+    String conversationId,
+    List<Message> messages, {
+    required int expectedPrefixLength,
+  }) {
+    if (messages.isEmpty) return false;
+    final index = _conversations.indexWhere((c) => c.id == conversationId);
+    if (index == -1) return false;
+    final existing = _conversations[index].messages;
+    if (existing.length != expectedPrefixLength) return false;
+    _conversations[index] = _conversations[index].copyWith(
+      messages: [...existing, ...messages],
+      updatedAt: DateTime.now(),
+    );
+    _touchConversation(index);
+    _queueSaveConversations();
+    notifyListeners();
+    return true;
+  }
+
   /// 删除对话
   Future<void> deleteConversation(String conversationId) async {
     final conversation = getConversation(conversationId);
