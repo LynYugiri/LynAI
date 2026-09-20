@@ -688,45 +688,27 @@ class RoleplayThread {
   }
 }
 
-/// 从 JSON 数据解析参与者列表。
-List<RoleplayParticipant> _participantsFromJson(Object? raw) {
-  final participants = <RoleplayParticipant>[];
+/// 解析 JSON 数组并逐条交给 [parse]：单条损坏只跳过该条，不影响其余记录。
+///
+/// 顶层不是列表时仍按原语义抛出类型错误，避免把结构损坏静默当成空列表。
+List<T> _rowsFromJson<T>(
+  Object? raw,
+  T Function(Map<String, dynamic> row) parse,
+) {
+  final values = <T>[];
   for (final item in raw as List<dynamic>? ?? const []) {
     try {
-      if (item is Map) {
-        participants.add(
-          RoleplayParticipant.fromJson(Map<String, dynamic>.from(item)),
-        );
-      }
+      if (item is Map) values.add(parse(Map<String, dynamic>.from(item)));
     } catch (_) {}
   }
-  return participants;
+  return values;
 }
 
-/// 从 JSON 数据解析分组列表。
-List<RoleplayParticipantGroup> _groupsFromJson(Object? raw) {
-  final groups = <RoleplayParticipantGroup>[];
-  for (final item in raw as List<dynamic>? ?? const []) {
-    try {
-      if (item is Map) {
-        groups.add(
-          RoleplayParticipantGroup.fromJson(Map<String, dynamic>.from(item)),
-        );
-      }
-    } catch (_) {}
-  }
-  return groups;
-}
+List<RoleplayParticipant> _participantsFromJson(Object? raw) =>
+    _rowsFromJson(raw, RoleplayParticipant.fromJson);
 
-/// 从 JSON 数据解析消息列表。
-List<RoleplayMessage> _messagesFromJson(Object? raw) {
-  final messages = <RoleplayMessage>[];
-  for (final item in raw as List<dynamic>? ?? const []) {
-    try {
-      if (item is Map) {
-        messages.add(RoleplayMessage.fromJson(Map<String, dynamic>.from(item)));
-      }
-    } catch (_) {}
-  }
-  return messages;
-}
+List<RoleplayParticipantGroup> _groupsFromJson(Object? raw) =>
+    _rowsFromJson(raw, RoleplayParticipantGroup.fromJson);
+
+List<RoleplayMessage> _messagesFromJson(Object? raw) =>
+    _rowsFromJson(raw, RoleplayMessage.fromJson);

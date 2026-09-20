@@ -366,16 +366,10 @@ class StorageV2Service {
     final file = await _file(page.relativePath);
     final parent = file.parent;
     if (!await parent.exists()) await parent.create(recursive: true);
-    final tmp = File(
-      '${file.path}.tmp.${DateTime.now().microsecondsSinceEpoch}',
+    await _writeAtomically(
+      file,
+      (tmp) => tmp.writeAsString(content, flush: true),
     );
-    try {
-      await tmp.writeAsString(content, flush: true);
-      await tmp.rename(file.path);
-    } catch (_) {
-      if (await tmp.exists()) await tmp.delete();
-      rethrow;
-    }
   }
 
   Future<String> storeNoteBlob(String content) async {
@@ -413,16 +407,10 @@ class StorageV2Service {
     final target = await _file(_noteBlobRelativePath(hash));
     if (await target.exists() && await hasNoteBlob(hash)) return;
     await target.parent.create(recursive: true);
-    final temporary = File(
-      '${target.path}.tmp.${DateTime.now().microsecondsSinceEpoch}',
+    await _writeAtomically(
+      target,
+      (tmp) => tmp.writeAsBytes(bytes, flush: true),
     );
-    try {
-      await temporary.writeAsBytes(bytes, flush: true);
-      await temporary.rename(target.path);
-    } catch (_) {
-      if (await temporary.exists()) await temporary.delete();
-      rethrow;
-    }
   }
 
   String _noteBlobRelativePath(String hash) {
@@ -608,16 +596,10 @@ class StorageV2Service {
     if (!await target.parent.exists()) {
       await target.parent.create(recursive: true);
     }
-    final temporary = File(
-      '${target.path}.tmp.${DateTime.now().microsecondsSinceEpoch}',
+    await _writeAtomically(
+      target,
+      (tmp) => tmp.writeAsBytes(bytes, flush: true),
     );
-    try {
-      await temporary.writeAsBytes(bytes, flush: true);
-      await temporary.rename(target.path);
-    } catch (_) {
-      if (await temporary.exists()) await temporary.delete();
-      rethrow;
-    }
   }
 
   Map<String, dynamic> normalizeRemoteResource(Map<String, dynamic> data) {
@@ -629,6 +611,25 @@ class StorageV2Service {
       throw StateError('远端资源缺少 SHA-256');
     }
     return {...data, 'relativePath': _blobRelativePath(hash), 'missing': false};
+  }
+
+  /// 原子写入：先写同目录临时文件再 rename，失败时清理临时文件并重新抛出。
+  ///
+  /// 同目录改名保证读到的是完整文件，不会出现半截内容。
+  Future<void> _writeAtomically(
+    File target,
+    Future<void> Function(File temp) write,
+  ) async {
+    final temp = File(
+      '${target.path}.tmp.${DateTime.now().microsecondsSinceEpoch}',
+    );
+    try {
+      await write(temp);
+      await temp.rename(target.path);
+    } catch (_) {
+      if (await temp.exists()) await temp.delete();
+      rethrow;
+    }
   }
 
   String _blobRelativePath(String sha256Hash) {
