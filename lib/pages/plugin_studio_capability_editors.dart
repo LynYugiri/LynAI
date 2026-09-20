@@ -1691,11 +1691,7 @@ Future<PluginSettingDefinition?> _showSettingDialog(
   return result;
 }
 
-String _stringifyDefault(Object? value) {
-  if (value == null) return '';
-  if (value is bool || value is num) return value.toString();
-  return value.toString();
-}
+String _stringifyDefault(Object? value) => value?.toString() ?? '';
 
 Object? _parseDefault(String type, String text) {
   if (text.isEmpty) return null;

@@ -972,7 +972,7 @@ class KnowledgePageState extends State<KnowledgePage> {
         size: 20,
       ),
       title: Text(source.title.trim().isEmpty ? '未命名来源' : source.title),
-      subtitle: details.isEmpty ? null : Text(details.join('\n')),
+      subtitle: Text(details.join('\n')),
       trailing: Wrap(
         spacing: 4,
         children: [

@@ -423,7 +423,8 @@ class _HistoryListState extends State<HistoryList> {
     List<ChatSearchRange> ranges,
     TextStyle? style,
   ) {
-    if (widget.searchQuery.isEmpty || ranges.isEmpty) {
+    // 调用点都在 searchQuery 非空时才会进来。
+    if (ranges.isEmpty) {
       return Text(text, style: style);
     }
     final spans = <TextSpan>[];

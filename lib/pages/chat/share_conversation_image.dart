@@ -43,7 +43,7 @@ class ShareConversationImage extends StatelessWidget {
       scheme.surfaceContainerHighest,
       isDark ? 0.35 : 0.22,
     )!;
-    final shadowColor = isDark ? Colors.black : Colors.black;
+    final shadowColor = Colors.black;
     final mutedColor = isDark
         ? const Color(0xFF94A3B8)
         : const Color(0xFF64748B);

@@ -898,13 +898,6 @@ class NoteDetailState extends State<NoteDetail> {
   }
 
   Widget _buildNoteEditorField(Note note) {
-    final longestLine = _ctrl.text
-        .split('\n')
-        .fold<int>(
-          0,
-          (longest, line) => line.length > longest ? line.length : longest,
-        );
-    final editorWidth = (longestLine * 8.5 + 48).clamp(1600.0, 6000.0);
     final editor = TextField(
       controller: _ctrl,
       focusNode: _editorFocus,
@@ -926,6 +919,14 @@ class NoteDetailState extends State<NoteDetail> {
       scrollPhysics: const ClampingScrollPhysics(),
     );
     if (note.wrap) return editor;
+    // 只有关闭自动换行时才需要按最长行撑宽，默认路径不再白算一遍全文。
+    final longestLine = _ctrl.text
+        .split('\n')
+        .fold<int>(
+          0,
+          (longest, line) => line.length > longest ? line.length : longest,
+        );
+    final editorWidth = (longestLine * 8.5 + 48).clamp(1600.0, 6000.0);
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
       child: SizedBox(width: editorWidth, child: editor),
@@ -2490,9 +2491,7 @@ class NoteDetailState extends State<NoteDetail> {
             style: TextStyle(
               fontFamily: 'Hurmit Nerd Font',
               fontSize: 12,
-              color: source.isEmpty
-                  ? scheme.onSurfaceVariant
-                  : scheme.onSurfaceVariant,
+              color: scheme.onSurfaceVariant,
             ),
           ),
           if (source.isNotEmpty) ...[
