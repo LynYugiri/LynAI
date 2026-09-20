@@ -1233,19 +1233,18 @@ class ApiService {
   }) async* {
     _ensureNoLocalTools(tools);
     final prompt = buildLocalBlueLmPrompt(messages);
-    var done = false;
     await for (final delta in _localLlm.generate(config, prompt)) {
       final token = delta.token;
       if (token != null && token.isNotEmpty) {
         yield StreamChunk(content: token);
       }
       if (delta.completed) {
-        done = true;
         yield const StreamChunk(isDone: true);
         return;
       }
     }
-    if (!done) yield const StreamChunk(isDone: true);
+    // 走到这里说明流已结束但没有 completed 分片，补一个终止分片。
+    yield const StreamChunk(isDone: true);
   }
 
   void _ensureNoLocalTools(List<Map<String, dynamic>> tools) {

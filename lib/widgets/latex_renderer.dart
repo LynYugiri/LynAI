@@ -42,75 +42,11 @@ class KnowledgeAnnotationRenderData {
   });
 }
 
-/// 低层 LaTeX 渲染工具。
+/// LaTeX 内容判定工具。
 ///
-/// 页面通常直接使用 [MarkdownWithLatex]；这个类保留给需要单独渲染公式的
-/// 场景，例如块级公式导出或独立预览。
+/// 正文渲染统一走 [MarkdownWithLatex]；这里只回答「这段文本是否含公式」，
+/// 供需要据此切换渲染路径或给出提示的场景使用。
 class LatexRenderer {
-  static List<InlineSpan> parseToSpans(String text, BuildContext context) {
-    final spans = <InlineSpan>[];
-    final normalized = _normalize(text);
-    final blockRegExp = RegExp(r'\$\$(.+?)\$\$', dotAll: true);
-    final parts = normalized.split(blockRegExp);
-    final blockMatches = blockRegExp.allMatches(normalized).toList();
-
-    for (var i = 0; i < parts.length; i++) {
-      if (i % 2 == 0) {
-        spans.addAll(_parseInlineMath(parts[i]));
-      } else {
-        final idx = i ~/ 2;
-        if (idx < blockMatches.length) {
-          final formula = blockMatches[idx].group(1) ?? '';
-          spans.add(
-            WidgetSpan(
-              alignment: PlaceholderAlignment.middle,
-              child: _MathBlock(formula: formula.trim()),
-            ),
-          );
-        }
-      }
-    }
-    return spans;
-  }
-
-  static List<InlineSpan> _parseInlineMath(String text) {
-    final spans = <InlineSpan>[];
-    final inlineRegExp = RegExp(r'\$(.+?)\$');
-    int lastEnd = 0;
-
-    for (final match in inlineRegExp.allMatches(text)) {
-      if (match.start > lastEnd) {
-        spans.add(TextSpan(text: text.substring(lastEnd, match.start)));
-      }
-      final formula = match.group(1) ?? '';
-      spans.add(
-        WidgetSpan(
-          alignment: PlaceholderAlignment.middle,
-          child: _InlineMath(formula: formula.trim()),
-        ),
-      );
-      lastEnd = match.end;
-    }
-
-    if (lastEnd < text.length) {
-      spans.add(TextSpan(text: text.substring(lastEnd)));
-    }
-
-    return spans.isEmpty ? [TextSpan(text: text)] : spans;
-  }
-
-  static String _normalize(String text) {
-    String result = text.replaceAllMapped(
-      RegExp(r'\\\[(.+?)\\\]', dotAll: true),
-      (m) => '\$\$${m.group(1)}\$\$',
-    );
-    result = result.replaceAllMapped(
-      RegExp(r'\\\((.+?)\\\)'),
-      (m) => '\$${m.group(1)}\$',
-    );
-    return result;
-  }
-
   static bool hasLatexContent(String text) {
     if (text.contains(RegExp(r'\$\$.+?\$\$', dotAll: true))) return true;
     if (text.contains(RegExp(r'\\\[.+?\\\]', dotAll: true))) return true;

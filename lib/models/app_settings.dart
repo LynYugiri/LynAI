@@ -485,10 +485,10 @@ class AppSettings {
         debugPrint('跳过损坏的角色配置: $e');
       }
     }
+    // 上面已保证至少存在一个默认角色。
     if (roles.every((r) => r.id != ChatRole.defaultId)) {
       roles = [ChatRole.defaultRole(), ...roles];
     }
-    if (roles.isEmpty) roles = [ChatRole.defaultRole()];
     final validRoleIds = roles.map((role) => role.id).toSet();
     final groupsJson = json['roleGroups'] as List<dynamic>?;
     final roleGroups = <ChatRoleGroup>[];

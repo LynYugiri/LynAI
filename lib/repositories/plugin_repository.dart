@@ -892,8 +892,9 @@ class PluginRepository {
 
   /// 写入插件文件，仅当 manifest 或 files:write 权限声明可编辑时才允许。
   ///
-  /// defaults/ 始终被拒绝；非内置插件的 plugin.json 与入口脚本允许在应用内
-  /// 编辑，内置插件仍保持核心文件只读。
+  /// defaults/ 始终被拒绝；非内置插件只有处于草稿/测试中（draft/testing）时才能
+  /// 编辑 plugin.json 与入口脚本，已定型（active）后核心文件转为只读；内置插件
+  /// 始终保持核心文件只读。
   Future<void> writePluginTextFile(
     InstalledPlugin plugin,
     String relativePath,

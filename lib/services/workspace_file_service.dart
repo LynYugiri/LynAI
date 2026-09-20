@@ -41,7 +41,7 @@ class WorkspaceFileService {
 
   /// 列出挂载目录中的单层条目。
   ///
-  /// 目录优先、按名字排序；超过 [maxListEntries] 时截断并在末尾标记。
+  /// 目录优先、按名字排序；条目达到 [maxListEntries] 即停止枚举。
   Future<List<WorkspaceFileEntry>> listDirectory(
     String root,
     String relativeDir,

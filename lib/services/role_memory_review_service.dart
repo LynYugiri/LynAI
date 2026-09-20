@@ -57,13 +57,8 @@ class RoleMemoryReviewService {
 
       final byTarget = <String, List<Map<String, dynamic>>>{};
       for (final op in parsed) {
-        final target =
-            op['target'] as String? ?? RoleMemoryProvider.targetMemory;
-        if (target != RoleMemoryProvider.targetMemory &&
-            target != RoleMemoryProvider.targetUser) {
-          continue;
-        }
-        byTarget.putIfAbsent(target, () => []).add(op);
+        // _parseOperations 只放行 memory/user 两种 target，这里无需再兜底或过滤。
+        byTarget.putIfAbsent(op['target'] as String, () => []).add(op);
       }
       var wrote = false;
       for (final entry in byTarget.entries) {

@@ -378,8 +378,8 @@ ${lines.join('\n')}$more''';
 
   /// 生成本地工作区系统提示词。
   ///
-  /// [manageAvailable] 为真时说明本轮会注册工作区管理工具；[fileAvailable]
-  /// 为真时说明会话已绑定工作区且会注册 workspace_file_* 工具。
+  /// [readAllowed] 或 [writeAllowed] 为真时说明本轮会注册工作区管理工具；
+  /// [fileAvailable] 为真时说明会话已绑定工作区且会注册 workspace_file_* 工具。
   static String workspaceSystemPrompt(
     Workspace? workspace, {
     required bool readAllowed,
@@ -2718,13 +2718,6 @@ plugin_file_* / plugin_manifest_* 工具不传 pluginId 时默认操作该插件
         call.arguments,
       ),
       'run_scheduled_task' => await _runScheduledTaskForAgent(call.arguments),
-      'generate_image' => _registeredFunction(
-        call,
-        'model.generateImage',
-        identity,
-        permissions,
-        context,
-      ),
       _ => _error('未注册具体工具实现: ${invocation.name}'),
     };
   }

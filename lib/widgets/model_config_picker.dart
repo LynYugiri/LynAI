@@ -37,9 +37,6 @@ class ModelSelectionValue {
 /// 提供按分类筛选、能力匹配和子模型展开的模型选择 UI。与全局聊天模型选择器
 /// 隔离，确保插件配置不会意外改变主界面的当前模型。
 class ModelConfigPicker extends StatefulWidget {
-  /// 选择器标题。
-  final String title;
-
   /// 模型分类，用于过滤可选项。
   final String category;
 
@@ -60,7 +57,6 @@ class ModelConfigPicker extends StatefulWidget {
 
   const ModelConfigPicker({
     super.key,
-    required this.title,
     required this.category,
     required this.value,
     this.capabilities = const [],

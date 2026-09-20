@@ -458,9 +458,7 @@ class ModelConfig {
       category: category,
       endpoint: json['endpoint'] as String,
       apiKey: json['apiKey'] as String? ?? '',
-      apiKeySecretRef:
-          json['apiKeySecretRef'] as String? ??
-          secretReferenceForId(json['id'] as String),
+      apiKeySecretRef: json['apiKeySecretRef'] as String?,
       modelName: modelName,
       apiType: json['managed'] == true ? '' : json['apiType'] as String,
       priority: (json['priority'] as num?)?.toInt() ?? 0,

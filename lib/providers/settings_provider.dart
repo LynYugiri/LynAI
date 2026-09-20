@@ -4,7 +4,6 @@ import '../models/agent_working_memory.dart';
 import '../models/app_settings.dart';
 import '../models/chat_quick_action.dart';
 import '../models/chat_role.dart';
-import '../models/conversation.dart';
 import '../models/model_config.dart';
 import '../models/system_prompt.dart';
 import '../models/web_search.dart';
@@ -459,19 +458,6 @@ class SettingsProvider extends ChangeNotifier with SerializedSaveQueue {
     notifyListeners();
   }
 
-  void setRoleGroups(String roleId, List<String> groupIds) {
-    if (!_settings.roles.any((role) => role.id == roleId)) return;
-    _settings = _settings.copyWith(
-      roleGroups: _roleGroupsWithMembership(
-        _settings.roleGroups,
-        roleId,
-        groupIds,
-      ),
-    );
-    _queueSaveSettings();
-    notifyListeners();
-  }
-
   List<ChatRoleGroup> groupsForRole(String roleId) {
     return _settings.roleGroups
         .where((group) => group.roleIds.contains(roleId))
@@ -550,64 +536,9 @@ class SettingsProvider extends ChangeNotifier with SerializedSaveQueue {
     notifyListeners();
   }
 
-  /// 设置语音转文字接口配置ID
-  void setSpeechModelId(String? modelId) {
-    _settings = _settings.copyWith(speechModelId: modelId);
-    _queueSaveSettings();
-    notifyListeners();
-  }
-
-  /// 设置 OCR 接口配置ID
-  void setImageModelId(String? modelId) {
-    _settings = _settings.copyWith(imageModelId: modelId);
-    _queueSaveSettings();
-    notifyListeners();
-  }
-
-  void setImageOcrEnabled(bool enabled) {
-    _settings = _settings.copyWith(imageOcrEnabled: enabled);
-    _queueSaveSettings();
-    notifyListeners();
-  }
-
-  /// 设置文件识别模型配置ID
-  void setImageRecognitionModelId(String? modelId) {
-    _settings = _settings.copyWith(imageRecognitionModelId: modelId);
-    _queueSaveSettings();
-    notifyListeners();
-  }
-
-  /// 设置文件识别是否启用
-  void setImageRecognitionEnabled(bool enabled) {
-    _settings = _settings.copyWith(imageRecognitionEnabled: enabled);
-    _queueSaveSettings();
-    notifyListeners();
-  }
-
-  /// 设置图片生成模型配置ID
-  void setImageGenerationModelId(String? modelId) {
-    _settings = _settings.copyWith(imageGenerationModelId: modelId);
-    _queueSaveSettings();
-    notifyListeners();
-  }
-
-  /// 设置图片生成工具是否启用
-  void setImageGenerationEnabled(bool enabled) {
-    _settings = _settings.copyWith(imageGenerationEnabled: enabled);
-    _queueSaveSettings();
-    notifyListeners();
-  }
-
   /// 记录新对话默认使用的 Chat 模型配置ID
   void setLastChatModelId(String? modelId) {
     _settings = _settings.copyWith(lastChatModelId: modelId);
-    _queueSaveSettings();
-    notifyListeners();
-  }
-
-  /// 设置文件识别结果发送给 Chat 时使用的提示词
-  void setImageRecognitionPrompt(String prompt) {
-    _settings = _settings.copyWith(imageRecognitionPrompt: prompt);
     _queueSaveSettings();
     notifyListeners();
   }
@@ -624,13 +555,6 @@ class SettingsProvider extends ChangeNotifier with SerializedSaveQueue {
       if (exists) return currentId;
     }
     return models.isEmpty ? null : models.first.id;
-  }
-
-  /// 设置系统提示词
-  void setSystemPrompt(String prompt) {
-    _settings = _settings.copyWith(systemPrompt: prompt);
-    _queueSaveSettings();
-    notifyListeners();
   }
 
   /// 添加系统提示词模板
@@ -686,16 +610,6 @@ class SettingsProvider extends ChangeNotifier with SerializedSaveQueue {
     notifyListeners();
   }
 
-  /// 选择当前使用的系统提示词
-  void selectSystemPrompt(String? id) {
-    _settings = _settings.copyWith(
-      selectedSystemPromptId: id,
-      systemPrompt: effectiveSystemPromptFor(id, _settings.systemPrompt),
-    );
-    _queueSaveSettings();
-    notifyListeners();
-  }
-
   /// 获取当前生效的系统提示词内容
   String get effectiveSystemPrompt {
     return effectiveSystemPromptFor(
@@ -711,24 +625,6 @@ class SettingsProvider extends ChangeNotifier with SerializedSaveQueue {
       }
     }
     return fallback;
-  }
-
-  void applyConversationSettings(ConversationSettings settings) {
-    _settings = _settings.copyWith(
-      speechModelId: settings.speechModelId,
-      imageModelId: settings.imageModelId,
-      imageOcrEnabled: settings.imageOcrEnabled,
-      imageRecognitionModelId: settings.imageRecognitionModelId,
-      imageRecognitionEnabled: settings.imageRecognitionEnabled,
-      imageGenerationModelId: settings.imageGenerationModelId,
-      imageGenerationEnabled: settings.imageGenerationEnabled,
-      imageRecognitionPrompt: settings.imageRecognitionPrompt,
-      systemPrompt: settings.systemPrompt,
-      selectedSystemPromptId: settings.selectedSystemPromptId,
-      lastChatModelId: settings.modelId,
-    );
-    _queueSaveSettings();
-    notifyListeners();
   }
 
   /// 设置主题模式
@@ -764,15 +660,6 @@ class SettingsProvider extends ChangeNotifier with SerializedSaveQueue {
   Future<void> initializeDefaultBackend(String url) async {
     if (_settings.hasConfiguredBackend || url.trim().isEmpty) return;
     _settings = _settings.copyWith(backendUrl: url, hasConfiguredBackend: true);
-    _queueSaveSettings();
-    notifyListeners();
-    await pendingSaveQueue;
-  }
-
-  /// 标记首次登录引导已展示，避免每次启动重复弹窗。
-  Future<void> markLoginGuideSeen() async {
-    if (_settings.hasSeenLoginGuide) return;
-    _settings = _settings.copyWith(hasSeenLoginGuide: true);
     _queueSaveSettings();
     notifyListeners();
     await pendingSaveQueue;

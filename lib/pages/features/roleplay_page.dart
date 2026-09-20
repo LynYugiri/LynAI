@@ -1889,7 +1889,6 @@ class _RoleplayScenarioDialogState extends State<_RoleplayScenarioDialog> {
               _RoleplayModelSelector(
                 value: _directorModel,
                 onChanged: (value) => setState(() => _directorModel = value),
-                boxLabel: '导演模型',
               ),
               const SizedBox(height: 12),
               _roleSelector(settings),
@@ -2163,7 +2162,6 @@ class _RoleplayThreadSettingsSheetState
             _RoleplayModelSelector(
               value: _directorModel,
               onChanged: (value) => setState(() => _directorModel = value),
-              boxLabel: '导演模型',
             ),
             const SizedBox(height: 12),
             ListTile(
@@ -2751,7 +2749,6 @@ class _RoleplayParticipantDialogState
                 onChanged: (value) => setState(() => _model = value),
                 showNoneOption: true,
                 noneLabel: '跟随导演',
-                boxLabel: '角色模型',
               ),
               if (widget.groups.isNotEmpty) ...[
                 const SizedBox(height: 10),
@@ -2815,20 +2812,17 @@ class _RoleplayModelSelector extends StatelessWidget {
   final ValueChanged<RoleplayModelSelection> onChanged;
   final bool showNoneOption;
   final String noneLabel;
-  final String boxLabel;
 
   const _RoleplayModelSelector({
     required this.value,
     required this.onChanged,
     this.showNoneOption = false,
     this.noneLabel = '跟随导演',
-    this.boxLabel = '模型',
   });
 
   @override
   Widget build(BuildContext context) {
     return ModelConfigPicker(
-      title: boxLabel,
       category: ModelConfig.categoryChat,
       value: _pickerValue,
       allowClear: showNoneOption,

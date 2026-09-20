@@ -74,28 +74,6 @@ class FeatureRepository {
     return _loadStorageV2();
   }
 
-  /// Note metadata is persisted together by [_storageV2.writeNotesData].
-  Future<void> saveNoteFoldersSnapshot(List<NoteFolder> folders) async {
-    return;
-  }
-
-  /// Note metadata is persisted together by [_storageV2.writeNotesData].
-  Future<void> saveNoteRevisionsSnapshot(List<NoteRevision> revisions) async {
-    return;
-  }
-
-  /// Note metadata is persisted together by [_storageV2.writeNotesData].
-  Future<void> saveNotesSnapshot(List<Note> notes) async {
-    return;
-  }
-
-  /// Note metadata is persisted together by [_storageV2.writeNotesData].
-  Future<void> saveNoteEditProposalsSnapshot(
-    List<NoteEditProposal> proposals,
-  ) async {
-    return;
-  }
-
   /// 以新版 V2 存储格式保存笔记数据。
   Future<void> saveStorageV2NotesData(Map<String, dynamic> data) {
     return _storageV2.writeNotesData(data);

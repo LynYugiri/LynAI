@@ -169,32 +169,23 @@ class _KnowledgeExplanationDialogState
       });
       return;
     }
-    await _generate(categoryId: categoryId, generation: generation);
+    await _generate(categoryId, generation);
   }
 
-  Future<void> _generate({String? categoryId, int? generation}) async {
-    final selectedCategory = categoryId ?? _categoryId;
-    final request = generation ?? ++_requestGeneration;
-    if (selectedCategory == null) return;
-    if (generation == null) {
-      setState(() {
-        _content = null;
-        _saved = false;
-        _loading = true;
-        _error = null;
-      });
-    }
+  /// 生成解释。分类与代次由调用方决定（`_loadCategory` 已在进入前重置加载态），
+  /// 这里只负责请求和丢弃过期结果。
+  Future<void> _generate(String categoryId, int generation) async {
     try {
       final content = await widget.service.generate(
         text: widget.text,
-        categoryId: selectedCategory,
+        categoryId: categoryId,
         context: widget.sourceContext,
         sourceTitle: widget.sourceTitle,
         sourceUrl: widget.sourceUrl,
       );
       if (!_active ||
-          request != _requestGeneration ||
-          selectedCategory != _categoryId) {
+          generation != _requestGeneration ||
+          categoryId != _categoryId) {
         return;
       }
       setState(() {
@@ -203,15 +194,15 @@ class _KnowledgeExplanationDialogState
       });
       if (widget.saveAutomatically) {
         await _save(
-          generation: request,
-          categoryId: selectedCategory,
+          generation: generation,
+          categoryId: categoryId,
           content: content,
         );
       }
     } catch (error) {
       if (!_active ||
-          request != _requestGeneration ||
-          selectedCategory != _categoryId) {
+          generation != _requestGeneration ||
+          categoryId != _categoryId) {
         return;
       }
       setState(() {

@@ -466,15 +466,9 @@ class _PluginFeatureWebViewState extends State<PluginFeatureWebView> {
     }
   }
 
-  /// 将动态值转换为 JSON 安全的 Map 结构。
-  static Map<String, dynamic> _jsonMap(dynamic source) {
-    if (source is List) {
-      return {'data': source.map(_jsonValue).toList()};
-    }
-    if (source is Map) {
-      return source.map((k, v) => MapEntry(k.toString(), _jsonValue(v)));
-    }
-    return {'value': _jsonValue(source)};
+  /// 将 Bridge 调用结果转换为 JSON 安全的 Map 结构。
+  static Map<String, dynamic> _jsonMap(Map<String, dynamic> source) {
+    return source.map((k, v) => MapEntry(k.toString(), _jsonValue(v)));
   }
 
   /// 将动态值转换为 JSON 安全的基本类型值。

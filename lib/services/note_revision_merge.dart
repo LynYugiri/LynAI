@@ -21,9 +21,6 @@ NoteMergeResult mergeNoteMarkdown(String base, String ours, String theirs) {
   final baseLines = _lines(base);
   final oursChange = _singleChange(baseLines, _lines(ours));
   final theirsChange = _singleChange(baseLines, _lines(theirs));
-  if (oursChange == null || theirsChange == null) {
-    return const NoteMergeResult.conflict();
-  }
   if (oursChange.sameAs(theirsChange)) return NoteMergeResult.merged(ours);
   if (oursChange.overlaps(theirsChange)) {
     return const NoteMergeResult.conflict();
@@ -40,7 +37,7 @@ NoteMergeResult mergeNoteMarkdown(String base, String ours, String theirs) {
 
 List<String> _lines(String value) => value.split('\n');
 
-_LineChange? _singleChange(List<String> before, List<String> after) {
+_LineChange _singleChange(List<String> before, List<String> after) {
   var start = 0;
   while (start < before.length &&
       start < after.length &&

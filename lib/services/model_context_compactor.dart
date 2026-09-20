@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 
@@ -67,10 +66,6 @@ class ModelContextCompactor {
       lines.insert(0, line);
       used += line.length;
       if (used >= maxChars) break;
-    }
-    if (lines.isEmpty) {
-      final text = jsonEncode(messages.take(3).toList());
-      return text.length <= maxChars ? text : text.substring(0, maxChars);
     }
     return lines.join('\n');
   }

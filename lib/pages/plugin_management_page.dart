@@ -1214,7 +1214,6 @@ class _PluginConfigCardState extends State<_PluginConfigCard> {
             _multiSelectField(field, value)
           else if (field.type == PluginConfigFieldType.model)
             ModelConfigPicker(
-              title: field.titleOrKey(field.key),
               category: field.modelCategory,
               capabilities: field.modelCapabilities,
               allowClear: field.allowClear,

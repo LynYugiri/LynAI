@@ -135,7 +135,6 @@ class AgentToolScheduler {
           );
         }
       }
-      var started = false;
       while (active < maxConcurrency &&
           !exclusiveActive &&
           pending.isNotEmpty) {
@@ -189,16 +188,15 @@ class AgentToolScheduler {
             continue;
           }
           start(candidate, candidateRegistration, keys[candidate]);
-          started = true;
           continue;
         }
         pending.removeFirst();
         start(index, registration, key);
-        started = true;
         if (concurrency == AgentToolConcurrency.exclusive) break;
       }
       if (active == 0) {
-        if (!started && pending.isNotEmpty) continue;
+        // 本轮没有任何 start 成功（active 仍为 0），还有待执行项就再试一轮。
+        if (pending.isNotEmpty) continue;
         break;
       }
       final completion = await completions.removeFirst();
