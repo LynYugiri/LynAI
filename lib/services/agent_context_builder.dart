@@ -36,11 +36,18 @@ class AgentCharacterContextEstimator {
     this.imageTokensPerImage = 1024,
   });
 
+  /// 单条消息的近似 token 成本。
+  ///
+  /// [estimateMessages] 是逐条成本之和，因此裁剪循环可以只算一次、删一条减一条，
+  /// 不必每删一条就把整段历史重新 jsonEncode 一遍。
+  int estimateMessageTokens(Map<String, dynamic> message) =>
+      estimateText(jsonEncode(_budgetSafeMessage(message))) +
+      _imagePartCount(message['content']) * imageTokensPerImage;
+
   int estimateMessages(Iterable<Map<String, dynamic>> messages) {
     var tokens = 0;
     for (final message in messages) {
-      tokens += estimateText(jsonEncode(_budgetSafeMessage(message)));
-      tokens += _imagePartCount(message['content']) * imageTokensPerImage;
+      tokens += estimateMessageTokens(message);
     }
     return tokens;
   }
@@ -414,7 +421,9 @@ class AgentContextBuilder {
       (message) => message['role'] == 'user',
       orElse: () => const <String, dynamic>{},
     );
-    while (estimator.estimateMessages(result) > targetTokens) {
+    final costs = result.map(estimator.estimateMessageTokens).toList();
+    var total = costs.fold(0, (sum, cost) => sum + cost);
+    while (total > targetTokens) {
       final index = result.indexWhere(
         (message) =>
             !identical(message, checkpoint) &&
@@ -423,6 +432,7 @@ class AgentContextBuilder {
       );
       if (index >= 0) {
         result.removeAt(index);
+        total -= costs.removeAt(index);
         continue;
       }
       final systemIndex = result.indexWhere(
@@ -430,6 +440,7 @@ class AgentContextBuilder {
       );
       if (systemIndex >= 0) {
         result.removeAt(systemIndex);
+        total -= costs.removeAt(systemIndex);
         continue;
       }
       result.remove(checkpoint);
@@ -449,8 +460,9 @@ class AgentContextBuilder {
       (message) => message['role'] == 'user',
     );
     final newestUser = newestUserIndex < 0 ? null : result[newestUserIndex];
-    while (result.length > 1 &&
-        estimator.estimateMessages(result) > targetTokens) {
+    final costs = result.map(estimator.estimateMessageTokens).toList();
+    var total = costs.fold(0, (sum, cost) => sum + cost);
+    while (result.length > 1 && total > targetTokens) {
       var removableIndex = result.indexWhere(
         (message) =>
             !identical(message, newestUser) && message['role'] != 'system',
@@ -462,8 +474,9 @@ class AgentContextBuilder {
       }
       if (removableIndex < 0) break;
       result.removeAt(removableIndex);
+      total -= costs.removeAt(removableIndex);
     }
-    if (result.isEmpty || estimator.estimateMessages(result) <= targetTokens) {
+    if (result.isEmpty || total <= targetTokens) {
       return result;
     }
     _truncateMessageTextAt(result, 0, targetTokens, estimator);

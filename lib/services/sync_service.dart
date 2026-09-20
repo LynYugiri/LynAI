@@ -158,14 +158,7 @@ class RemoteSyncService implements SyncService {
               !entry.containsKey('changeId') && _isPositiveInt(entry['seq']),
         );
     if (isLegacy) {
-      final maxSeq = entries
-          .map((entry) => entry['seq'] as int)
-          .reduce((a, b) => a > b ? a : b);
-      if (latestSeq < maxSeq) {
-        throw const FormatException(
-          'sync upload latestSeq does not cover ACKs',
-        );
-      }
+      _validateLatestSeqCoversAcks(entries, latestSeq);
       return SyncUploadResult(
         latestSeq: latestSeq,
         legacyWholeBatchAcknowledgement: true,
@@ -189,16 +182,7 @@ class RemoteSyncService implements SyncService {
         !acknowledgedChangeIds.containsAll(expectedChangeIds)) {
       throw const FormatException('sync upload ACKs do not match request');
     }
-    if (entries.isNotEmpty) {
-      final maxSeq = entries
-          .map((entry) => entry['seq'] as int)
-          .reduce((a, b) => a > b ? a : b);
-      if (latestSeq < maxSeq) {
-        throw const FormatException(
-          'sync upload latestSeq does not cover ACKs',
-        );
-      }
-    }
+    _validateLatestSeqCoversAcks(entries, latestSeq);
     final acknowledgements = changes
         .map(
           (change) => SyncAcknowledgement(
@@ -214,6 +198,20 @@ class RemoteSyncService implements SyncService {
   }
 
   static bool _isPositiveInt(Object? value) => value is int && value > 0;
+
+  /// ACK 的最大 seq 不能超过响应声明的 latestSeq；空 ACK 列表无需校验。
+  static void _validateLatestSeqCoversAcks(
+    List<Map<String, dynamic>> entries,
+    int latestSeq,
+  ) {
+    if (entries.isEmpty) return;
+    final maxSeq = entries
+        .map((entry) => entry['seq'] as int)
+        .reduce((a, b) => a > b ? a : b);
+    if (latestSeq < maxSeq) {
+      throw const FormatException('sync upload latestSeq does not cover ACKs');
+    }
+  }
 
   static String requestIdForChanges(List<SyncChangeRecord> changes) {
     final identity = changes

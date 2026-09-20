@@ -239,6 +239,14 @@ class DeviceControlService {
     final found = await _screenQuery({...args, 'limit': 1});
     final node = _firstResultNode(found);
     if (node == null) return _error('node_not_found', '未找到可点击文本');
+    return _clickNode(node, args);
+  }
+
+  /// 点击 [node]：优先用节点动作，失败且未禁用 fallbackTap 时退回坐标点击。
+  Future<Map<String, dynamic>> _clickNode(
+    Map<String, dynamic> node,
+    Map<String, dynamic> args,
+  ) async {
     final nodeId = _targetNodeId(node);
     if (nodeId != null) {
       final clicked = await execute('device.node.action', {
@@ -258,18 +266,7 @@ class DeviceControlService {
     final rawNode = found['result'];
     if (found['ok'] == false || rawNode is! Map) return found;
     final node = Map<String, dynamic>.from(rawNode);
-    final nodeId = _targetNodeId(node);
-    if (nodeId != null) {
-      final clicked = await execute('device.node.action', {
-        'nodeId': nodeId,
-        'action': args['action']?.toString() ?? 'click',
-      });
-      if (clicked['ok'] != false) return clicked;
-      if (args['fallbackTap'] == false) return clicked;
-    }
-    final center = _centerOf(node);
-    if (center == null) return _error('node_not_actionable', '目标节点不可点击');
-    return execute('device.tap', {'x': center.$1, 'y': center.$2});
+    return _clickNode(node, args);
   }
 
   Future<Map<String, dynamic>> _inputText(Map<String, dynamic> args) async {

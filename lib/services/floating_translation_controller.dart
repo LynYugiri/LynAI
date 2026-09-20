@@ -120,17 +120,21 @@ class FloatingTranslationController extends ChangeNotifier {
   Future<void> stopAutomatic() async {
     _automatic = false;
     _scrolling = false;
-    final wasTranslating = _translating;
-    await _cancelRequest();
-    if (wasTranslating) {
-      try {
-        await _restoreCurrentTranslations();
-      } catch (exception) {
-        _error = '恢复已有译文失败: $exception';
-      }
-    }
+    await _cancelAndRestore();
     _status = _translations.isEmpty ? '已停止自动翻译' : '已停止自动翻译，保留当前译文';
     notifyListeners();
+  }
+
+  /// 取消在飞的翻译请求；若取消时仍在翻译，再把已有译文恢复出来。
+  Future<void> _cancelAndRestore() async {
+    final wasTranslating = _translating;
+    await _cancelRequest();
+    if (!wasTranslating) return;
+    try {
+      await _restoreCurrentTranslations();
+    } catch (exception) {
+      _error = '恢复已有译文失败: $exception';
+    }
   }
 
   Future<void> clear() async {
@@ -151,15 +155,7 @@ class FloatingTranslationController extends ChangeNotifier {
   Future<void> onScrollStarted() async {
     if (!_automatic) return;
     _scrolling = true;
-    final wasTranslating = _translating;
-    await _cancelRequest();
-    if (wasTranslating) {
-      try {
-        await _restoreCurrentTranslations();
-      } catch (exception) {
-        _error = '恢复已有译文失败: $exception';
-      }
-    }
+    await _cancelAndRestore();
     _status = '滚动中，已保留当前译文';
     notifyListeners();
   }

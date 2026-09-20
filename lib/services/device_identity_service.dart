@@ -64,18 +64,7 @@ class DeviceIdentityService {
     if (recordValue != null) {
       final loaded = await _loadRecord(recordValue, scope: scope);
       if (stagingValue != null) {
-        try {
-          final staged = await _loadRecord(
-            stagingValue,
-            scope: scope,
-            cache: false,
-          );
-          if (staged.deviceId != loaded.deviceId) {
-            // The committed identity is authoritative after any interrupted write.
-          }
-        } catch (_) {
-          // A valid committed record is authoritative over abandoned staging.
-        }
+        // 已提交的记录优先，废弃的 staging 直接删掉，无需解析或校验它。
         await _deleteBestEffort(stagingKey);
       }
       if (migrateLegacy) await _deleteLegacyBestEffort();
