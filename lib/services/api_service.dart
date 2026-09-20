@@ -189,6 +189,32 @@ class ApiService {
     }
   }
 
+  /// Ollama 请求体：先写入有效采样参数，再合入用户 extraParams（不覆盖已有键）。
+  ///
+  /// 与 OpenAI 路径的 [_applyExtraRequestParams] 不同：Ollama 直接使用用户键名，
+  /// 不做 `maxTokens`/`topP` 归一化，也不过滤内部键。
+  void _applyOllamaRequestParams(
+    Map<String, dynamic> body,
+    ModelConfig config,
+  ) {
+    if (config.effectiveMaxTokens != null ||
+        config.effectiveTemperature != null ||
+        config.effectiveTopP != null) {
+      body['options'] = {
+        if (config.effectiveMaxTokens != null)
+          'num_predict': config.effectiveMaxTokens,
+        if (config.effectiveTemperature != null)
+          'temperature': config.effectiveTemperature,
+        if (config.effectiveTopP != null) 'top_p': config.effectiveTopP,
+      };
+    }
+    for (final entry in config.extraParams.entries) {
+      if (!body.containsKey(entry.key)) {
+        body[entry.key] = entry.value;
+      }
+    }
+  }
+
   void _logSseDiagnostic(String label, Object? value) {
     final text = value?.toString() ?? 'null';
     debugPrint('[SSE] $label ${_compactSseText(text)}');
@@ -508,22 +534,7 @@ class ApiService {
       ],
       'stream': false,
     };
-    if (config.effectiveMaxTokens != null ||
-        config.effectiveTemperature != null ||
-        config.effectiveTopP != null) {
-      body['options'] = {
-        if (config.effectiveMaxTokens != null)
-          'num_predict': config.effectiveMaxTokens,
-        if (config.effectiveTemperature != null)
-          'temperature': config.effectiveTemperature,
-        if (config.effectiveTopP != null) 'top_p': config.effectiveTopP,
-      };
-    }
-    for (final entry in config.extraParams.entries) {
-      if (!body.containsKey(entry.key)) {
-        body[entry.key] = entry.value;
-      }
-    }
+    _applyOllamaRequestParams(body, config);
 
     final headers = <String, String>{'Content-Type': 'application/json'};
     final response = await _sendBuffered(config, () {
@@ -1861,23 +1872,7 @@ class ApiService {
       'think': thinking,
     };
 
-    if (config.effectiveMaxTokens != null ||
-        config.effectiveTemperature != null ||
-        config.effectiveTopP != null) {
-      body['options'] = {
-        if (config.effectiveMaxTokens != null)
-          'num_predict': config.effectiveMaxTokens,
-        if (config.effectiveTemperature != null)
-          'temperature': config.effectiveTemperature,
-        if (config.effectiveTopP != null) 'top_p': config.effectiveTopP,
-      };
-    }
-
-    for (final entry in config.extraParams.entries) {
-      if (!body.containsKey(entry.key)) {
-        body[entry.key] = entry.value;
-      }
-    }
+    _applyOllamaRequestParams(body, config);
 
     final headers = <String, String>{'Content-Type': 'application/json'};
     final response = await _sendBuffered(config, () {
@@ -1918,23 +1913,7 @@ class ApiService {
       'think': thinking,
     };
 
-    if (config.effectiveMaxTokens != null ||
-        config.effectiveTemperature != null ||
-        config.effectiveTopP != null) {
-      body['options'] = {
-        if (config.effectiveMaxTokens != null)
-          'num_predict': config.effectiveMaxTokens,
-        if (config.effectiveTemperature != null)
-          'temperature': config.effectiveTemperature,
-        if (config.effectiveTopP != null) 'top_p': config.effectiveTopP,
-      };
-    }
-
-    for (final entry in config.extraParams.entries) {
-      if (!body.containsKey(entry.key)) {
-        body[entry.key] = entry.value;
-      }
-    }
+    _applyOllamaRequestParams(body, config);
 
     final headers = <String, String>{'Content-Type': 'application/json'};
     http.Request buildRequest() {

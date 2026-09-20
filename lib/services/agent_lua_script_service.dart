@@ -62,6 +62,20 @@ class AgentLuaScriptService {
         conversationId: conversationId,
       );
     }
+    final env = _ScriptEnv(
+      features: features,
+      tasks: tasks,
+      calendar: calendar,
+      modelConfigs: modelConfigs,
+      plugins: plugins,
+      settings: settings,
+      conversations: conversations,
+      conversationId: conversationId,
+      identity: identity,
+      permissionSnapshot: permissionSnapshot,
+      cancellationToken: cancellationToken,
+      backend: backend,
+    );
     final state = LuaState.newState(
       executionBudget: createLuaSandboxBudget(
         cancellationToken: cancellationToken,
@@ -83,22 +97,7 @@ class AgentLuaScriptService {
         onCall: (method, args) {
           cancellationToken?.throwIfCancellationRequested();
           callCount++;
-          final result = _call(
-            method,
-            args,
-            features: features,
-            tasks: tasks,
-            calendar: calendar,
-            modelConfigs: modelConfigs,
-            plugins: plugins,
-            settings: settings,
-            conversations: conversations,
-            conversationId: conversationId,
-            identity: identity,
-            permissionSnapshot: permissionSnapshot,
-            cancellationToken: cancellationToken,
-            backend: backend,
-          );
+          final result = _call(method, args, env);
           enforceLuaSandboxResultLimit(result);
           return result;
         },
@@ -118,18 +117,7 @@ class AgentLuaScriptService {
           request,
           state: state,
           generatedImages: generatedImages,
-          features: features,
-          tasks: tasks,
-          calendar: calendar,
-          modelConfigs: modelConfigs,
-          plugins: plugins,
-          settings: settings,
-          conversations: conversations,
-          conversationId: conversationId,
-          identity: identity,
-          permissionSnapshot: permissionSnapshot,
-          cancellationToken: cancellationToken,
-          backend: backend,
+          env: env,
         ),
       );
       if (status != ThreadStatus.luaOk) {
@@ -154,18 +142,7 @@ class AgentLuaScriptService {
         state: state,
         depth: 0,
         generatedImages: generatedImages,
-        features: features,
-        tasks: tasks,
-        calendar: calendar,
-        modelConfigs: modelConfigs,
-        plugins: plugins,
-        settings: settings,
-        conversations: conversations,
-        conversationId: conversationId,
-        identity: identity,
-        permissionSnapshot: permissionSnapshot,
-        cancellationToken: cancellationToken,
-        backend: backend,
+        env: env,
       );
       if (commandResult != null) {
         return _finishDeviceRun({
@@ -239,55 +216,44 @@ class AgentLuaScriptService {
 
   Map<String, dynamic> _call(
     String method,
-    Map<String, dynamic> args, {
-    FeatureProvider? features,
-    TaskProvider? tasks,
-    CalendarProvider? calendar,
-    ModelConfigProvider? modelConfigs,
-    PluginProvider? plugins,
-    SettingsProvider? settings,
-    ConversationProvider? conversations,
-    String? conversationId,
-    LynAICallIdentity? identity,
-    AgentPermissionSnapshot? permissionSnapshot,
-    AgentCancellationToken? cancellationToken,
-    BackendClient? backend,
-  }) {
-    cancellationToken?.throwIfCancellationRequested();
+    Map<String, dynamic> args,
+    _ScriptEnv env,
+  ) {
+    env.cancellationToken?.throwIfCancellationRequested();
     final callIdentity =
-        (identity ??
+        (env.identity ??
                 LynAICallIdentity(
                   type: LynAICallerType.agentLua,
-                  conversationId: conversationId,
+                  conversationId: env.conversationId,
                 ))
             .child(type: LynAICallerType.agentLua, toolName: method);
     if (method == 'plugins.functions.list') {
-      return _listPluginFunctions(plugins?.plugins ?? const []);
+      return _listPluginFunctions(env.plugins?.plugins ?? const []);
     }
     if (method == 'agent.plan.update' || method == 'update_plan') {
-      return _updateAgentPlan(args, conversations, conversationId);
+      return _updateAgentPlan(args, env.conversations, env.conversationId);
     }
     if (method == 'agent.memory.read' || method == 'read_agent_memory') {
-      return _readAgentMemory(conversations, conversationId);
+      return _readAgentMemory(env.conversations, env.conversationId);
     }
     if (method == 'agent.memory.update' || method == 'update_agent_memory') {
-      return _updateAgentMemory(args, conversations, conversationId);
+      return _updateAgentMemory(args, env.conversations, env.conversationId);
     }
     if (method == 'agent.note.add' || method == 'add_agent_note') {
-      return _addAgentNote(args, conversations, conversationId);
+      return _addAgentNote(args, env.conversations, env.conversationId);
     }
     if (method == 'plugins.callFunction') {
-      final conv = conversationId == null
+      final conv = env.conversationId == null
           ? null
-          : conversations?.getConversation(conversationId);
+          : env.conversations?.getConversation(env.conversationId!);
       if (conv?.settings.agentEnabled != true) {
         return _error('agent_disabled', '当前对话未启用 Agent 模式');
       }
       final permitted = const LynAIPermissionService().canUseCapability(
         identity: callIdentity,
         capability: LynAICapabilities.pluginCallFunction,
-        agentPermissionSnapshot: permissionSnapshot,
-        appSettings: settings?.settings,
+        agentPermissionSnapshot: env.permissionSnapshot,
+        appSettings: env.settings?.settings,
       );
       if (!permitted) {
         return _error('permission_denied', 'Agent 未授权 plugins.callFunction');
@@ -302,14 +268,14 @@ class AgentLuaScriptService {
     final functions = LynAIFunctionService();
     final context = LynAIFunctionContext(
       identity: callIdentity,
-      agentPermissionSnapshot: permissionSnapshot,
-      features: features,
-      tasks: tasks,
-      calendar: calendar,
-      modelConfigs: modelConfigs,
-      plugins: plugins,
-      settings: settings,
-      backend: backend,
+      agentPermissionSnapshot: env.permissionSnapshot,
+      features: env.features,
+      tasks: env.tasks,
+      calendar: env.calendar,
+      modelConfigs: env.modelConfigs,
+      plugins: env.plugins,
+      settings: env.settings,
+      backend: env.backend,
     );
     final sync = functions.executeSync(
       LynAIFunctionCall(name: method, arguments: args),
@@ -389,20 +355,9 @@ class AgentLuaScriptService {
     Object? request, {
     required LuaState state,
     required List<Map<String, dynamic>> generatedImages,
-    FeatureProvider? features,
-    TaskProvider? tasks,
-    CalendarProvider? calendar,
-    ModelConfigProvider? modelConfigs,
-    PluginProvider? plugins,
-    SettingsProvider? settings,
-    ConversationProvider? conversations,
-    String? conversationId,
-    LynAICallIdentity? identity,
-    AgentPermissionSnapshot? permissionSnapshot,
-    AgentCancellationToken? cancellationToken,
-    BackendClient? backend,
+    required _ScriptEnv env,
   }) async {
-    cancellationToken?.throwIfCancellationRequested();
+    env.cancellationToken?.throwIfCancellationRequested();
     if (request is! Map) return _error('invalid_yield', 'Lua yield 请求无效');
     final command = request.map(
       (key, value) => MapEntry(key.toString(), value),
@@ -420,20 +375,9 @@ class AgentLuaScriptService {
       name,
       args,
       generatedImages: generatedImages,
-      features: features,
-      tasks: tasks,
-      calendar: calendar,
-      modelConfigs: modelConfigs,
-      plugins: plugins,
-      settings: settings,
-      conversations: conversations,
-      conversationId: conversationId,
-      identity: identity,
-      permissionSnapshot: permissionSnapshot,
-      cancellationToken: cancellationToken,
-      backend: backend,
+      env: env,
     );
-    cancellationToken?.throwIfCancellationRequested();
+    env.cancellationToken?.throwIfCancellationRequested();
     enforceLuaSandboxResultLimit(result);
     return result;
   }
@@ -443,20 +387,9 @@ class AgentLuaScriptService {
     required LuaState state,
     required int depth,
     required List<Map<String, dynamic>> generatedImages,
-    FeatureProvider? features,
-    TaskProvider? tasks,
-    CalendarProvider? calendar,
-    ModelConfigProvider? modelConfigs,
-    PluginProvider? plugins,
-    SettingsProvider? settings,
-    ConversationProvider? conversations,
-    String? conversationId,
-    LynAICallIdentity? identity,
-    AgentPermissionSnapshot? permissionSnapshot,
-    AgentCancellationToken? cancellationToken,
-    BackendClient? backend,
+    required _ScriptEnv env,
   }) async {
-    cancellationToken?.throwIfCancellationRequested();
+    env.cancellationToken?.throwIfCancellationRequested();
     if (raw is! Map) return null;
     final command = raw.map((key, value) => MapEntry(key.toString(), value));
     final name =
@@ -476,24 +409,13 @@ class AgentLuaScriptService {
       name,
       args,
       generatedImages: generatedImages,
-      features: features,
-      tasks: tasks,
-      calendar: calendar,
-      modelConfigs: modelConfigs,
-      plugins: plugins,
-      settings: settings,
-      conversations: conversations,
-      conversationId: conversationId,
-      identity: identity,
-      permissionSnapshot: permissionSnapshot,
-      cancellationToken: cancellationToken,
-      backend: backend,
+      env: env,
     );
-    cancellationToken?.throwIfCancellationRequested();
+    env.cancellationToken?.throwIfCancellationRequested();
     enforceLuaSandboxResultLimit(result);
     final next = (command['__lynai_next'] as String? ?? '').trim();
     if (next.isEmpty) return result;
-    cancellationToken?.throwIfCancellationRequested();
+    env.cancellationToken?.throwIfCancellationRequested();
     state.getGlobal(next);
     if (!state.isFunction(-1)) {
       state.pop(1);
@@ -505,7 +427,7 @@ class AgentLuaScriptService {
     if (status != ThreadStatus.luaOk) {
       final budgetError = _budgetError(
         state.lastError,
-        cancellationToken: cancellationToken,
+        cancellationToken: env.cancellationToken,
       );
       if (budgetError != null) return budgetError;
       return _error(
@@ -521,17 +443,7 @@ class AgentLuaScriptService {
       state: state,
       depth: depth + 1,
       generatedImages: generatedImages,
-      features: features,
-      tasks: tasks,
-      modelConfigs: modelConfigs,
-      plugins: plugins,
-      settings: settings,
-      conversations: conversations,
-      conversationId: conversationId,
-      identity: identity,
-      permissionSnapshot: permissionSnapshot,
-      cancellationToken: cancellationToken,
-      backend: backend,
+      env: env,
     );
     if (nested != null) return nested;
     if (continuationResult is Map) {
@@ -546,25 +458,14 @@ class AgentLuaScriptService {
     String name,
     Map<String, dynamic> args, {
     List<Map<String, dynamic>>? generatedImages,
-    FeatureProvider? features,
-    TaskProvider? tasks,
-    CalendarProvider? calendar,
-    ModelConfigProvider? modelConfigs,
-    PluginProvider? plugins,
-    SettingsProvider? settings,
-    ConversationProvider? conversations,
-    String? conversationId,
-    LynAICallIdentity? identity,
-    AgentPermissionSnapshot? permissionSnapshot,
-    AgentCancellationToken? cancellationToken,
-    BackendClient? backend,
+    required _ScriptEnv env,
   }) async {
-    cancellationToken?.throwIfCancellationRequested();
+    env.cancellationToken?.throwIfCancellationRequested();
     final callIdentity =
-        (identity ??
+        (env.identity ??
                 LynAICallIdentity(
                   type: LynAICallerType.agentLua,
-                  conversationId: conversationId,
+                  conversationId: env.conversationId,
                 ))
             .child(type: LynAICallerType.agentLua, toolName: name);
     if (name != 'plugins.callFunction') {
@@ -572,38 +473,38 @@ class AgentLuaScriptService {
         LynAIFunctionCall(name: name, arguments: args),
         LynAIFunctionContext(
           identity: callIdentity,
-          agentPermissionSnapshot: permissionSnapshot,
-          features: features,
-          tasks: tasks,
-          calendar: calendar,
-          modelConfigs: modelConfigs,
-          plugins: plugins,
-          settings: settings,
-          backend: backend,
+          agentPermissionSnapshot: env.permissionSnapshot,
+          features: env.features,
+          tasks: env.tasks,
+          calendar: env.calendar,
+          modelConfigs: env.modelConfigs,
+          plugins: env.plugins,
+          settings: env.settings,
+          backend: env.backend,
         ),
       );
-      cancellationToken?.throwIfCancellationRequested();
+      env.cancellationToken?.throwIfCancellationRequested();
       if (name == 'model.generateImage') {
         generatedImages?.addAll(_generatedImageMaps(result));
       }
       return result;
     }
-    final conv = conversationId == null
+    final conv = env.conversationId == null
         ? null
-        : conversations?.getConversation(conversationId);
+        : env.conversations?.getConversation(env.conversationId!);
     if (conv?.settings.agentEnabled != true) {
       return _error('agent_disabled', '当前对话未启用 Agent 模式');
     }
     final permitted = const LynAIPermissionService().canUseCapability(
       identity: callIdentity,
       capability: LynAICapabilities.pluginCallFunction,
-      agentPermissionSnapshot: permissionSnapshot,
-      appSettings: settings?.settings,
+      agentPermissionSnapshot: env.permissionSnapshot,
+      appSettings: env.settings?.settings,
     );
     if (!permitted) {
       return _error('permission_denied', 'Agent 未授权 plugins.callFunction');
     }
-    final provider = plugins;
+    final provider = env.plugins;
     if (provider == null) return _error('plugin_system_unavailable', '插件系统不可用');
     final pluginId = (args['pluginId'] as String? ?? '').trim();
     final functionName = (args['functionName'] as String? ?? '').trim();
@@ -641,23 +542,23 @@ class AgentLuaScriptService {
     }
     final selectedPlugin = plugin;
     final selectedFunction = function;
-    cancellationToken?.throwIfCancellationRequested();
+    env.cancellationToken?.throwIfCancellationRequested();
     final result = await runWithLuaSandboxCancellation(
-      cancellationToken,
+      env.cancellationToken,
       () => PluginLuaRuntimeService().executeFunction(
         plugin: selectedPlugin,
         function: selectedFunction,
         arguments: functionArgs,
-        cancellationToken: cancellationToken,
-        features: features,
-        tasks: tasks,
-        calendar: calendar,
-        modelConfigs: modelConfigs,
-        plugins: plugins,
-        settings: settings,
+        cancellationToken: env.cancellationToken,
+        features: env.features,
+        tasks: env.tasks,
+        calendar: env.calendar,
+        modelConfigs: env.modelConfigs,
+        plugins: env.plugins,
+        settings: env.settings,
       ),
     );
-    cancellationToken?.throwIfCancellationRequested();
+    env.cancellationToken?.throwIfCancellationRequested();
     return result;
   }
 
@@ -1113,4 +1014,39 @@ class AgentLuaScriptService {
     'ok': false,
     'error': {'code': code, 'message': message},
   };
+}
+
+/// 一次 Lua 执行期间只读的环境依赖。
+///
+/// 这些值在 [AgentLuaScriptService.execute] 入口一次性确定，之后只会被读取。
+/// 集中成一个对象，避免在 `_call` / `_handleYieldedCommand` / `_executeCommand` /
+/// `_executeAgentCommand` 之间反复转发十几个相同的具名参数。
+class _ScriptEnv {
+  const _ScriptEnv({
+    this.features,
+    this.tasks,
+    this.calendar,
+    this.modelConfigs,
+    this.plugins,
+    this.settings,
+    this.conversations,
+    this.conversationId,
+    this.identity,
+    this.permissionSnapshot,
+    this.cancellationToken,
+    this.backend,
+  });
+
+  final FeatureProvider? features;
+  final TaskProvider? tasks;
+  final CalendarProvider? calendar;
+  final ModelConfigProvider? modelConfigs;
+  final PluginProvider? plugins;
+  final SettingsProvider? settings;
+  final ConversationProvider? conversations;
+  final String? conversationId;
+  final LynAICallIdentity? identity;
+  final AgentPermissionSnapshot? permissionSnapshot;
+  final AgentCancellationToken? cancellationToken;
+  final BackendClient? backend;
 }

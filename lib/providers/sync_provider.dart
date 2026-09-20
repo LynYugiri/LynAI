@@ -1269,39 +1269,8 @@ class SyncProvider extends ChangeNotifier {
   }
 
   void _validateRemoteChange(SyncChange change) {
-    const tables = {
-      'resources',
-      'conversations',
-      'messages',
-      'message_attachments',
-      'tasks',
-      'task_lists',
-      'task_list_entries',
-      'knowledge_bases',
-      'knowledge_categories',
-      'knowledge_entries',
-      'knowledge_sources',
-      'knowledge_explanations',
-      // Accepted only so legacy remote changes can advance the cursor.
-      'knowledge_settings',
-      'calendar_events',
-      'anniversaries',
-      'roleplay_scenarios',
-      'roleplay_threads',
-      'recycle_bin',
-      'note_folders',
-      'notes',
-      'note_pages',
-      'note_revisions',
-      'note_page_heads',
-      'note_page_tombstones',
-      'shared_settings',
-      'synced_model_configs',
-      'plugin_files',
-      'plugin_settings',
-      'plugin_config',
-    };
-    if (!tables.contains(change.table)) {
+    if (!SyncDataRegistry.syncedTables.contains(change.table) &&
+        !SyncDataRegistry.legacyRemoteOnlyTables.contains(change.table)) {
       throw StateError('unsupported remote sync table: ${change.table}');
     }
     if (change.seq <= 0) {
@@ -1471,40 +1440,9 @@ class SyncProvider extends ChangeNotifier {
   };
 
   static Set<String> _tablesForSelection(SyncDataSelection selection) => {
-    for (final table in _allSyncTables)
+    for (final table in SyncDataRegistry.syncedTables)
       if (SyncDataRegistry.allowsChange(selection, table, null)) table,
     if (selection.contains(SyncDataCategory.staticResources)) 'resources',
-  };
-
-  static const _allSyncTables = {
-    'resources',
-    'conversations',
-    'messages',
-    'message_attachments',
-    'tasks',
-    'task_lists',
-    'task_list_entries',
-    'knowledge_bases',
-    'knowledge_categories',
-    'knowledge_entries',
-    'knowledge_sources',
-    'knowledge_explanations',
-    'calendar_events',
-    'anniversaries',
-    'roleplay_scenarios',
-    'roleplay_threads',
-    'recycle_bin',
-    'note_folders',
-    'notes',
-    'note_pages',
-    'note_revisions',
-    'note_page_heads',
-    'note_page_tombstones',
-    'shared_settings',
-    'synced_model_configs',
-    'plugin_files',
-    'plugin_settings',
-    'plugin_config',
   };
 
   @override

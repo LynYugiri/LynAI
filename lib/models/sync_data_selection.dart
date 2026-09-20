@@ -71,6 +71,46 @@ class SyncDataSelection {
 class SyncDataRegistry {
   const SyncDataRegistry._();
 
+  /// 参与云同步与 LAN 同步的规范分区表名。
+  ///
+  /// 云同步的远端变更校验、按选择集推送、LAN 同步的普通分区过滤都从这里取，
+  /// 不再各自维护一份字面量列表。新增分区时必须同时登记到 [categoryForChange]，
+  /// 否则该分区会因为拿不到分类而被静默丢弃。
+  static const syncedTables = <String>{
+    'resources',
+    'conversations',
+    'messages',
+    'message_attachments',
+    'tasks',
+    'task_lists',
+    'task_list_entries',
+    'knowledge_bases',
+    'knowledge_categories',
+    'knowledge_entries',
+    'knowledge_sources',
+    'knowledge_explanations',
+    'calendar_events',
+    'anniversaries',
+    'roleplay_scenarios',
+    'roleplay_threads',
+    'recycle_bin',
+    'note_folders',
+    'notes',
+    'note_pages',
+    'note_revisions',
+    'note_page_heads',
+    'note_page_tombstones',
+    'shared_settings',
+    'synced_model_configs',
+    'plugin_files',
+    'plugin_settings',
+    'plugin_config',
+  };
+
+  /// 仅用于接受历史远端变更以推进 cursor 的表：不再是可写入的分区，
+  /// 因此不在 [syncedTables] 里。
+  static const legacyRemoteOnlyTables = <String>{'knowledge_settings'};
+
   static SyncDataCategory? categoryForChange(
     String table,
     Map<String, dynamic>? data,

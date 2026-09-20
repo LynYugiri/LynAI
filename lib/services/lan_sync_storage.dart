@@ -250,40 +250,18 @@ class LanSyncStorage {
         change.data,
       );
 
-  static const ordinaryLanTables = <String>{
-    'resources',
-    'conversations',
-    'messages',
-    'message_attachments',
-    'tasks',
-    'task_lists',
-    'task_list_entries',
-    'knowledge_bases',
-    'knowledge_categories',
-    'knowledge_entries',
-    'knowledge_sources',
-    'knowledge_explanations',
-    'calendar_events',
-    'anniversaries',
-    'roleplay_scenarios',
-    'roleplay_threads',
-    'recycle_bin',
-    'note_folders',
-    'notes',
-    'note_pages',
-    'note_revisions',
-    'note_page_heads',
-    'note_page_tombstones',
-    'shared_settings',
-    'synced_model_configs',
-    ...pluginLanTables,
-  };
-
+  /// 插件分区单独归类，LAN 同步分发时要和普通分区区别处理。
   static const pluginLanTables = <String>{
     'plugin_files',
     'plugin_settings',
     'plugin_config',
   };
+
+  /// LAN 同步的分区全集，含插件表。
+  ///
+  /// 与云同步共享 [SyncDataRegistry.syncedTables]，避免两边各维护一份字面量
+  /// 列表后悄悄分叉；插件表另由 [pluginLanTables] 单独识别。
+  static final Set<String> ordinaryLanTables = SyncDataRegistry.syncedTables;
 
   static const _noteTables = <String>{
     'note_folders',
