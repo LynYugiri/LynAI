@@ -428,7 +428,6 @@ class _EditModelPageState extends State<_EditModelPage> {
   bool get isInterfaceOnly =>
       widget.category.id == ModelConfig.categoryOcr ||
       widget.category.id == ModelConfig.categorySpeech;
-  bool get hasChatStyleOptions => true;
   bool get _isOpenAICompatible => _apiType == 'openai' || _apiType == 'custom';
 
   @override
@@ -542,7 +541,7 @@ class _EditModelPageState extends State<_EditModelPage> {
       return false;
     }
     final enabled = entries.where((m) => m.enabled).toList();
-    if (hasChatStyleOptions && enabled.isEmpty) {
+    if (enabled.isEmpty) {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(const SnackBar(content: Text('请至少启用一个模型')));
@@ -732,12 +731,8 @@ class _EditModelPageState extends State<_EditModelPage> {
       widget.model?.extraParams ?? const {},
     );
     final appId = _appIdController.text.trim();
-    if (needsAppId) {
-      if (appId.isNotEmpty) {
-        extra['appId'] = appId;
-      } else {
-        extra.remove('appId');
-      }
+    if (needsAppId && appId.isNotEmpty) {
+      extra['appId'] = appId;
     } else {
       extra.remove('appId');
     }
@@ -839,7 +834,7 @@ class _EditModelPageState extends State<_EditModelPage> {
 
   void _selectEndpointPreset(Map<String, dynamic> preset) {
     _endpointController.text = preset['url'] as String;
-    if (preset['type'] != 'custom' && hasChatStyleOptions) {
+    if (preset['type'] != 'custom') {
       setState(() => _apiType = preset['type'] as String);
     }
     setState(() => _showEndpointSuggestions = false);
@@ -1031,10 +1026,8 @@ class _EditModelPageState extends State<_EditModelPage> {
                         (v == null || v.trim().isEmpty) ? '请输入名称' : null,
                   ),
                   const SizedBox(height: 16),
-                  if (hasChatStyleOptions) ...[
-                    _apiTypeField(),
-                    const SizedBox(height: 16),
-                  ],
+                  _apiTypeField(),
+                  const SizedBox(height: 16),
                   _endpointField(),
                   const SizedBox(height: 16),
                   if (needsAppId) ...[
@@ -1842,32 +1835,30 @@ class _EditModelPageState extends State<_EditModelPage> {
           vertical: 8,
         ),
         children: [
-          if (hasChatStyleOptions) ...[
-            _advancedNumberField(
-              controller: _maxTokensController,
-              label: 'Max Tokens',
-              hint: 'Provider 级最大 Token 数，留空使用服务默认值',
-              min: 1,
-            ),
-            const SizedBox(height: 12),
-            _advancedNumberField(
-              controller: _temperatureController,
-              label: 'Temperature',
-              hint: 'Provider 级温度，留空使用服务默认值',
-              isDecimal: true,
-              min: 0,
-            ),
-            const SizedBox(height: 12),
-            _advancedNumberField(
-              controller: _topPController,
-              label: 'Top P',
-              hint: 'Provider 级核采样，留空使用服务默认值',
-              isDecimal: true,
-              min: 0,
-              max: 1,
-            ),
-            const SizedBox(height: 16),
-          ],
+          _advancedNumberField(
+            controller: _maxTokensController,
+            label: 'Max Tokens',
+            hint: 'Provider 级最大 Token 数，留空使用服务默认值',
+            min: 1,
+          ),
+          const SizedBox(height: 12),
+          _advancedNumberField(
+            controller: _temperatureController,
+            label: 'Temperature',
+            hint: 'Provider 级温度，留空使用服务默认值',
+            isDecimal: true,
+            min: 0,
+          ),
+          const SizedBox(height: 12),
+          _advancedNumberField(
+            controller: _topPController,
+            label: 'Top P',
+            hint: 'Provider 级核采样，留空使用服务默认值',
+            isDecimal: true,
+            min: 0,
+            max: 1,
+          ),
+          const SizedBox(height: 16),
           if (_isOpenAICompatible) ...[
             _advancedNumberField(
               controller: _presencePenaltyController,

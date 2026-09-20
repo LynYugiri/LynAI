@@ -22,10 +22,6 @@ import '../../widgets/latex_renderer.dart';
 
 enum _EntrySort { custom, updated, created, title }
 
-// Flutter 向下拖动时返回删除前的插入槽位；Provider 接收删除后的目标索引。
-int _normalizedReorderIndex(int oldIndex, int newIndex) =>
-    oldIndex < newIndex ? newIndex - 1 : newIndex;
-
 /// 知识库页。
 ///
 /// 管理条目、来源、分类与解释，支持搜索和条目详情编辑。
@@ -227,10 +223,7 @@ class KnowledgePageState extends State<KnowledgePage> {
                   itemCount: bases.length,
                   buildDefaultDragHandles: false,
                   onReorderItem: (oldIndex, newIndex) => _runOperation(
-                    () => provider.reorderKnowledgeBases(
-                      oldIndex,
-                      _normalizedReorderIndex(oldIndex, newIndex),
-                    ),
+                    () => provider.reorderKnowledgeBases(oldIndex, newIndex),
                     '调整知识库顺序失败',
                   ),
                   itemBuilder: (context, index) {
@@ -570,11 +563,7 @@ class KnowledgePageState extends State<KnowledgePage> {
       itemCount: entries.length,
       buildDefaultDragHandles: false,
       onReorderItem: (oldIndex, newIndex) => _runOperation(
-        () => provider.reorderEntries(
-          base.id,
-          oldIndex,
-          _normalizedReorderIndex(oldIndex, newIndex),
-        ),
+        () => provider.reorderEntries(base.id, oldIndex, newIndex),
         '调整条目顺序失败',
       ),
       itemBuilder: itemBuilder,
@@ -2308,7 +2297,7 @@ class _KnowledgeCategoryManagerDialogState
       await widget.provider.reorderCategories(
         widget.knowledgeBase.id,
         oldIndex,
-        _normalizedReorderIndex(oldIndex, newIndex),
+        newIndex,
       );
     } catch (error, stackTrace) {
       if (mounted) {

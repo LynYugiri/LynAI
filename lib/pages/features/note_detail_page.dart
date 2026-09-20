@@ -56,6 +56,12 @@ class NoteDetailState extends State<NoteDetail> {
   static const _nativeTools = MethodChannel('lynai/native_tools');
   static const _editHistoryLimit = 100;
 
+  /// 目录解析用的固定模式；放在类级只编译一次，避免逐行重新构造。
+  static final _fencePattern = RegExp(r'^\s{0,3}(`{3,}|~{3,})');
+  static final _headingPattern = RegExp(
+    r'^\s{0,3}(#{1,6})\s+(.+?)(?:\s+#+)?\s*$',
+  );
+
   final _shot = ScreenshotController();
   late final TextEditingController _ctrl;
   final _editorFocus = FocusNode();
@@ -750,12 +756,11 @@ class NoteDetailState extends State<NoteDetail> {
   List<_MarkdownHeading> _markdownHeadings(String text) {
     final headings = <_MarkdownHeading>[];
     final lines = text.split('\n');
-    var offset = 0;
     String? fenceChar;
     var fenceLength = 0;
     for (var i = 0; i < lines.length; i++) {
       final line = lines[i];
-      final fenceMatch = RegExp(r'^\s{0,3}(`{3,}|~{3,})').firstMatch(line);
+      final fenceMatch = _fencePattern.firstMatch(line);
       if (fenceMatch != null) {
         final marker = fenceMatch.group(1)!;
         final markerChar = marker[0];
@@ -766,23 +771,18 @@ class NoteDetailState extends State<NoteDetail> {
           fenceChar = null;
           fenceLength = 0;
         }
-        offset += line.length + 1;
         continue;
       }
-      final match = RegExp(
-        r'^\s{0,3}(#{1,6})\s+(.+?)(?:\s+#+)?\s*$',
-      ).firstMatch(line);
+      final match = _headingPattern.firstMatch(line);
       if (fenceChar == null && match != null) {
         headings.add(
           _MarkdownHeading(
             level: match.group(1)!.length,
             title: match.group(2)!,
             line: i + 1,
-            offset: offset,
           ),
         );
       }
-      offset += line.length + 1;
     }
     return headings;
   }
@@ -3663,13 +3663,11 @@ class _MarkdownHeading {
   final int level;
   final String title;
   final int line;
-  final int offset;
 
   const _MarkdownHeading({
     required this.level,
     required this.title,
     required this.line,
-    required this.offset,
   });
 }
 

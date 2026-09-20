@@ -2574,7 +2574,7 @@ plugin_file_* / plugin_manifest_* 工具不传 pluginId 时默认操作该插件
     AgentToolExecutionContext context,
     AgentPermissionSnapshot permissions, {
     (InstalledPlugin, PluginToolDefinition)? pluginBinding,
-    bool? runAgentEnabled,
+    required bool runAgentEnabled,
   }) async {
     final call = ChatToolCall(
       id: invocation.id,
@@ -2606,7 +2606,7 @@ plugin_file_* / plugin_manifest_* 工具不传 pluginId 时默认操作该插件
       );
     }
     final identity = LynAICallIdentity(
-      type: (runAgentEnabled ?? _agentEnabled)
+      type: runAgentEnabled
           ? LynAICallerType.agent
           : LynAICallerType.assistantTool,
       conversationId: _conversationId,
@@ -2704,6 +2704,12 @@ plugin_file_* / plugin_manifest_* 工具不传 pluginId 时默认操作该插件
       'save_jotting' => _saveJotting(call),
       'read_attachment' => _readAttachment(call),
       'resource' => _resourceTool(call),
+      'list_workspaces' => _listWorkspaces(call.arguments),
+      'create_workspace' => await _createWorkspace(call.arguments),
+      'bind_workspace' => _bindWorkspace(call.arguments),
+      'workspace_file_list' => await _workspaceFileList(call.arguments),
+      'workspace_file_read' => await _workspaceFileRead(call.arguments),
+      'workspace_file_write' => await _workspaceFileWrite(call.arguments),
       'list_scheduled_tasks' => _listScheduledTasksForAgent(call.arguments),
       'create_scheduled_task' => await _createScheduledTaskForAgent(
         call.arguments,
@@ -5645,10 +5651,8 @@ ${ToolCallService.currentTimeContext()}${sharedContext.isEmpty ? '' : '\n\n$shar
     }
     final errors = <Map<String, dynamic>>[];
     if (plugin.hasError) {
-      errors.add({
-        'path': 'plugin.json',
-        'message': plugin.loadError ?? 'manifest 加载失败',
-      });
+      // hasError 即 loadError 非空，这里不需要兜底文案。
+      errors.add({'path': 'plugin.json', 'message': plugin.loadError});
     } else {
       final manifestError = plugin.manifest.validate();
       if (manifestError != null) {

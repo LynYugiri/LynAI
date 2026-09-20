@@ -324,7 +324,7 @@ void main() {
     expect(clipboardText, contains('https://example.com/path?q=1'));
   });
 
-  testWidgets('entry reorder normalizes Flutter downward slot index', (
+  testWidgets('entry reorder moves the dragged entry down one slot', (
     tester,
   ) async {
     final provider = await _knowledgeProvider(withSearchEntries: true);
@@ -333,7 +333,7 @@ void main() {
     final entryList = tester
         .widgetList<ReorderableListView>(find.byType(ReorderableListView))
         .singleWhere((list) => list.itemCount == 3);
-    entryList.onReorderItem!(0, 2);
+    entryList.onReorderItem!(0, 1);
     await tester.pumpAndSettle();
 
     expect(provider.entriesForBase('base').map((entry) => entry.id), [
@@ -343,7 +343,9 @@ void main() {
     ]);
   });
 
-  testWidgets('base reorder normalizes Flutter end slot index', (tester) async {
+  testWidgets('base reorder moves the first base to the last slot', (
+    tester,
+  ) async {
     final provider = await _knowledgeProvider(withSecondaryDefaultBase: true);
     await _pumpKnowledge(tester, provider, size: const Size(1200, 800));
     final originalIds = provider.knowledgeBases.map((base) => base.id).toList();
@@ -351,7 +353,7 @@ void main() {
     final baseList = tester
         .widgetList<ReorderableListView>(find.byType(ReorderableListView))
         .singleWhere((list) => list.itemCount == originalIds.length);
-    baseList.onReorderItem!(0, originalIds.length);
+    baseList.onReorderItem!(0, originalIds.length - 1);
     await tester.pumpAndSettle();
 
     expect(provider.knowledgeBases.map((base) => base.id), [
@@ -360,7 +362,7 @@ void main() {
     ]);
   });
 
-  testWidgets('category reorder normalizes Flutter end slot index', (
+  testWidgets('category reorder moves the first category to the last slot', (
     tester,
   ) async {
     final provider = await _knowledgeProvider();
@@ -376,7 +378,7 @@ void main() {
           ),
         )
         .singleWhere((list) => list.itemCount == 2);
-    categoryList.onReorderItem!(0, 2);
+    categoryList.onReorderItem!(0, 1);
     await tester.pumpAndSettle();
 
     expect(provider.categoriesForBase('base').map((category) => category.id), [

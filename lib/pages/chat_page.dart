@@ -3604,6 +3604,8 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
         break;
       }
     }
+    // 两个下标都只依赖 timeline，提前算一次；放到 itemBuilder 里会每条消息重扫一遍。
+    final lastUserTimelineIndex = _lastUserTimelineIndex(timeline, lastUserIdx);
     return Column(
       children: [
         if (_showSearch) _searchBar(),
@@ -3633,11 +3635,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
                                   message,
                                   i == lastMessageTimelineIndex,
                                   message.role == 'user' &&
-                                      i ==
-                                          _lastUserTimelineIndex(
-                                            timeline,
-                                            lastUserIdx,
-                                          ),
+                                      i == lastUserTimelineIndex,
                                 ),
                               ),
                               _ChatPluginArtifactEntry(:final artifact) =>

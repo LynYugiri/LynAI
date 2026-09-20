@@ -1,11 +1,13 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lynai/models/agent_runtime.dart';
 import 'package:lynai/models/conversation.dart';
 import 'package:lynai/providers/conversation_provider.dart';
 import 'package:lynai/providers/feature_provider.dart';
 import 'package:lynai/providers/settings_provider.dart';
 import 'package:lynai/providers/workspace_provider.dart';
+import 'package:lynai/services/agent_cancellation.dart';
 import 'package:lynai/services/lynai_call_identity.dart';
 import 'package:lynai/services/lynai_permission_definitions.dart';
 import 'package:lynai/services/storage_v2_service.dart';
@@ -141,6 +143,64 @@ void main() {
       expect(items.single['hasMountedFolder'], isFalse);
     },
   );
+
+  test('Agent run 快照里的工作区工具能通过 registry 路径真正执行', () async {
+    final features = FeatureProvider(storageV2: storage);
+    final settings = SettingsProvider(storageV2: storage);
+    final conversations = ConversationProvider(storageV2: storage);
+    final workspaces = WorkspaceProvider(storageV2: storage);
+    await settings.loadSettings();
+    await conversations.loadConversations();
+    await workspaces.loadWorkspaces();
+    final cid = conversations.createConversation(
+      ConversationSettings(modelId: 'm1', agentEnabled: true),
+    );
+
+    final service = ToolCallService(
+      features,
+      conversations: conversations,
+      workspaces: workspaces,
+      settings: settings,
+      conversationId: cid,
+      permissionSnapshot: AgentPermissionSnapshot(
+        permissions: const [
+          LynAIPermissions.workspaceRead,
+          LynAIPermissions.workspaceWrite,
+        ],
+      ),
+      agentIdentity: LynAICallIdentity(
+        type: LynAICallerType.agent,
+        conversationId: cid,
+      ),
+    );
+    final snapshot = service.createRunSnapshot(
+      agentEnabled: true,
+      imageGenerationEnabled: false,
+    );
+    expect(
+      snapshot.openAITools
+          .map((tool) => tool['function']?['name']?.toString())
+          .whereType<String>()
+          .toSet(),
+      contains('list_workspaces'),
+    );
+
+    final results = await service.executeCapturedBatch(
+      snapshot,
+      [AgentToolInvocation(id: 'call-1', name: 'list_workspaces')],
+      identity: const AgentTurnIdentity(
+        runId: 'run-1',
+        turnId: 'turn-1',
+        turnIndex: 0,
+      ),
+      cancellationToken: AgentCancellationSource().token,
+    );
+
+    final result = results.single;
+    expect(result.status, AgentToolResultStatus.success);
+    expect(result.value.toString(), contains('workspaces'));
+    expect(result.value.toString(), isNot(contains('未注册具体工具实现')));
+  });
 
   test('workspace tools follow conversation permission snapshot', () async {
     final features = FeatureProvider(storageV2: storage);
