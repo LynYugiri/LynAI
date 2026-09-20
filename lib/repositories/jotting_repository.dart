@@ -1,7 +1,6 @@
-import 'package:flutter/foundation.dart';
-
 import '../models/jotting.dart';
 import '../services/storage_v2_service.dart';
+import '../utils/json_row_utils.dart';
 
 /// 从持久化层一次性读取的随记数据快照。
 final class JottingLoadResult {
@@ -28,7 +27,7 @@ class JottingRepository {
   Future<JottingLoadResult> load() async {
     final data = await _storageV2.loadDataFile(fileName);
     return JottingLoadResult(
-      jottings: _decode(data['jottings'], Jotting.fromJson, '随记'),
+      jottings: decodeRowList(data['jottings'], Jotting.fromJson, '随记'),
     );
   }
 
@@ -38,24 +37,4 @@ class JottingRepository {
       'jottings': value.jottings.map((item) => item.toJson()).toList(),
     });
   }
-}
-
-List<T> _decode<T>(
-  Object? raw,
-  T Function(Map<String, dynamic>) parser,
-  String label,
-) {
-  if (raw == null) return const [];
-  if (raw is! List) {
-    throw FormatException('$label集合必须是列表');
-  }
-  final values = <T>[];
-  for (final item in raw) {
-    try {
-      if (item is Map) values.add(parser(Map<String, dynamic>.from(item)));
-    } catch (error) {
-      debugPrint('跳过损坏的$label: $error');
-    }
-  }
-  return values;
 }

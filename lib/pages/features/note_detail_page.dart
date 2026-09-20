@@ -3550,28 +3550,12 @@ class NoteDetailState extends State<NoteDetail> {
     }
   }
 
-  Future<void> _exportImage() async {
-    final note = _features.getNote(widget.noteId);
-    if (note == null) return;
-    final images = await _captureNoteImages(note.title, _ctrl.text);
-    if (images.isEmpty) return;
-    try {
-      final message = await shareOrSavePngImages(
-        images: images,
-        filePrefix: 'note',
-        nativeTools: _nativeTools,
-        clipboardMessage: '笔记图片已复制到剪贴板',
-        galleryMessage: '笔记图片已保存到图库',
-      );
-      if (!mounted || message == null) return;
-      _showImageSnack(message);
-    } catch (e) {
-      if (!mounted) return;
-      _showImageSnack('导出图片失败: $e');
-    }
-  }
+  Future<void> _exportImage() => _writeNoteImage(failurePrefix: '导出图片失败: ');
 
-  Future<void> _shareImage() async {
+  Future<void> _shareImage() => _writeNoteImage(failurePrefix: '分享失败: ');
+
+  /// 把当前笔记渲染成长图并分享/保存，失败提示前缀由入口决定。
+  Future<void> _writeNoteImage({required String failurePrefix}) async {
     final note = _features.getNote(widget.noteId);
     if (note == null) return;
     final images = await _captureNoteImages(note.title, _ctrl.text);
@@ -3588,7 +3572,7 @@ class NoteDetailState extends State<NoteDetail> {
       _showImageSnack(message);
     } catch (e) {
       if (!mounted) return;
-      _showImageSnack('分享失败: $e');
+      _showImageSnack('$failurePrefix$e');
     }
   }
 

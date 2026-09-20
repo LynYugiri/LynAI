@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
 import '../../models/note.dart';
 import '../../models/plugin.dart';
+import '../../services/storage_v2_service.dart';
 
 /// 笔记/导出长图的单页文本块长度上限。
 const exportTextChunkLength = 2800;
@@ -305,4 +307,21 @@ String noteLineDiffSummary(String before, String after) {
   }
   if (stats.addedLines > 0) return '+${stats.addedLines} 行';
   return '-${stats.removedLines} 行';
+}
+
+/// 解析附件资源对应的本地文件路径。
+///
+/// 资源不存在、路径不可用或查询抛错时统一返回 null，由调用方决定回退展示
+/// （通常是图片占位）。随记的时间线、编辑器和详情页共用。
+Future<String?> resolveAttachmentPath(
+  BuildContext context,
+  String resourceId,
+) async {
+  try {
+    final storage = context.read<StorageV2Service>();
+    final resource = await storage.findResourceById(resourceId);
+    return resource == null ? null : await storage.resourcePath(resource);
+  } catch (_) {
+    return null;
+  }
 }

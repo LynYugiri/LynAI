@@ -589,7 +589,7 @@ class RoleplayThread {
 
   /// 生成会话的预览文本，优先显示最近一条玩家消息。
   String get preview {
-    for (final message in messages) {
+    for (final message in messages.reversed) {
       if (message.kind == RoleplayMessageKind.player) {
         final clean = message.content
             .replaceAll(RegExp(r'[\r\n]+'), ' ')

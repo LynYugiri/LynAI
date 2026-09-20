@@ -12,6 +12,7 @@ import '../repositories/calendar_repository.dart';
 import '../repositories/recycle_bin_repository.dart';
 import '../services/calendar_occurrence_service.dart';
 import '../services/storage_v2_service.dart';
+import '../utils/collection_utils.dart';
 import 'serialized_save_queue.dart';
 
 /// 日历事件和纪念日的唯一内存权威。
@@ -83,10 +84,10 @@ class CalendarProvider extends ChangeNotifier with SerializedSaveQueue {
   }
 
   CalendarEvent? getEvent(String id) =>
-      _firstWhereOrNull(_events, (event) => event.id == id);
+      firstWhereOrNull(_events, (event) => event.id == id);
 
   Anniversary? getAnniversary(String id) =>
-      _firstWhereOrNull(_anniversaries, (anniversary) => anniversary.id == id);
+      firstWhereOrNull(_anniversaries, (anniversary) => anniversary.id == id);
 
   Future<String> addEvent({
     required String title,
@@ -288,11 +289,4 @@ class CalendarProvider extends ChangeNotifier with SerializedSaveQueue {
       onSnapshotPersisted?.call();
     });
   }
-}
-
-T? _firstWhereOrNull<T>(Iterable<T> values, bool Function(T value) test) {
-  for (final value in values) {
-    if (test(value)) return value;
-  }
-  return null;
 }

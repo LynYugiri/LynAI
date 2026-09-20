@@ -189,6 +189,40 @@ class _WorkspaceDrawerState extends State<WorkspaceDrawer> {
     );
   }
 
+  /// FutureBuilder 的加载中/错误占位。
+  ///
+  /// 返回 null 表示已有数据，由调用方继续渲染各自的列表。
+  Widget? _snapshotPlaceholder<T>(
+    BuildContext context,
+    AsyncSnapshot<List<T>> snapshot,
+  ) {
+    if (snapshot.hasError) {
+      return ListTile(
+        dense: true,
+        title: Text(
+          snapshot.error.toString().replaceFirst('Exception: ', ''),
+          style: TextStyle(
+            color: Theme.of(context).colorScheme.error,
+            fontSize: 12,
+          ),
+        ),
+      );
+    }
+    if (!snapshot.hasData) {
+      return const Padding(
+        padding: EdgeInsets.all(8),
+        child: Center(
+          child: SizedBox(
+            width: 18,
+            height: 18,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+        ),
+      );
+    }
+    return null;
+  }
+
   Widget _mountedFolderTile(WorkspaceProvider provider, Workspace workspace) {
     final root = workspace.mountedFolderPath!;
     final expanded = _mountedExpanded.contains(root);
@@ -221,30 +255,8 @@ class _WorkspaceDrawerState extends State<WorkspaceDrawer> {
           key: ValueKey('workspace-mounted-list-${workspace.id}-$cwd'),
           future: provider.listMountedDirectory(workspace, cwd),
           builder: (context, snapshot) {
-            if (snapshot.hasError) {
-              return ListTile(
-                dense: true,
-                title: Text(
-                  snapshot.error.toString().replaceFirst('Exception: ', ''),
-                  style: TextStyle(
-                    color: Theme.of(context).colorScheme.error,
-                    fontSize: 12,
-                  ),
-                ),
-              );
-            }
-            if (!snapshot.hasData) {
-              return const Padding(
-                padding: EdgeInsets.all(8),
-                child: Center(
-                  child: SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  ),
-                ),
-              );
-            }
+            final placeholder = _snapshotPlaceholder(context, snapshot);
+            if (placeholder != null) return placeholder;
             final entries = snapshot.data!;
             if (entries.isEmpty) {
               return const ListTile(dense: true, title: Text('空目录'));
@@ -328,30 +340,8 @@ class _WorkspaceDrawerState extends State<WorkspaceDrawer> {
         FutureBuilder<List<PluginFileEntry>>(
           future: pluginProvider.listDeveloperFiles(plugin.id),
           builder: (context, snapshot) {
-            if (snapshot.hasError) {
-              return ListTile(
-                dense: true,
-                title: Text(
-                  snapshot.error.toString().replaceFirst('Exception: ', ''),
-                  style: TextStyle(
-                    color: Theme.of(context).colorScheme.error,
-                    fontSize: 12,
-                  ),
-                ),
-              );
-            }
-            if (!snapshot.hasData) {
-              return const Padding(
-                padding: EdgeInsets.all(8),
-                child: Center(
-                  child: SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  ),
-                ),
-              );
-            }
+            final placeholder = _snapshotPlaceholder(context, snapshot);
+            if (placeholder != null) return placeholder;
             final entries = snapshot.data!;
             return Column(
               children: [

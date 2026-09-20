@@ -134,16 +134,11 @@ class _AgentPlanPanelState extends State<AgentPlanPanel> {
     );
   }
 
-  Widget _planStep(AgentPlanItem item, int index) {
-    final scheme = Theme.of(context).colorScheme;
+  /// 步骤的文字标记与颜色，内联展开态和底部详情态共用一套。
+  (Color, String) _stepVisual(AgentPlanItem item, ColorScheme scheme) {
     final active = _isActive(item);
     final failed = item.status == AgentPlanItem.failed;
     final completed = _isCompleted(item);
-    final detail = failed
-        ? (item.error ?? item.summary)
-        : completed
-        ? (item.resultSummary ?? item.summary)
-        : item.summary;
     final color = failed
         ? scheme.error
         : active
@@ -156,6 +151,20 @@ class _AgentPlanPanelState extends State<AgentPlanPanel> {
         : active
         ? '•'
         : '·';
+    return (color, marker);
+  }
+
+  Widget _planStep(AgentPlanItem item, int index) {
+    final scheme = Theme.of(context).colorScheme;
+    final active = _isActive(item);
+    final failed = item.status == AgentPlanItem.failed;
+    final completed = _isCompleted(item);
+    final detail = failed
+        ? (item.error ?? item.summary)
+        : completed
+        ? (item.resultSummary ?? item.summary)
+        : item.summary;
+    final (color, marker) = _stepVisual(item, scheme);
     final expanded = _expandedStepId == item.id;
     return Padding(
       padding: const EdgeInsets.only(left: 20, top: 3),
@@ -312,21 +321,8 @@ class _AgentPlanPanelState extends State<AgentPlanPanel> {
 
   Widget _detailStep(AgentPlanItem item, int index) {
     final scheme = Theme.of(context).colorScheme;
-    final failed = item.status == AgentPlanItem.failed;
     final active = _isActive(item);
-    final completed = _isCompleted(item);
-    final color = failed
-        ? scheme.error
-        : active
-        ? scheme.primary
-        : scheme.onSurfaceVariant.withValues(alpha: completed ? 0.58 : 0.82);
-    final marker = completed
-        ? '✓'
-        : failed
-        ? '!'
-        : active
-        ? '•'
-        : '·';
+    final (color, marker) = _stepVisual(item, scheme);
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: Row(

@@ -1,11 +1,10 @@
-import 'package:flutter/foundation.dart';
-
 import '../models/knowledge_base.dart';
 import '../models/knowledge_category.dart';
 import '../models/knowledge_entry.dart';
 import '../models/knowledge_explanation.dart';
 import '../models/knowledge_source.dart';
 import '../services/storage_v2_service.dart';
+import '../utils/json_row_utils.dart';
 
 /// 从持久化层一次性读取的知识数据快照。
 final class KnowledgeLoadResult {
@@ -39,15 +38,19 @@ class KnowledgeRepository {
   Future<KnowledgeLoadResult> load() async {
     final data = await _storageV2.loadDataFile(fileName);
     return KnowledgeLoadResult(
-      bases: _decode(data['knowledgeBases'], KnowledgeBase.fromJson, '知识库'),
-      categories: _decode(
+      bases: decodeRowList(
+        data['knowledgeBases'],
+        KnowledgeBase.fromJson,
+        '知识库',
+      ),
+      categories: decodeRowList(
         data['categories'],
         KnowledgeCategory.fromJson,
         '知识类别',
       ),
-      entries: _decode(data['entries'], KnowledgeEntry.fromJson, '知识条目'),
-      sources: _decode(data['sources'], KnowledgeSource.fromJson, '知识来源'),
-      explanations: _decode(
+      entries: decodeRowList(data['entries'], KnowledgeEntry.fromJson, '知识条目'),
+      sources: decodeRowList(data['sources'], KnowledgeSource.fromJson, '知识来源'),
+      explanations: decodeRowList(
         data['explanations'],
         KnowledgeExplanation.fromJson,
         '知识解释',
@@ -154,24 +157,4 @@ class KnowledgeRepository {
     ];
     await _storageV2.applyLocalRowChanges(operations);
   }
-}
-
-List<T> _decode<T>(
-  Object? raw,
-  T Function(Map<String, dynamic>) parser,
-  String label,
-) {
-  if (raw == null) return const [];
-  if (raw is! List) {
-    throw FormatException('$label集合必须是列表');
-  }
-  final values = <T>[];
-  for (final item in raw) {
-    try {
-      if (item is Map) values.add(parser(Map<String, dynamic>.from(item)));
-    } catch (error) {
-      debugPrint('跳过损坏的$label: $error');
-    }
-  }
-  return values;
 }

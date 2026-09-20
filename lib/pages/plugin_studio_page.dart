@@ -81,13 +81,7 @@ class _PluginStudioPageState extends State<PluginStudioPage> {
         );
       });
     } catch (e) {
-      if (mounted) {
-        showErrorSnackBar(
-          context,
-          e.toString().replaceFirst('Exception: ', ''),
-          details: e.toString(),
-        );
-      }
+      _reportStudioError(e);
     }
   }
 
@@ -281,13 +275,7 @@ class _PluginStudioPageState extends State<PluginStudioPage> {
       if (!mounted) return;
       _refreshFiles();
     } catch (e) {
-      if (mounted) {
-        showErrorSnackBar(
-          context,
-          e.toString().replaceFirst('Exception: ', ''),
-          details: e.toString(),
-        );
-      }
+      _reportStudioError(e);
     }
   }
 
@@ -490,13 +478,7 @@ class _PluginStudioPageState extends State<PluginStudioPage> {
       }
       _refreshFiles();
     } catch (e) {
-      if (mounted) {
-        showErrorSnackBar(
-          context,
-          e.toString().replaceFirst('Exception: ', ''),
-          details: e.toString(),
-        );
-      }
+      _reportStudioError(e);
     }
   }
 
@@ -531,13 +513,7 @@ class _PluginStudioPageState extends State<PluginStudioPage> {
       }
       _refreshFiles();
     } catch (e) {
-      if (mounted) {
-        showErrorSnackBar(
-          context,
-          e.toString().replaceFirst('Exception: ', ''),
-          details: e.toString(),
-        );
-      }
+      _reportStudioError(e);
     }
   }
 
@@ -572,13 +548,7 @@ class _PluginStudioPageState extends State<PluginStudioPage> {
       }
       _refreshFiles();
     } catch (e) {
-      if (mounted) {
-        showErrorSnackBar(
-          context,
-          e.toString().replaceFirst('Exception: ', ''),
-          details: e.toString(),
-        );
-      }
+      _reportStudioError(e);
     }
   }
 
@@ -659,6 +629,16 @@ class _PluginStudioPageState extends State<PluginStudioPage> {
     return context.read<PluginProvider>().canEditCore(plugin.id);
   }
 
+  /// 工坊里手势性操作失败的统一提示：正文给去掉 Exception 前缀的摘要，详情带堆栈。
+  void _reportStudioError(Object error) {
+    if (!mounted) return;
+    showErrorSnackBar(
+      context,
+      error.toString().replaceFirst('Exception: ', ''),
+      details: error.toString(),
+    );
+  }
+
   Future<void> _runStudioAction(
     Future<void> Function() action, {
     required String success,
@@ -671,13 +651,7 @@ class _PluginStudioPageState extends State<PluginStudioPage> {
         ).showSnackBar(SnackBar(content: Text(success)));
       }
     } catch (e) {
-      if (mounted) {
-        showErrorSnackBar(
-          context,
-          e.toString().replaceFirst('Exception: ', ''),
-          details: e.toString(),
-        );
-      }
+      _reportStudioError(e);
     }
   }
 }

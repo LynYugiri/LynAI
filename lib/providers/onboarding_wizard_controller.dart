@@ -84,7 +84,10 @@ class OnboardingWizardController extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> generate(OnboardingService service, {String feedback = ''}) async {
+  Future<void> generate(
+    OnboardingService service, {
+    String feedback = '',
+  }) async {
     _generating = true;
     _error = null;
     _applyResult = null;
@@ -104,7 +107,10 @@ class OnboardingWizardController extends ChangeNotifier {
     }
   }
 
-  Future<void> regenerate(OnboardingService service, {String feedback = ''}) async {
+  Future<void> regenerate(
+    OnboardingService service, {
+    String feedback = '',
+  }) async {
     await generate(service, feedback: feedback);
   }
 

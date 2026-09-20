@@ -8,7 +8,6 @@ import 'package:provider/provider.dart';
 import '../../models/jotting.dart';
 import '../../models/local_date.dart';
 import '../../providers/jotting_provider.dart';
-import '../../services/storage_v2_service.dart';
 import '../../widgets/latex_renderer.dart';
 import 'feature_shared.dart';
 import 'jotting_detail_page.dart';
@@ -878,20 +877,12 @@ class _TimelineImageAttachmentState extends State<_TimelineImageAttachment> {
   }
 
   Future<void> _resolvePath() async {
-    try {
-      final storage = context.read<StorageV2Service>();
-      final resource = await storage.findResourceById(
-        widget.attachment.resourceId,
-      );
-      final path = resource == null
-          ? null
-          : await storage.resourcePath(resource);
-      if (!mounted) return;
-      setState(() => _path = path);
-    } catch (_) {
-      if (!mounted) return;
-      setState(() => _path = null);
-    }
+    final path = await resolveAttachmentPath(
+      context,
+      widget.attachment.resourceId,
+    );
+    if (!mounted) return;
+    setState(() => _path = path);
   }
 
   @override

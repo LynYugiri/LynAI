@@ -5010,15 +5010,18 @@ class BackupService {
         name == '.ds_store';
   }
 
+  /// 需要从导出内容中抹掉的敏感键名；只编译一次，避免逐键重建。
+  static final _secretKeyPattern = RegExp(
+    r'(api.?key|authorization|token|key|password|secret|credential)',
+    caseSensitive: false,
+  );
+
   static Object? _scrubSecrets(Object? value) {
     if (value is Map) {
       final clean = <String, dynamic>{};
       for (final entry in value.entries) {
         final key = entry.key.toString();
-        if (RegExp(
-          r'(api.?key|authorization|token|key|password|secret|credential)',
-          caseSensitive: false,
-        ).hasMatch(key)) {
+        if (_secretKeyPattern.hasMatch(key)) {
           continue;
         }
         clean[key] = _scrubSecrets(entry.value);
@@ -5075,8 +5078,9 @@ class BackupService {
     }
   }
 
-  static bool _isSha256(String value) =>
-      RegExp(r'^[0-9a-f]{64}$').hasMatch(value);
+  static final _sha256Pattern = RegExp(r'^[0-9a-f]{64}$');
+
+  static bool _isSha256(String value) => _sha256Pattern.hasMatch(value);
 
   static Map<String, dynamic> _conversationForExport(
     Conversation conversation,

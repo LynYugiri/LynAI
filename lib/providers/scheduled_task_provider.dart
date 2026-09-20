@@ -9,6 +9,7 @@ import '../models/plugin.dart';
 import '../models/scheduled_task.dart';
 import '../repositories/scheduled_task_repository.dart';
 import '../services/storage_v2_service.dart';
+import '../utils/collection_utils.dart';
 import 'serialized_save_queue.dart';
 
 /// 定时任务内存状态的唯一所有者。
@@ -36,7 +37,7 @@ class ScheduledTaskProvider extends ChangeNotifier with SerializedSaveQueue {
   }
 
   ScheduledTask? taskById(String id) =>
-      _firstOrNull(_tasks, (task) => task.id == id);
+      firstWhereOrNull(_tasks, (task) => task.id == id);
 
   List<ScheduledTask> tasksForPlugin(String pluginId) =>
       List.unmodifiable(_tasks.where((task) => task.pluginId == pluginId));
@@ -482,11 +483,4 @@ bool _sameTask(ScheduledTask a, ScheduledTask b) {
       a.consecutiveFailures == b.consecutiveFailures &&
       a.retryMinutes == b.retryMinutes &&
       a.maxConsecutiveFailures == b.maxConsecutiveFailures;
-}
-
-T? _firstOrNull<T>(Iterable<T> values, bool Function(T) test) {
-  for (final value in values) {
-    if (test(value)) return value;
-  }
-  return null;
 }

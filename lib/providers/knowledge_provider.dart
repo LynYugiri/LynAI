@@ -9,6 +9,7 @@ import '../models/knowledge_source.dart';
 import '../repositories/knowledge_repository.dart';
 import '../services/knowledge_annotation_prompt.dart';
 import '../services/storage_v2_service.dart';
+import '../utils/collection_utils.dart';
 
 /// 管理知识库图的内存状态、关系校验与串行持久化。
 class KnowledgeProvider extends ChangeNotifier {
@@ -90,13 +91,13 @@ class KnowledgeProvider extends ChangeNotifier {
   });
 
   KnowledgeBase? knowledgeBaseById(String id) =>
-      _first(_bases, (item) => item.id == id);
+      firstWhereOrNull(_bases, (item) => item.id == id);
   KnowledgeCategory? categoryById(String id) =>
-      _first(_categories, (item) => item.id == id);
+      firstWhereOrNull(_categories, (item) => item.id == id);
   KnowledgeCategory? categoryByAlias(String alias) =>
-      _first(_categories, (item) => item.alias == alias);
+      firstWhereOrNull(_categories, (item) => item.alias == alias);
   KnowledgeEntry? entryById(String id) =>
-      _first(_entries, (item) => item.id == id);
+      firstWhereOrNull(_entries, (item) => item.id == id);
 
   List<KnowledgeCategory> categoriesForBase(String knowledgeBaseId) =>
       List.unmodifiable(
@@ -107,7 +108,7 @@ class KnowledgeProvider extends ChangeNotifier {
       List.unmodifiable(_categories.where(isExplanationCategoryEnabled));
 
   KnowledgeCategory? get defaultExplanationCategory {
-    return _first(
+    return firstWhereOrNull(
           explanationCategories,
           (item) => item.id == builtInProperNounCategoryId,
         ) ??
@@ -127,7 +128,7 @@ class KnowledgeProvider extends ChangeNotifier {
 
   String? resolveAnnotationCategory(String alias) {
     final value = alias.trim();
-    final category = _first(
+    final category = firstWhereOrNull(
       _categories,
       (item) => item.alias == value && _isValidAnnotationCategory(item),
     );
@@ -533,7 +534,7 @@ class KnowledgeProvider extends ChangeNotifier {
       throw StateError('所选知识类别不存在或已停用');
     }
     final normalizedTitle = title.trim().toLowerCase();
-    final existingEntry = _first(
+    final existingEntry = firstWhereOrNull(
       entriesForCategory(categoryId),
       (item) => item.title.trim().toLowerCase() == normalizedTitle,
     );
@@ -561,7 +562,7 @@ class KnowledgeProvider extends ChangeNotifier {
     final existingSources = sourcesForEntry(entry.id);
     final normalizedUrl = sourceUrl.trim();
     final normalizedSourceTitle = sourceTitle.trim();
-    final previousSource = _first(existingSources, (item) {
+    final previousSource = firstWhereOrNull(existingSources, (item) {
       if (normalizedUrl.isNotEmpty) return item.url?.trim() == normalizedUrl;
       return normalizedSourceTitle.isNotEmpty &&
           item.title.trim() == normalizedSourceTitle;
@@ -664,13 +665,13 @@ class KnowledgeProvider extends ChangeNotifier {
         throw StateError('知识类别顺序已变化');
       }
       ordered.insert(newIndex, ordered.removeAt(oldIndex));
-      final now = DateTime.now();
-      for (var i = 0; i < ordered.length; i++) {
-        final updated = ordered[i].copyWith(sortOrder: i, updatedAt: now);
-        _categories[_categories.indexWhere((item) => item.id == updated.id)] =
-            updated;
-        ordered[i] = updated;
-      }
+      _writeBackOrder(
+        ordered,
+        _categories,
+        idOf: (item) => item.id,
+        apply: (item, index, now) =>
+            item.copyWith(sortOrder: index, updatedAt: now),
+      );
       _sortAll();
       return (
         result: null,
@@ -687,13 +688,13 @@ class KnowledgeProvider extends ChangeNotifier {
         throw StateError('知识条目顺序已变化');
       }
       ordered.insert(newIndex, ordered.removeAt(oldIndex));
-      final now = DateTime.now();
-      for (var i = 0; i < ordered.length; i++) {
-        final updated = ordered[i].copyWith(sortOrder: i, updatedAt: now);
-        _entries[_entries.indexWhere((item) => item.id == updated.id)] =
-            updated;
-        ordered[i] = updated;
-      }
+      _writeBackOrder(
+        ordered,
+        _entries,
+        idOf: (item) => item.id,
+        apply: (item, index, now) =>
+            item.copyWith(sortOrder: index, updatedAt: now),
+      );
       _sortAll();
       return (
         result: null,
@@ -826,14 +827,13 @@ class KnowledgeProvider extends ChangeNotifier {
 
   void _normalizeCategories(String baseId) {
     final items = categoriesForBase(baseId).toList();
-    for (var i = 0; i < items.length; i++) {
-      final updated = items[i].copyWith(
-        sortOrder: i,
-        updatedAt: DateTime.now(),
-      );
-      _categories[_categories.indexWhere((item) => item.id == updated.id)] =
-          updated;
-    }
+    _writeBackOrder(
+      items,
+      _categories,
+      idOf: (item) => item.id,
+      apply: (item, index, now) =>
+          item.copyWith(sortOrder: index, updatedAt: now),
+    );
     _sortAll();
   }
 
@@ -959,11 +959,26 @@ final class _KnowledgeMutationSnapshot {
   }
 }
 
-T? _first<T>(Iterable<T> values, bool Function(T) matches) {
-  for (final value in values) {
-    if (matches(value)) return value;
+/// 把 [ordered] 的新顺序写回 [target]，同时刷新 sortOrder 与更新时间。
+///
+/// [ordered] 必定是 [target] 按某条件过滤后的子序列，因此 id 一定能命中；用一次
+/// id→下标映射代替逐项 `indexWhere`，避免 O(项数 × 全表) 的回写，并让更新时间在
+/// 同一次重排内保持一致。
+void _writeBackOrder<T>(
+  List<T> ordered,
+  List<T> target, {
+  required String Function(T item) idOf,
+  required T Function(T item, int index, DateTime now) apply,
+}) {
+  final now = DateTime.now();
+  final indexById = <String, int>{
+    for (var i = 0; i < target.length; i++) idOf(target[i]): i,
+  };
+  for (var i = 0; i < ordered.length; i++) {
+    final updated = apply(ordered[i], i, now);
+    target[indexById[idOf(updated)]!] = updated;
+    ordered[i] = updated;
   }
-  return null;
 }
 
 bool _validMove(int length, int oldIndex, int newIndex) =>

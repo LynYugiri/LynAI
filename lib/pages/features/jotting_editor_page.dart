@@ -12,6 +12,7 @@ import '../../providers/knowledge_provider.dart';
 import '../../providers/task_provider.dart';
 import '../../services/composer_selector_registry.dart';
 import '../../services/storage_v2_service.dart';
+import 'feature_shared.dart';
 import '../../utils/file_picker_io_utils.dart';
 import '../../widgets/reference_palette.dart';
 
@@ -706,20 +707,12 @@ class _EditorAttachmentCardState extends State<_EditorAttachmentCard> {
   }
 
   Future<void> _resolvePath() async {
-    try {
-      final storage = context.read<StorageV2Service>();
-      final resource = await storage.findResourceById(
-        widget.attachment.resourceId,
-      );
-      final path = resource == null
-          ? null
-          : await storage.resourcePath(resource);
-      if (!mounted) return;
-      setState(() => _path = path);
-    } catch (_) {
-      if (!mounted) return;
-      setState(() => _path = null);
-    }
+    final path = await resolveAttachmentPath(
+      context,
+      widget.attachment.resourceId,
+    );
+    if (!mounted) return;
+    setState(() => _path = path);
   }
 
   @override

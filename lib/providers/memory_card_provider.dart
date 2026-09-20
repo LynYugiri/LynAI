@@ -8,6 +8,7 @@ import '../models/memory_card_study_plan.dart';
 import '../repositories/memory_card_repository.dart';
 import '../services/memory_card_scheduler.dart';
 import '../services/storage_v2_service.dart';
+import '../utils/collection_utils.dart';
 import 'serialized_save_queue.dart';
 
 /// 管理记忆卡片牌组、卡片与复习记录的内存状态和串行持久化。
@@ -32,8 +33,9 @@ class MemoryCardProvider extends ChangeNotifier with SerializedSaveQueue {
   List<MemoryCardReviewLog> get reviewLogs => List.unmodifiable(_reviewLogs);
 
   MemoryCardDeck? deckById(String id) =>
-      _first(_decks, (item) => item.id == id);
-  MemoryCard? cardById(String id) => _first(_cards, (item) => item.id == id);
+      firstWhereOrNull(_decks, (item) => item.id == id);
+  MemoryCard? cardById(String id) =>
+      firstWhereOrNull(_cards, (item) => item.id == id);
 
   List<MemoryCard> cardsForDeck(String deckId) =>
       List.unmodifiable(_cards.where((item) => item.deckId == deckId));
@@ -239,7 +241,7 @@ class MemoryCardProvider extends ChangeNotifier with SerializedSaveQueue {
   }
 
   Future<String> ensureDeckByName(String name) async {
-    final existing = _first(
+    final existing = firstWhereOrNull(
       _decks,
       (item) => item.name.trim().toLowerCase() == name.trim().toLowerCase(),
     );
@@ -546,11 +548,4 @@ final class MemoryCardReviewOutcome {
     if (delta == null || delta.isNegative) return Duration.zero;
     return delta;
   }
-}
-
-T? _first<T>(Iterable<T> values, bool Function(T) test) {
-  for (final value in values) {
-    if (test(value)) return value;
-  }
-  return null;
 }

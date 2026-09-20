@@ -4,6 +4,7 @@ import '../models/memory_card.dart';
 import '../models/memory_card_deck.dart';
 import '../models/memory_card_review_log.dart';
 import '../services/storage_v2_service.dart';
+import '../utils/json_row_utils.dart';
 
 /// 从持久化层一次性读取的记忆卡片数据快照。
 final class MemoryCardLoadResult {
@@ -35,13 +36,13 @@ class MemoryCardRepository {
   Future<MemoryCardLoadResult> load() async {
     final data = await _storageV2.loadDataFile(fileName);
     final decks = _uniqueById(
-      _decode(data['decks'], MemoryCardDeck.fromJson, '记忆卡片牌组'),
+      decodeRowList(data['decks'], MemoryCardDeck.fromJson, '记忆卡片牌组'),
       (item) => item.id,
       '记忆卡片牌组',
     );
     final deckIds = {for (final deck in decks) deck.id};
     final cards = _uniqueById(
-      _decode(data['cards'], MemoryCard.fromJson, '记忆卡片').where((card) {
+      decodeRowList(data['cards'], MemoryCard.fromJson, '记忆卡片').where((card) {
         if (deckIds.contains(card.deckId)) return true;
         debugPrint('跳过悬空记忆卡片 ${card.id}: 牌组 ${card.deckId} 不存在');
         return false;
@@ -51,7 +52,7 @@ class MemoryCardRepository {
     );
     final cardIds = {for (final card in cards) card.id};
     final reviewLogs = _uniqueById(
-      _decode(
+      decodeRowList(
         data['reviewLogs'],
         MemoryCardReviewLog.fromJson,
         '记忆卡片复习记录',
@@ -130,26 +131,6 @@ class MemoryCardRepository {
     ];
     await _storageV2.applyLocalRowChanges(operations);
   }
-}
-
-List<T> _decode<T>(
-  Object? raw,
-  T Function(Map<String, dynamic>) parser,
-  String label,
-) {
-  if (raw == null) return const [];
-  if (raw is! List) {
-    throw FormatException('$label集合必须是列表');
-  }
-  final values = <T>[];
-  for (final item in raw) {
-    try {
-      if (item is Map) values.add(parser(Map<String, dynamic>.from(item)));
-    } catch (error) {
-      debugPrint('跳过损坏的$label: $error');
-    }
-  }
-  return values;
 }
 
 List<T> _uniqueById<T>(

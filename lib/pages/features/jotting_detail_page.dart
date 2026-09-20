@@ -1,10 +1,9 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
 
 import '../../models/jotting.dart';
-import '../../services/storage_v2_service.dart';
+import 'feature_shared.dart';
 import '../../widgets/latex_renderer.dart';
 
 /// Read-only detail view for a local jotting.
@@ -186,20 +185,12 @@ class _AttachmentCardState extends State<_AttachmentCard> {
   }
 
   Future<void> _resolvePath() async {
-    try {
-      final storage = context.read<StorageV2Service>();
-      final resource = await storage.findResourceById(
-        widget.attachment.resourceId,
-      );
-      final path = resource == null
-          ? null
-          : await storage.resourcePath(resource);
-      if (!mounted) return;
-      setState(() => _path = path);
-    } catch (_) {
-      if (!mounted) return;
-      setState(() => _path = null);
-    }
+    final path = await resolveAttachmentPath(
+      context,
+      widget.attachment.resourceId,
+    );
+    if (!mounted) return;
+    setState(() => _path = path);
   }
 
   @override

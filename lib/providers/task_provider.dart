@@ -10,6 +10,7 @@ import '../models/task_list.dart';
 import '../repositories/recycle_bin_repository.dart';
 import '../repositories/task_repository.dart';
 import '../services/storage_v2_service.dart';
+import '../utils/collection_utils.dart';
 import 'serialized_save_queue.dart';
 
 /// 任务、清单元数据和清单归属条目的唯一内存所有者。
@@ -80,13 +81,14 @@ class TaskProvider extends ChangeNotifier with SerializedSaveQueue {
     );
   }
 
-  Task? taskById(String id) => _firstOrNull(_tasks, (task) => task.id == id);
+  Task? taskById(String id) =>
+      firstWhereOrNull(_tasks, (task) => task.id == id);
 
   TaskList? listById(String id) =>
-      _firstOrNull(_lists, (list) => list.id == id);
+      firstWhereOrNull(_lists, (list) => list.id == id);
 
   TaskListEntry? entryForTask(String taskId) =>
-      _firstOrNull(_entries, (entry) => entry.taskId == taskId);
+      firstWhereOrNull(_entries, (entry) => entry.taskId == taskId);
 
   List<Task> tasksForList(String listId) {
     final taskById = {for (final task in _tasks) task.id: task};
@@ -479,11 +481,4 @@ class TaskProvider extends ChangeNotifier with SerializedSaveQueue {
       onSnapshotPersisted?.call();
     });
   }
-}
-
-T? _firstOrNull<T>(Iterable<T> values, bool Function(T) test) {
-  for (final value in values) {
-    if (test(value)) return value;
-  }
-  return null;
 }

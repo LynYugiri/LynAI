@@ -1102,6 +1102,13 @@ class SyncProvider extends ChangeNotifier {
     List<SyncChange> changes, {
     required int maxBlobBytes,
   }) async {
+    // 三处 blob 拉取共用同一份「按当前代次下载」逻辑。
+    Future<List<int>> downloadBlob(String hash) async => _downloadBlob(
+      service,
+      hash,
+      generation: (await _storage.scopeState(_scope!)).generation,
+      maxBytes: maxBlobBytes,
+    );
     final prepared = <SyncChange>[];
     for (final change in changes) {
       _validateRemoteChange(change);
@@ -1111,15 +1118,7 @@ class SyncProvider extends ChangeNotifier {
         final hash = change.data?['contentHash'] as String?;
         if (hash == null) throw StateError('远端笔记修订缺少 contentHash');
         if (!await _storage.hasNoteBlob(hash)) {
-          await _storage.installNoteBlob(
-            hash,
-            await _downloadBlob(
-              service,
-              hash,
-              generation: (await _storage.scopeState(_scope!)).generation,
-              maxBytes: maxBlobBytes,
-            ),
-          );
+          await _storage.installNoteBlob(hash, await downloadBlob(hash));
         }
         prepared.add(change);
         continue;
@@ -1130,15 +1129,7 @@ class SyncProvider extends ChangeNotifier {
             _hasPluginBlob != null &&
             _installPluginBlob != null &&
             !await _hasPluginBlob(hash)) {
-          await _installPluginBlob(
-            hash,
-            await _downloadBlob(
-              service,
-              hash,
-              generation: (await _storage.scopeState(_scope!)).generation,
-              maxBytes: maxBlobBytes,
-            ),
-          );
+          await _installPluginBlob(hash, await downloadBlob(hash));
         }
         prepared.add(change);
         continue;
@@ -1156,15 +1147,7 @@ class SyncProvider extends ChangeNotifier {
       final hash = data['sha256'] as String?;
       if (data['missing'] != true && hash != null) {
         if (!await _storage.hasResourceBlob(hash)) {
-          await _storage.installResourceBlob(
-            hash,
-            await _downloadBlob(
-              service,
-              hash,
-              generation: (await _storage.scopeState(_scope!)).generation,
-              maxBytes: maxBlobBytes,
-            ),
-          );
+          await _storage.installResourceBlob(hash, await downloadBlob(hash));
         }
       }
       prepared.add(
