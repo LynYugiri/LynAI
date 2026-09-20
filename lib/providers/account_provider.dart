@@ -281,6 +281,40 @@ class AccountProvider extends ChangeNotifier {
     }
   }
 
+  /// 会话建立后的公共收尾：激活本地数据集、失败时回滚登出、通知 UI 并激活远端会话。
+  Future<bool> _completeSession(
+    AccountService svc,
+    AuthSession session,
+    int generation,
+  ) async {
+    if (!_isCurrent(generation)) return false;
+    try {
+      await _onDatasetActivation?.call(session.user);
+    } catch (_) {
+      try {
+        await svc.logout();
+      } catch (_) {}
+      rethrow;
+    }
+    if (!_isCurrent(generation)) return false;
+    _user = session.user;
+    _loading = false;
+    _notifyListeners();
+    await _onSessionChanged?.call(_user);
+    if (!_isCurrent(generation)) return false;
+    unawaited(activateCurrentSession());
+    return true;
+  }
+
+  /// 登录/注册失败后的公共收尾：只在仍是当前操作时落地错误态。
+  bool _failSession(int generation, Object error) {
+    if (!_isCurrent(generation)) return false;
+    _loading = false;
+    _error = error.toString();
+    _notifyListeners();
+    return false;
+  }
+
   /// 手机号登录。
   Future<bool> login(String phone, String password) async {
     final generation = ++_operationGeneration;
@@ -296,29 +330,9 @@ class AccountProvider extends ChangeNotifier {
     _notifyListeners();
     try {
       final session = await svc.login(username: phone, password: password);
-      if (!_isCurrent(generation)) return false;
-      try {
-        await _onDatasetActivation?.call(session.user);
-      } catch (_) {
-        try {
-          await svc.logout();
-        } catch (_) {}
-        rethrow;
-      }
-      if (!_isCurrent(generation)) return false;
-      _user = session.user;
-      _loading = false;
-      _notifyListeners();
-      await _onSessionChanged?.call(_user);
-      if (!_isCurrent(generation)) return false;
-      unawaited(activateCurrentSession());
-      return true;
+      return await _completeSession(svc, session, generation);
     } catch (e) {
-      if (!_isCurrent(generation)) return false;
-      _loading = false;
-      _error = e.toString();
-      _notifyListeners();
-      return false;
+      return _failSession(generation, e);
     }
   }
 
@@ -344,29 +358,9 @@ class AccountProvider extends ChangeNotifier {
         password: password,
         displayName: displayName,
       );
-      if (!_isCurrent(generation)) return false;
-      try {
-        await _onDatasetActivation?.call(session.user);
-      } catch (_) {
-        try {
-          await svc.logout();
-        } catch (_) {}
-        rethrow;
-      }
-      if (!_isCurrent(generation)) return false;
-      _user = session.user;
-      _loading = false;
-      _notifyListeners();
-      await _onSessionChanged?.call(_user);
-      if (!_isCurrent(generation)) return false;
-      unawaited(activateCurrentSession());
-      return true;
+      return await _completeSession(svc, session, generation);
     } catch (e) {
-      if (!_isCurrent(generation)) return false;
-      _loading = false;
-      _error = e.toString();
-      _notifyListeners();
-      return false;
+      return _failSession(generation, e);
     }
   }
 

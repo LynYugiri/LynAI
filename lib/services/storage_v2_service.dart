@@ -447,9 +447,16 @@ class StorageV2Service {
         .toList();
   }
 
-  Future<StorageV2Resource?> findResourceByPath(String path) async {
+  Future<StorageV2Resource?> findResourceByPath(String path) async =>
+      _findResourceByPathIn(await loadResources(), path);
+
+  /// 在已加载的资源列表中按绝对路径查找，供调用方复用同一份列表。
+  Future<StorageV2Resource?> _findResourceByPathIn(
+    List<StorageV2Resource> resources,
+    String path,
+  ) async {
     final normalizedPath = _normalizePath(File(path).absolute.path);
-    for (final resource in await loadResources()) {
+    for (final resource in resources) {
       final file = await resourceFile(resource);
       if (file == null) continue;
       if (_normalizePath(file.absolute.path) == normalizedPath) return resource;
@@ -476,10 +483,10 @@ class StorageV2Service {
     required String role,
   }) async {
     return _runResourceMutation(() async {
-      final existingByPath = await findResourceByPath(path);
+      final resources = await loadResources();
+      final existingByPath = await _findResourceByPathIn(resources, path);
       if (existingByPath != null) return existingByPath;
 
-      final resources = await loadResources();
       final file = File(path);
       final exists = path.isNotEmpty && await file.exists();
       if (!exists) {

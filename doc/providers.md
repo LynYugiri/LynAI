@@ -159,7 +159,8 @@ Provider 的更新策略是：先改内存并通知 UI，再把持久化操作�
 
 文件：`lib/providers/settings_provider.dart`
 
-负责应用级设置、角色、角色分组、系统提示词和最近使用模型。
+负责应用级设置、角色、角色分组、系统提示词和最近使用模型。设置页整体走
+`replaceSettings()` / `AppSettings.copyWith()` 改写，不再提供逐字段 setter。
 
 | 方法 | 说明 |
 |------|------|
@@ -168,9 +169,6 @@ Provider 的更新策略是：先改内存并通知 UI，再把持久化操作�
 | `setThemeColor()` / `setThemeMode()` | 修改主题。 |
 | `setBackgroundImage()` | 设置或清除背景图。 |
 | `setLastFeature()` | 记住功能页入口。 |
-| `setSpeechModelId()` / `setImageModelId()` | 设置语音和 OCR 模型。 |
-| `setImageRecognitionModelId()` | 设置文件识别模型。 |
-| `setImageGenerationModelId()` / `setImageGenerationEnabled()` | 设置图片生成模型和当前默认开关。 |
 | `setLastChatModelId()` | 设置新对话默认 Chat 模型。 |
 | `addSystemPrompt()` / `updateSystemPrompt()` / `deleteSystemPrompt()` | 管理提示词模板。 |
 | `addRole()` / `updateRole()` / `deleteRole()` / `selectRole()` | 管理角色。 |

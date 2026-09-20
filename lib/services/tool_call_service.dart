@@ -5707,13 +5707,7 @@ ${ToolCallService.currentTimeContext()}${sharedContext.isEmpty ? '' : '\n\n$shar
         'load_plugin_skill 缺少 pluginId 或 skillName',
       );
     }
-    InstalledPlugin? plugin;
-    for (final item in plugins.plugins) {
-      if (item.id == pluginId) {
-        plugin = item;
-        break;
-      }
-    }
+    final plugin = _findAgentPlugin(pluginId);
     if (plugin == null || !plugin.enabled || plugin.hasError) {
       return _agentError('plugin_not_found', '插件不可用: $pluginId');
     }
@@ -5809,13 +5803,7 @@ ${ToolCallService.currentTimeContext()}${sharedContext.isEmpty ? '' : '\n\n$shar
         'save_plugin_skill 缺少 pluginId、skillName 或 content',
       );
     }
-    InstalledPlugin? plugin;
-    for (final item in plugins.plugins) {
-      if (item.id == pluginId) {
-        plugin = item;
-        break;
-      }
-    }
+    final plugin = _findAgentPlugin(pluginId);
     if (plugin == null || !plugin.enabled || plugin.hasError) {
       return _agentError('plugin_not_found', '插件不可用: $pluginId');
     }
@@ -6238,13 +6226,7 @@ ${ToolCallService.currentTimeContext()}${sharedContext.isEmpty ? '' : '\n\n$shar
         'call_plugin_function 缺少 pluginId 或 functionName',
       );
     }
-    InstalledPlugin? plugin;
-    for (final item in plugins.plugins) {
-      if (item.id == pluginId) {
-        plugin = item;
-        break;
-      }
-    }
+    final plugin = _findAgentPlugin(pluginId);
     if (plugin == null || !plugin.enabled || plugin.hasError) {
       return _agentError('plugin_not_found', '插件不可用: $pluginId');
     }
