@@ -22,6 +22,7 @@
 
 - 工具 schema 注册时和执行前都必须通过 `AgentJsonSchemaValidator` 支持子集校验。插件或 MCP 的不兼容 schema 必须显式失败或禁用，不能静默放宽关键约束。
 - `AgentToolRegistry.snapshot()` 是模型 turn 的不可变目录快照。动态注册、插件更新、MCP 刷新或断连不得把旧调用悄悄绑定到新实现。
+- 注册进 run snapshot 的每个工具都必须在 `ToolCallService._executeRegistered` 的 dispatch 里有分支；遗留 `execute()` 的 case 不是生产路径（它只服务旧测试/适配器）。缺分支时调用只会返回「未注册具体工具实现」，而工具列表与系统提示词仍把它列为可用——新增工具时必须同时补 arm 与 registry 路径的测试。
 - Agent 工具调用必须携带 Agent 身份及 run/turn/toolCall correlation；不得通过 `LynAICallerType.system` 绕过 Agent 权限。
 - 内置 `knowledge_search` 是 `ToolCallService` 的本地只读工具，只在注入 `KnowledgeProvider` 且 run snapshot 具有 `storage:read` 时注册。它必须只检索启用的库、类别和条目，保持查询/schema、扫描正文、结果数量及返回正文边界，并在分批扫描间检查取消和 deadline；不得改成不可取消的同步全表扫描，也不得自动把完整知识库注入每轮上下文。
 - Drift 的 `runs`、`turns`、`items`、`tool_calls`、`snapshots` 仅记录本机 durable run graph，并经 `AgentPersistenceRepository` CAS 迁移。它们不进入普通/加密备份、云同步或 LAN 同步；重启只对账为 interrupted，不自动重放。

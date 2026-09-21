@@ -140,6 +140,7 @@ is supplied it takes precedence over mutable application settings.
 
 - Main chat, floating chat, and Subagent compose model-visible built-in, Agent, plugin, and MCP tools into one immutable run snapshot before the first model turn.
 - Exposure and dispatch both use the conversation `AgentPermissionSnapshot`; denied tools are omitted and execution rechecks the captured requirements.
+- 注册进 run snapshot 的每个工具都必须在 `ToolCallService._executeRegistered` 的 dispatch 里有对应分支：该 switch 是生产唯一执行入口，遗留 `execute()` 的 case 不属于它（那条路径只服务旧测试/适配器）。缺分支时模型会收到 `未注册具体工具实现`，而工具列表、可用性开关与系统提示词仍会把它当作可用工具（工作区工具曾因此整组失效）。
 - Tool-call batches execute through `AgentToolExecutionService` and `AgentToolScheduler`. `ToolCallService.executeSequentialCompatibility` remains only for legacy tests/adapters and has no production caller.
 - Tool results are sanitized before they enter durable tool-call rows or model continuation messages. Large or binary values are offloaded to local-only resources.
 - Subagents receive a filtered child snapshot, inherit the parent cancellation token, cannot expose `ask_user`, and cannot recurse beyond the configured depth policy. Parent cancellation prevents late memory or trace merges.

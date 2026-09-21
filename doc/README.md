@@ -57,7 +57,7 @@ lib/
 | `repositories/` | 本地持久化，统一读写 storage_v2。 |
 | `services/` | API、工具调用、备份、storage_v2 升级、平台能力。 |
 | `pages/` | 页面交互、导航、输入处理、渲染组合。 |
-| `utils/` | 文件名、分享、提示、更新日志解析等无状态工具。 |
+| `utils/` | 文件名、分享、提示、更新日志解析、集合查找与 JSON 行解析等无状态工具。 |
 | `widgets/` | 可复用 UI，尤其 Markdown/LaTeX 渲染。 |
 
 ## 运行时模块
