@@ -3449,12 +3449,13 @@ WHERE id IN (${List.filled(runIds.length, '?').join(', ')})
     });
   }
 
-  Future<void> saveCloudOperations(
+  /// 把云端管理操作写成 pending 的 reseed 任务（保存与对账两处共用同一份 payload 编码）。
+  Future<void> _upsertReseedTasks(
+    StorageV2DriftDatabase db,
     String scope,
     Iterable<CloudManagementOperation> operations,
+    String now,
   ) async {
-    final db = await _open();
-    final now = DateTime.now().toIso8601String();
     for (final operation in operations) {
       await db
           .into(db.cloudReseedTaskRows)
@@ -3483,6 +3484,15 @@ WHERE id IN (${List.filled(runIds.length, '?').join(', ')})
             ),
           );
     }
+  }
+
+  Future<void> saveCloudOperations(
+    String scope,
+    Iterable<CloudManagementOperation> operations,
+  ) async {
+    final db = await _open();
+    final now = DateTime.now().toIso8601String();
+    await _upsertReseedTasks(db, scope, operations, now);
   }
 
   Future<List<CloudManagementOperation>> loadCloudOperations(
@@ -3535,34 +3545,7 @@ WHERE id IN (${List.filled(runIds.length, '?').join(', ')})
         }
       }
       final now = DateTime.now().toIso8601String();
-      for (final operation in operations) {
-        await db
-            .into(db.cloudReseedTaskRows)
-            .insertOnConflictUpdate(
-              CloudReseedTaskRowsCompanion.insert(
-                scope: scope,
-                operationId: operation.id,
-                generation: operation.generation,
-                status: 'pending',
-                operationJson: Value(
-                  jsonEncode({
-                    'id': operation.id,
-                    'kind': operation.kind,
-                    'selectorType': operation.selectorType,
-                    if (operation.category != null)
-                      'category': operation.category,
-                    if (operation.objectId != null)
-                      'objectId': operation.objectId,
-                    'generation': operation.generation,
-                    'indexRevision': operation.indexRevision,
-                    'createdAt': operation.createdAt.toUtc().toIso8601String(),
-                  }),
-                ),
-                createdAt: operation.createdAt.toUtc().toIso8601String(),
-                updatedAt: now,
-              ),
-            );
-      }
+      await _upsertReseedTasks(db, scope, operations, now);
     });
   }
 
