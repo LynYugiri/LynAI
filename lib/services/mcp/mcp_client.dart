@@ -31,7 +31,7 @@ class McpClient {
   McpClient({
     required this.transport,
     this.clientName = 'LynAI',
-    this.clientVersion = '4.0.0',
+    this.clientVersion = '4.1.0',
     this.requestTimeout = const Duration(seconds: 30),
     this.maxToolPages = 100,
   });

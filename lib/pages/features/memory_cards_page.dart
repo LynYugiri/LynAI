@@ -21,13 +21,18 @@ class MemoryCardsPage extends StatefulWidget {
 }
 
 class _MemoryCardsPageState extends State<MemoryCardsPage> {
+  /// 超过该牌组数量后显示牌组搜索框。
+  static const _deckSearchThreshold = 5;
+
   String? _selectedDeckId;
   _CardFilter _filter = _CardFilter.all;
   final _searchController = TextEditingController();
+  final _deckSearchController = TextEditingController();
 
   @override
   void dispose() {
     _searchController.dispose();
+    _deckSearchController.dispose();
     super.dispose();
   }
 
@@ -111,21 +116,32 @@ class _MemoryCardsPageState extends State<MemoryCardsPage> {
     }).toList();
   }
 
+  List<MemoryCardDeck> _visibleDecks(List<MemoryCardDeck> decks) {
+    // 牌组搜索框只在牌组较多时出现，隐藏时忽略残留输入。
+    if (decks.length <= _deckSearchThreshold) return decks;
+    final query = _deckSearchController.text.trim().toLowerCase();
+    if (query.isEmpty) return decks;
+    return decks
+        .where((deck) => deck.name.toLowerCase().contains(query))
+        .toList();
+  }
+
   Widget _deckPane(
     MemoryCardProvider provider,
     List<MemoryCardDeck> decks,
     MemoryCardDeck? selected,
   ) {
+    final visibleDecks = _visibleDecks(decks);
     return Column(
       children: [
         Padding(
           padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
           child: Row(
             children: [
-              const Expanded(
+              Expanded(
                 child: Text(
-                  '牌组',
-                  style: TextStyle(fontWeight: FontWeight.w700),
+                  '牌组 (${decks.length})',
+                  style: const TextStyle(fontWeight: FontWeight.w700),
                 ),
               ),
               IconButton(
@@ -136,53 +152,185 @@ class _MemoryCardsPageState extends State<MemoryCardsPage> {
             ],
           ),
         ),
+        if (decks.length > _deckSearchThreshold)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+            child: TextField(
+              controller: _deckSearchController,
+              decoration: InputDecoration(
+                isDense: true,
+                hintText: '搜索牌组',
+                prefixIcon: const Icon(Icons.search, size: 18),
+                suffixIcon: _deckSearchController.text.isEmpty
+                    ? null
+                    : IconButton(
+                        tooltip: '清除牌组搜索',
+                        icon: const Icon(Icons.close, size: 18),
+                        onPressed: () =>
+                            setState(_deckSearchController.clear),
+                      ),
+                border: const OutlineInputBorder(),
+              ),
+              onChanged: (_) => setState(() {}),
+            ),
+          ),
         Expanded(
           child: decks.isEmpty
-              ? const Center(child: Text('暂无牌组'))
+              ? _deckEmptyState(provider)
+              : visibleDecks.isEmpty
+              ? _deckSearchEmptyState()
               : ListView.builder(
                   padding: const EdgeInsets.fromLTRB(8, 0, 8, 12),
-                  itemCount: decks.length,
-                  itemBuilder: (context, index) {
-                    final deck = decks[index];
-                    final selectedDeck = deck.id == selected?.id;
-                    final counts = provider.counts(deck.id);
-                    return ListTile(
-                      selected: selectedDeck,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      title: Text(
-                        deck.name,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      subtitle: Text(
-                        '新 ${counts.newCards} · 学 ${counts.learningCards}'
-                        ' · 复 ${counts.reviewCards}',
-                      ),
-                      trailing: PopupMenuButton<String>(
-                        tooltip: '牌组操作',
-                        onSelected: (value) {
-                          if (value == 'rename') _renameDeck(provider, deck);
-                          if (value == 'settings') {
-                            _editDeckSettings(provider, deck);
-                          }
-                          if (value == 'delete') _deleteDeck(provider, deck);
-                        },
-                        itemBuilder: (_) => const [
-                          PopupMenuItem(value: 'rename', child: Text('重命名')),
-                          PopupMenuItem(value: 'settings', child: Text('牌组设置')),
-                          PopupMenuItem(value: 'delete', child: Text('删除')),
-                        ],
-                      ),
-                      onTap: () => setState(() {
-                        _selectedDeckId = deck.id;
-                      }),
-                    );
-                  },
+                  itemCount: visibleDecks.length,
+                  itemBuilder: (context, index) =>
+                      _deckTile(provider, visibleDecks[index], selected),
                 ),
         ),
       ],
+    );
+  }
+
+  Widget _deckEmptyState(MemoryCardProvider provider) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.style_outlined,
+              size: 40,
+              color: Theme.of(context).colorScheme.outline,
+            ),
+            const SizedBox(height: 12),
+            const Text('还没有牌组'),
+            const SizedBox(height: 4),
+            Text(
+              '创建牌组后即可添加卡片或从知识库生成。',
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            const SizedBox(height: 12),
+            FilledButton.icon(
+              onPressed: () => _createDeck(provider),
+              icon: const Icon(Icons.add),
+              label: const Text('新建牌组'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _deckSearchEmptyState() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.search_off,
+              size: 36,
+              color: Theme.of(context).colorScheme.outline,
+            ),
+            const SizedBox(height: 8),
+            const Text('没有匹配的牌组'),
+            TextButton(
+              onPressed: () => setState(_deckSearchController.clear),
+              child: const Text('清除搜索'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _deckTile(
+    MemoryCardProvider provider,
+    MemoryCardDeck deck,
+    MemoryCardDeck? selected,
+  ) {
+    final counts = provider.counts(deck.id);
+    final due = counts.total;
+    final total = provider.cardsForDeck(deck.id).length;
+    final scheme = Theme.of(context).colorScheme;
+    return ListTile(
+      selected: deck.id == selected?.id,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      leading: CircleAvatar(
+        radius: 16,
+        backgroundColor: due > 0
+            ? scheme.primaryContainer
+            : scheme.surfaceContainerHighest,
+        foregroundColor: due > 0
+            ? scheme.onPrimaryContainer
+            : scheme.onSurfaceVariant,
+        child: due > 0
+            ? Text(
+                due > 99 ? '99+' : '$due',
+                style: const TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                ),
+              )
+            : const Icon(Icons.style_outlined, size: 16),
+      ),
+      title: Row(
+        children: [
+          Flexible(
+            child: Text(
+              deck.name,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          if (!deck.enabled)
+            Padding(
+              padding: const EdgeInsets.only(left: 6),
+              child: Text(
+                '已停用',
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                  color: scheme.onSurfaceVariant,
+                ),
+              ),
+            ),
+        ],
+      ),
+      subtitle: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            due > 0 ? '待复习 $due 张 · 共 $total 张' : '共 $total 张',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+          Text(
+            '新 ${counts.newCards} · 学 ${counts.learningCards}'
+            ' · 复 ${counts.reviewCards}',
+            style: Theme.of(
+              context,
+            ).textTheme.labelSmall?.copyWith(color: scheme.onSurfaceVariant),
+          ),
+        ],
+      ),
+      trailing: PopupMenuButton<String>(
+        tooltip: '牌组操作',
+        onSelected: (value) {
+          if (value == 'rename') _renameDeck(provider, deck);
+          if (value == 'settings') {
+            _editDeckSettings(provider, deck);
+          }
+          if (value == 'delete') _deleteDeck(provider, deck);
+        },
+        itemBuilder: (_) => const [
+          PopupMenuItem(value: 'rename', child: Text('重命名')),
+          PopupMenuItem(value: 'settings', child: Text('牌组设置')),
+          PopupMenuItem(value: 'delete', child: Text('删除')),
+        ],
+      ),
+      onTap: () => setState(() {
+        _selectedDeckId = deck.id;
+      }),
     );
   }
 
@@ -191,31 +339,39 @@ class _MemoryCardsPageState extends State<MemoryCardsPage> {
     MemoryCardDeck? deck,
     List<MemoryCard> cards,
   ) {
+    final query = _searchController.text.trim();
+    final totalCards = deck == null ? 0 : provider.cardsForDeck(deck.id).length;
+    final filterActive = query.isNotEmpty || _filter != _CardFilter.all;
+    final dueCount = deck == null ? 0 : provider.dueCount(deck.id);
     return Column(
       children: [
         Padding(
           padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
-          child: Row(
-            children: [
-              Expanded(
-                child: TextField(
-                  controller: _searchController,
-                  decoration: const InputDecoration(
-                    isDense: true,
-                    hintText: '搜索正面或反面',
-                    prefixIcon: Icon(Icons.search),
-                    border: OutlineInputBorder(),
-                  ),
-                  onChanged: (_) => setState(() {}),
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final searchField = TextField(
+                controller: _searchController,
+                decoration: InputDecoration(
+                  isDense: true,
+                  hintText: '搜索正面或反面',
+                  prefixIcon: const Icon(Icons.search),
+                  suffixIcon: query.isEmpty
+                      ? null
+                      : IconButton(
+                          tooltip: '清除搜索',
+                          icon: const Icon(Icons.close),
+                          onPressed: () => setState(_searchController.clear),
+                        ),
+                  border: const OutlineInputBorder(),
                 ),
-              ),
-              IconButton(
+                onChanged: (_) => setState(() {}),
+              );
+              final addButton = IconButton(
                 tooltip: '新建卡片',
                 onPressed: deck == null ? null : () => _addCard(provider, deck),
                 icon: const Icon(Icons.add),
-              ),
-              const SizedBox(width: 8),
-              SegmentedButton<_CardFilter>(
+              );
+              final filterButton = SegmentedButton<_CardFilter>(
                 segments: const [
                   ButtonSegment(value: _CardFilter.all, label: Text('全部')),
                   ButtonSegment(value: _CardFilter.newCards, label: Text('新卡')),
@@ -224,42 +380,93 @@ class _MemoryCardsPageState extends State<MemoryCardsPage> {
                 selected: {_filter},
                 onSelectionChanged: (value) =>
                     setState(() => _filter = value.first),
-              ),
-            ],
+              );
+              if (constraints.maxWidth >= 560) {
+                return Row(
+                  children: [
+                    Expanded(child: searchField),
+                    addButton,
+                    const SizedBox(width: 8),
+                    filterButton,
+                  ],
+                );
+              }
+              return Column(
+                children: [
+                  Row(
+                    children: [Expanded(child: searchField), addButton],
+                  ),
+                  const SizedBox(height: 8),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: filterButton,
+                  ),
+                ],
+              );
+            },
           ),
         ),
         Padding(
           padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
-          child: Row(
-            children: [
-              FilledButton.tonalIcon(
-                onPressed: deck == null
-                    ? null
-                    : () => _openGenerator(provider, deck),
-                icon: const Icon(Icons.auto_awesome),
-                label: const Text('AI 生成卡片'),
-              ),
-              const SizedBox(width: 8),
-              FilledButton.icon(
-                onPressed: deck == null
-                    ? null
-                    : () => _startStudy(provider, deck),
-                icon: const Icon(Icons.school_outlined),
-                label: const Text('开始复习'),
-              ),
-              const Spacer(),
-              Text(
-                deck == null ? '' : '共 ${cards.length} 张',
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final countLabel = Text(
+                deck == null
+                    ? ''
+                    : filterActive
+                    ? '${cards.length} / 共 $totalCards 张'
+                    : '共 $totalCards 张',
                 style: Theme.of(context).textTheme.bodySmall,
-              ),
-            ],
+              );
+              final buttons = <Widget>[
+                FilledButton.tonalIcon(
+                  onPressed: deck == null
+                      ? null
+                      : () => _openGenerator(provider, deck),
+                  icon: const Icon(Icons.auto_awesome),
+                  label: const Text('AI 生成卡片'),
+                ),
+                Tooltip(
+                  message: dueCount > 0 ? '本轮 $dueCount 张待复习' : '当前没有到期卡片',
+                  child: FilledButton.icon(
+                    onPressed: deck == null || dueCount == 0
+                        ? null
+                        : () => _startStudy(provider, deck),
+                    icon: const Icon(Icons.school_outlined),
+                    label: Text(dueCount > 0 ? '开始复习 ($dueCount)' : '开始复习'),
+                  ),
+                ),
+              ];
+              if (constraints.maxWidth >= 560) {
+                return Row(
+                  children: [
+                    for (final button in buttons) ...[
+                      button,
+                      const SizedBox(width: 8),
+                    ],
+                    const Spacer(),
+                    countLabel,
+                  ],
+                );
+              }
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Wrap(spacing: 8, runSpacing: 8, children: buttons),
+                  const SizedBox(height: 6),
+                  countLabel,
+                ],
+              );
+            },
           ),
         ),
         Expanded(
           child: deck == null
-              ? const Center(child: Text('请先创建一个牌组'))
+              ? _noDeckState(provider)
               : cards.isEmpty
-              ? const Center(child: Text('没有符合条件的卡片'))
+              ? filterActive
+                    ? _noMatchCardsState()
+                    : _emptyCardsState(provider, deck)
               : ListView.builder(
                   padding: const EdgeInsets.fromLTRB(12, 0, 12, 88),
                   itemCount: cards.length,
@@ -273,19 +480,139 @@ class _MemoryCardsPageState extends State<MemoryCardsPage> {
     );
   }
 
+  Widget _noDeckState(MemoryCardProvider provider) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.style_outlined,
+              size: 40,
+              color: Theme.of(context).colorScheme.outline,
+            ),
+            const SizedBox(height: 12),
+            const Text('请先创建一个牌组'),
+            const SizedBox(height: 12),
+            FilledButton.icon(
+              onPressed: () => _createDeck(provider),
+              icon: const Icon(Icons.add),
+              label: const Text('新建牌组'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _emptyCardsState(
+    MemoryCardProvider provider,
+    MemoryCardDeck deck,
+  ) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.credit_card_outlined,
+              size: 40,
+              color: Theme.of(context).colorScheme.outline,
+            ),
+            const SizedBox(height: 12),
+            const Text('这个牌组还没有卡片'),
+            const SizedBox(height: 4),
+            Text(
+              '手动新建一张卡片，或从知识库批量生成。',
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              children: [
+                FilledButton.icon(
+                  onPressed: () => _addCard(provider, deck),
+                  icon: const Icon(Icons.add),
+                  label: const Text('新建卡片'),
+                ),
+                FilledButton.tonalIcon(
+                  onPressed: () => _openGenerator(provider, deck),
+                  icon: const Icon(Icons.auto_awesome),
+                  label: const Text('AI 生成卡片'),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _noMatchCardsState() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.search_off,
+              size: 40,
+              color: Theme.of(context).colorScheme.outline,
+            ),
+            const SizedBox(height: 12),
+            const Text('没有符合条件的卡片'),
+            const SizedBox(height: 12),
+            FilledButton.icon(
+              onPressed: _clearCardFilters,
+              icon: const Icon(Icons.filter_alt_off_outlined),
+              label: const Text('清除筛选'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _clearCardFilters() {
+    setState(() {
+      _searchController.clear();
+      _filter = _CardFilter.all;
+    });
+  }
+
   Widget _cardTile(MemoryCardProvider provider, MemoryCard card) {
     final scheme = Theme.of(context).colorScheme;
     final due = card.isDueAt(DateTime.now());
+    final isNew = card.status == MemoryCardStatus.newCard;
+    final background = isNew
+        ? scheme.primaryContainer
+        : due
+        ? scheme.tertiaryContainer
+        : scheme.surfaceContainerHighest;
+    final foreground = isNew
+        ? scheme.onPrimaryContainer
+        : due
+        ? scheme.onTertiaryContainer
+        : scheme.onSurfaceVariant;
     return Card(
       margin: const EdgeInsets.symmetric(vertical: 4),
       child: ListTile(
         leading: CircleAvatar(
-          radius: 4,
-          backgroundColor: card.status == MemoryCardStatus.newCard
-              ? scheme.primary
-              : due
-              ? scheme.tertiary
-              : scheme.outlineVariant,
+          radius: 16,
+          backgroundColor: background,
+          foregroundColor: foreground,
+          child: Icon(
+            isNew
+                ? Icons.fiber_new_outlined
+                : due
+                ? Icons.alarm
+                : Icons.school_outlined,
+            size: 16,
+          ),
         ),
         title: Text(card.front, maxLines: 2, overflow: TextOverflow.ellipsis),
         subtitle: Column(
@@ -299,6 +626,42 @@ class _MemoryCardsPageState extends State<MemoryCardsPage> {
                 color: due ? scheme.tertiary : scheme.onSurfaceVariant,
               ),
             ),
+            if (!card.enabled ||
+                card.hint?.trim().isNotEmpty == true ||
+                card.reviewCount > 0 ||
+                card.sourceKind == MemoryCardSourceKind.knowledge)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Wrap(
+                  runSpacing: 2,
+                  children: [
+                    if (!card.enabled)
+                      _cardBadge(
+                        context,
+                        icon: Icons.visibility_off_outlined,
+                        label: '已停用',
+                      ),
+                    if (card.hint?.trim().isNotEmpty == true)
+                      _cardBadge(
+                        context,
+                        icon: Icons.lightbulb_outline,
+                        label: '含提示',
+                      ),
+                    if (card.reviewCount > 0)
+                      _cardBadge(
+                        context,
+                        icon: Icons.history,
+                        label: '复习 ${card.reviewCount} 次',
+                      ),
+                    if (card.sourceKind == MemoryCardSourceKind.knowledge)
+                      _cardBadge(
+                        context,
+                        icon: Icons.local_library_outlined,
+                        label: '来自知识库',
+                      ),
+                  ],
+                ),
+              ),
           ],
         ),
         trailing: PopupMenuButton<String>(
@@ -320,6 +683,30 @@ class _MemoryCardsPageState extends State<MemoryCardsPage> {
           ],
         ),
         onTap: () => _editCard(provider, card),
+      ),
+    );
+  }
+
+  Widget _cardBadge(
+    BuildContext context, {
+    required IconData icon,
+    required String label,
+  }) {
+    final scheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.only(right: 10),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 12, color: scheme.onSurfaceVariant),
+          const SizedBox(width: 3),
+          Text(
+            label,
+            style: Theme.of(
+              context,
+            ).textTheme.labelSmall?.copyWith(color: scheme.onSurfaceVariant),
+          ),
+        ],
       ),
     );
   }
@@ -377,6 +764,7 @@ class _MemoryCardsPageState extends State<MemoryCardsPage> {
       text: '${deck.reviewPerDayLimit}',
     );
     var enabled = deck.enabled;
+    String? formError;
     final result =
         await showDialog<
           ({
@@ -408,13 +796,19 @@ class _MemoryCardsPageState extends State<MemoryCardsPage> {
                     TextField(
                       controller: newLimit,
                       keyboardType: TextInputType.number,
-                      decoration: const InputDecoration(labelText: '每日新卡上限'),
+                      decoration: const InputDecoration(
+                        labelText: '每日新卡上限',
+                        helperText: '0-9999，0 表示不引入新卡',
+                      ),
                     ),
                     const SizedBox(height: 8),
                     TextField(
                       controller: reviewLimit,
                       keyboardType: TextInputType.number,
-                      decoration: const InputDecoration(labelText: '每日复习上限'),
+                      decoration: const InputDecoration(
+                        labelText: '每日复习上限',
+                        helperText: '0-9999，0 表示不限制复习',
+                      ),
                     ),
                     SwitchListTile(
                       contentPadding: EdgeInsets.zero,
@@ -423,6 +817,16 @@ class _MemoryCardsPageState extends State<MemoryCardsPage> {
                       onChanged: (value) =>
                           setDialogState(() => enabled = value),
                     ),
+                    if (formError != null)
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          formError!,
+                          style: TextStyle(
+                            color: Theme.of(ctx).colorScheme.error,
+                          ),
+                        ),
+                      ),
                   ],
                 ),
               ),
@@ -433,14 +837,27 @@ class _MemoryCardsPageState extends State<MemoryCardsPage> {
                 ),
                 FilledButton(
                   onPressed: () {
-                    final newValue =
-                        int.tryParse(newLimit.text.trim()) ??
-                        deck.newPerDayLimit;
-                    final reviewValue =
-                        int.tryParse(reviewLimit.text.trim()) ??
-                        deck.reviewPerDayLimit;
+                    final nameValue = name.text.trim();
+                    final newValue = int.tryParse(newLimit.text.trim());
+                    final reviewValue = int.tryParse(reviewLimit.text.trim());
+                    String? error;
+                    if (nameValue.isEmpty) {
+                      error = '请输入牌组名';
+                    } else if (newValue == null) {
+                      error = '每日新卡上限需为 0-9999 的整数';
+                    } else if (reviewValue == null) {
+                      error = '每日复习上限需为 0-9999 的整数';
+                    }
+                    if (error != null ||
+                        newValue == null ||
+                        reviewValue == null) {
+                      setDialogState(
+                        () => formError = error ?? '请输入有效的数字',
+                      );
+                      return;
+                    }
                     Navigator.pop(ctx, (
-                      name: name.text.trim(),
+                      name: nameValue,
                       description: description.text.trim(),
                       newLimit: newValue.clamp(0, 9999),
                       reviewLimit: reviewValue.clamp(0, 9999),
@@ -481,7 +898,11 @@ class _MemoryCardsPageState extends State<MemoryCardsPage> {
             onPressed: () => Navigator.pop(ctx, false),
             child: const Text('取消'),
           ),
-          TextButton(
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(ctx).colorScheme.error,
+              foregroundColor: Theme.of(ctx).colorScheme.onError,
+            ),
             onPressed: () => Navigator.pop(ctx, true),
             child: const Text('删除'),
           ),
@@ -496,17 +917,26 @@ class _MemoryCardsPageState extends State<MemoryCardsPage> {
     MemoryCardProvider provider,
     MemoryCardDeck deck,
   ) async {
+    final total = provider.cardsForDeck(deck.id).length;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('删除牌组'),
-        content: Text('确定删除「${deck.name}」及其所有卡片吗？'),
+        content: Text(
+          total == 0
+              ? '确定删除「${deck.name}」吗？'
+              : '确定删除「${deck.name}」及其 $total 张卡片吗？复习记录会一并删除。',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
             child: const Text('取消'),
           ),
-          TextButton(
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(ctx).colorScheme.error,
+              foregroundColor: Theme.of(ctx).colorScheme.onError,
+            ),
             onPressed: () => Navigator.pop(ctx, true),
             child: const Text('删除'),
           ),
@@ -655,6 +1085,7 @@ class _CardEditorDialogState extends State<_CardEditorDialog> {
   late final TextEditingController _hint = TextEditingController(
     text: widget.hint,
   );
+  String? _error;
 
   @override
   void dispose() {
@@ -662,6 +1093,24 @@ class _CardEditorDialogState extends State<_CardEditorDialog> {
     _back.dispose();
     _hint.dispose();
     super.dispose();
+  }
+
+  void _submit() {
+    final front = _front.text.trim();
+    final back = _back.text.trim();
+    if (front.isEmpty) {
+      setState(() => _error = '请输入卡片正面');
+      return;
+    }
+    if (back.isEmpty) {
+      setState(() => _error = '请输入卡片反面');
+      return;
+    }
+    Navigator.pop(context, (
+      front: _front.text,
+      back: _back.text,
+      hint: _hint.text,
+    ));
   }
 
   @override
@@ -678,10 +1127,14 @@ class _CardEditorDialogState extends State<_CardEditorDialog> {
                 controller: _front,
                 autofocus: true,
                 maxLines: 3,
+                textInputAction: TextInputAction.next,
                 decoration: const InputDecoration(
                   labelText: '正面（问题/提示）',
                   border: OutlineInputBorder(),
                 ),
+                onChanged: (_) {
+                  if (_error != null) setState(() => _error = null);
+                },
               ),
               const SizedBox(height: 12),
               TextField(
@@ -690,7 +1143,11 @@ class _CardEditorDialogState extends State<_CardEditorDialog> {
                 decoration: const InputDecoration(
                   labelText: '反面（答案）',
                   border: OutlineInputBorder(),
+                  helperText: '支持 Markdown 与 LaTeX',
                 ),
+                onChanged: (_) {
+                  if (_error != null) setState(() => _error = null);
+                },
               ),
               const SizedBox(height: 12),
               TextField(
@@ -701,6 +1158,19 @@ class _CardEditorDialogState extends State<_CardEditorDialog> {
                   border: OutlineInputBorder(),
                 ),
               ),
+              if (_error != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 12),
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      _error!,
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.error,
+                      ),
+                    ),
+                  ),
+                ),
             ],
           ),
         ),
@@ -710,14 +1180,7 @@ class _CardEditorDialogState extends State<_CardEditorDialog> {
           onPressed: () => Navigator.pop(context),
           child: const Text('取消'),
         ),
-        FilledButton(
-          onPressed: () => Navigator.pop(context, (
-            front: _front.text,
-            back: _back.text,
-            hint: _hint.text,
-          )),
-          child: const Text('保存'),
-        ),
+        FilledButton(onPressed: _submit, child: const Text('保存')),
       ],
     );
   }

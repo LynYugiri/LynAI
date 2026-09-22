@@ -112,13 +112,21 @@ class KnowledgePageState extends State<KnowledgePage> {
                 ),
               ),
               const VerticalDivider(width: 1),
-              Expanded(child: _detailPane(provider, base, entry)),
+              Expanded(
+                child: _detailPane(provider, base, entry, entries: entries),
+              ),
             ],
           );
         }
 
         if (_compactDetail && base != null && entry != null) {
-          return _detailPane(provider, base, entry, compact: true);
+          return _detailPane(
+            provider,
+            base,
+            entry,
+            entries: entries,
+            compact: true,
+          );
         }
         return Column(
           children: [
@@ -337,6 +345,9 @@ class KnowledgePageState extends State<KnowledgePage> {
     bool compact = false,
   }) {
     if (base == null) return _emptyBases(context, provider);
+    final query = _searchController.text.trim();
+    final totalCount = provider.entriesForBase(base.id).length;
+    final filterActive = query.isNotEmpty || categoryFilterId != null;
     return Column(
       children: [
         _paneHeader(
@@ -365,10 +376,18 @@ class KnowledgePageState extends State<KnowledgePage> {
             children: [
               TextField(
                 controller: _searchController,
-                decoration: const InputDecoration(
+                textInputAction: TextInputAction.search,
+                decoration: InputDecoration(
                   hintText: '搜索标题或内容',
-                  prefixIcon: Icon(Icons.search),
-                  border: OutlineInputBorder(),
+                  prefixIcon: const Icon(Icons.search),
+                  suffixIcon: query.isEmpty
+                      ? null
+                      : IconButton(
+                          tooltip: '清除搜索',
+                          icon: const Icon(Icons.close),
+                          onPressed: () => setState(_searchController.clear),
+                        ),
+                  border: const OutlineInputBorder(),
                   isDense: true,
                 ),
                 onChanged: (_) => setState(() {}),
@@ -389,7 +408,13 @@ class KnowledgePageState extends State<KnowledgePage> {
                         for (final category in categories)
                           DropdownMenuItem(
                             value: category.id,
-                            child: Text(category.name),
+                            child: Text(
+                              category.enabled
+                                  ? category.name
+                                  : '${category.name}（已停用）',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
                           ),
                       ],
                       onChanged: (value) =>
@@ -424,16 +449,60 @@ class KnowledgePageState extends State<KnowledgePage> {
                   ),
                 ],
               ),
+              const SizedBox(height: 6),
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      filterActive
+                          ? '筛选出 ${entries.length} / 共 $totalCount 条'
+                          : '共 $totalCount 条',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ),
+                  if (filterActive)
+                    TextButton.icon(
+                      onPressed: _clearEntryFilters,
+                      icon: const Icon(Icons.filter_alt_off_outlined, size: 16),
+                      label: const Text('清除筛选'),
+                      style: TextButton.styleFrom(
+                        visualDensity: VisualDensity.compact,
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                      ),
+                    ),
+                ],
+              ),
             ],
           ),
         ),
         Expanded(
           child: entries.isEmpty
-              ? _emptyEntries(context, provider, base, categories)
+              ? filterActive
+                    ? _emptyState(
+                        context,
+                        icon: Icons.search_off,
+                        title: '没有匹配的条目',
+                        message: query.isEmpty
+                            ? '当前类别下还没有条目。'
+                            : '没有找到包含“$query”的条目，可换个关键词或清除筛选。',
+                        actionLabel: '清除筛选',
+                        actionIcon: Icons.filter_alt_off_outlined,
+                        onAction: _clearEntryFilters,
+                      )
+                    : _emptyEntries(context, provider, base, categories)
               : _entryList(provider, base, entries, selected, compact: compact),
         ),
       ],
     );
+  }
+
+  void _clearEntryFilters() {
+    setState(() {
+      _searchController.clear();
+      _categoryFilterId = null;
+    });
   }
 
   Widget _entryList(
@@ -456,6 +525,8 @@ class KnowledgePageState extends State<KnowledgePage> {
       final categoryColor = category == null
           ? Theme.of(context).colorScheme.outline
           : Color(category.colorValue == 0 ? 0xFF607D8B : category.colorValue);
+      final explanationCount = provider.explanationsForEntry(entry.id).length;
+      final sourceCount = provider.sourcesForEntry(entry.id).length;
       return Card(
         key: ValueKey(entry.id),
         child: ListTile(
@@ -504,6 +575,33 @@ class KnowledgePageState extends State<KnowledgePage> {
                   query,
                   maxLines: 2,
                   style: Theme.of(context).textTheme.bodySmall,
+                ),
+              if (!entry.enabled || explanationCount > 0 || sourceCount > 0)
+                Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: Wrap(
+                    runSpacing: 2,
+                    children: [
+                      if (!entry.enabled)
+                        _entryMetaBadge(
+                          context,
+                          icon: Icons.visibility_off_outlined,
+                          label: '已停用',
+                        ),
+                      if (explanationCount > 0)
+                        _entryMetaBadge(
+                          context,
+                          icon: Icons.auto_awesome_outlined,
+                          label: '$explanationCount 条解释',
+                        ),
+                      if (sourceCount > 0)
+                        _entryMetaBadge(
+                          context,
+                          icon: Icons.link,
+                          label: '$sourceCount 个来源',
+                        ),
+                    ],
+                  ),
                 ),
             ],
           ),
@@ -574,6 +672,7 @@ class KnowledgePageState extends State<KnowledgePage> {
     KnowledgeProvider provider,
     KnowledgeBase? base,
     KnowledgeEntry? entry, {
+    List<KnowledgeEntry> entries = const [],
     bool compact = false,
   }) {
     if (base == null) return _emptyBases(context, provider);
@@ -588,12 +687,19 @@ class KnowledgePageState extends State<KnowledgePage> {
     final generatingExplanation = _generatingExplanationEntryIds.contains(
       entry.id,
     );
+    final entryIndex = entries.indexWhere((item) => item.id == entry.id);
+    final hasPrevious = entryIndex > 0;
+    final hasNext = entryIndex >= 0 && entryIndex < entries.length - 1;
+    final subtitleParts = [
+      category?.name ?? '未分类',
+      if (!entry.enabled) '已停用',
+    ];
     return Column(
       children: [
         _paneHeader(
           context,
           title: entry.title,
-          subtitle: category?.name ?? '未分类',
+          subtitle: subtitleParts.join(' · '),
           leading: compact
               ? IconButton(
                   tooltip: '返回条目列表',
@@ -601,15 +707,41 @@ class KnowledgePageState extends State<KnowledgePage> {
                   onPressed: () => setState(() => _compactDetail = false),
                 )
               : null,
-          action: IconButton(
-            tooltip: '编辑条目',
-            icon: const Icon(Icons.edit_outlined),
-            onPressed: () => _editEntry(
-              provider,
-              base,
-              provider.categoriesForBase(base.id),
-              entry,
-            ),
+          action: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              IconButton(
+                tooltip: '上一个条目',
+                icon: const Icon(Icons.keyboard_arrow_up),
+                onPressed: hasPrevious
+                    ? () => _selectEntryAt(entries, entryIndex - 1)
+                    : null,
+              ),
+              IconButton(
+                tooltip: '下一个条目',
+                icon: const Icon(Icons.keyboard_arrow_down),
+                onPressed: hasNext
+                    ? () => _selectEntryAt(entries, entryIndex + 1)
+                    : null,
+              ),
+              IconButton(
+                tooltip: '复制条目内容',
+                icon: const Icon(Icons.copy_outlined),
+                onPressed: entry.content.trim().isEmpty
+                    ? null
+                    : () => _copyEntryContent(entry),
+              ),
+              IconButton(
+                tooltip: '编辑条目',
+                icon: const Icon(Icons.edit_outlined),
+                onPressed: () => _editEntry(
+                  provider,
+                  base,
+                  provider.categoriesForBase(base.id),
+                  entry,
+                ),
+              ),
+            ],
           ),
         ),
         Expanded(
@@ -633,6 +765,7 @@ class KnowledgePageState extends State<KnowledgePage> {
                 context,
                 icon: Icons.auto_awesome_outlined,
                 title: '解释',
+                count: explanations.length,
                 action: IconButton(
                   tooltip: '重新生成解释',
                   icon: generatingExplanation
@@ -676,6 +809,7 @@ class KnowledgePageState extends State<KnowledgePage> {
                 context,
                 icon: Icons.link,
                 title: '来源',
+                count: sources.length,
                 action: IconButton(
                   tooltip: '新增来源',
                   icon: const Icon(Icons.add_link),
@@ -700,6 +834,27 @@ class KnowledgePageState extends State<KnowledgePage> {
         ),
       ],
     );
+  }
+
+  void _selectEntryAt(List<KnowledgeEntry> entries, int index) {
+    if (index < 0 || index >= entries.length) return;
+    setState(() => _selectedEntryId = entries[index].id);
+  }
+
+  Future<void> _copyEntryContent(KnowledgeEntry entry) async {
+    final content = entry.content.trim();
+    if (content.isEmpty) return;
+    final title = entry.title.trim();
+    try {
+      await Clipboard.setData(
+        ClipboardData(text: title.isEmpty ? content : '# $title\n\n$content'),
+      );
+      if (mounted) showShortSnackBar(context, '已复制条目内容');
+    } catch (error, stackTrace) {
+      if (mounted) {
+        showErrorSnackBar(context, '复制条目内容失败', details: '$error\n$stackTrace');
+      }
+    }
   }
 
   Widget _compactHeader(
@@ -829,6 +984,7 @@ class KnowledgePageState extends State<KnowledgePage> {
     required String title,
     required String message,
     required String actionLabel,
+    IconData actionIcon = Icons.add,
     required VoidCallback onAction,
   }) {
     return Center(
@@ -845,7 +1001,7 @@ class KnowledgePageState extends State<KnowledgePage> {
             const SizedBox(height: 16),
             FilledButton.icon(
               onPressed: onAction,
-              icon: const Icon(Icons.add),
+              icon: Icon(actionIcon),
               label: Text(actionLabel),
             ),
           ],
@@ -859,6 +1015,7 @@ class KnowledgePageState extends State<KnowledgePage> {
     required IconData icon,
     required String title,
     required Widget child,
+    int? count,
     Widget? action,
   }) {
     return Card(
@@ -877,6 +1034,16 @@ class KnowledgePageState extends State<KnowledgePage> {
                     context,
                   ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
                 ),
+                if (count != null && count > 0)
+                  Padding(
+                    padding: const EdgeInsets.only(left: 6),
+                    child: Text(
+                      '$count',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ),
                 const Spacer(),
                 ?action,
               ],
@@ -1061,6 +1228,30 @@ class KnowledgePageState extends State<KnowledgePage> {
       maxLines: maxLines,
       overflow: maxLines == null ? TextOverflow.clip : TextOverflow.ellipsis,
       style: style,
+    );
+  }
+
+  Widget _entryMetaBadge(
+    BuildContext context, {
+    required IconData icon,
+    required String label,
+  }) {
+    final scheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.only(right: 10),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 12, color: scheme.onSurfaceVariant),
+          const SizedBox(width: 3),
+          Text(
+            label,
+            style: Theme.of(
+              context,
+            ).textTheme.labelSmall?.copyWith(color: scheme.onSurfaceVariant),
+          ),
+        ],
+      ),
     );
   }
 
@@ -1457,6 +1648,7 @@ class KnowledgePageState extends State<KnowledgePage> {
       text: base?.description ?? '',
     );
     var enabled = base?.enabled ?? true;
+    String? formError;
     final result = await showDialog<(String, String, bool)>(
       context: context,
       builder: (context) => StatefulBuilder(
@@ -1476,6 +1668,7 @@ class KnowledgePageState extends State<KnowledgePage> {
                     autofocus: true,
                     decoration: const InputDecoration(labelText: '名称'),
                   ),
+                  const SizedBox(height: 8),
                   TextField(
                     controller: descriptionController,
                     decoration: const InputDecoration(labelText: '描述（可选）'),
@@ -1486,6 +1679,16 @@ class KnowledgePageState extends State<KnowledgePage> {
                     value: enabled,
                     onChanged: (value) => setDialogState(() => enabled = value),
                   ),
+                  if (formError != null)
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        formError!,
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.error,
+                        ),
+                      ),
+                    ),
                 ],
               ),
             ),
@@ -1498,7 +1701,10 @@ class KnowledgePageState extends State<KnowledgePage> {
             FilledButton(
               onPressed: () {
                 final name = nameController.text.trim();
-                if (name.isEmpty) return;
+                if (name.isEmpty) {
+                  setDialogState(() => formError = '请输入知识库名称');
+                  return;
+                }
                 Navigator.pop(context, (
                   name,
                   descriptionController.text.trim(),
@@ -1575,6 +1781,7 @@ class KnowledgePageState extends State<KnowledgePage> {
     String? categoryId = entry?.categoryId;
     var enabled = entry?.enabled ?? true;
     var preview = false;
+    String? formError;
     final result = await showDialog<(String, String, String?, bool)>(
       context: context,
       builder: (context) => StatefulBuilder(
@@ -1609,7 +1816,11 @@ class KnowledgePageState extends State<KnowledgePage> {
                       for (final category in categories)
                         DropdownMenuItem(
                           value: category.id,
-                          child: Text(category.name),
+                          child: Text(
+                            category.enabled
+                                ? category.name
+                                : '${category.name}（已停用）',
+                          ),
                         ),
                     ],
                     onChanged: (value) {
@@ -1663,6 +1874,19 @@ class KnowledgePageState extends State<KnowledgePage> {
                       ),
                       onChanged: (_) => setDialogState(() {}),
                     ),
+                  if (formError != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: Align(
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          formError!,
+                          style: TextStyle(
+                            color: Theme.of(context).colorScheme.error,
+                          ),
+                        ),
+                      ),
+                    ),
                 ],
               ),
             ),
@@ -1675,7 +1899,10 @@ class KnowledgePageState extends State<KnowledgePage> {
             FilledButton(
               onPressed: () {
                 final title = titleController.text.trim();
-                if (title.isEmpty) return;
+                if (title.isEmpty) {
+                  setDialogState(() => formError = '请输入条目标题');
+                  return;
+                }
                 Navigator.pop(context, (
                   title,
                   contentController.text.trim(),
@@ -1753,6 +1980,10 @@ class KnowledgePageState extends State<KnowledgePage> {
                 child: const Text('取消'),
               ),
               FilledButton(
+                style: FilledButton.styleFrom(
+                  backgroundColor: Theme.of(context).colorScheme.error,
+                  foregroundColor: Theme.of(context).colorScheme.onError,
+                ),
                 onPressed: () => Navigator.pop(context, true),
                 child: const Text('删除'),
               ),

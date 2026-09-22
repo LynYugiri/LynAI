@@ -141,8 +141,11 @@ class _MemoryCardGenerationDialogState
     final base = _resolveBase(knowledge, bases);
     final categories = base == null
         ? const <KnowledgeCategory>[]
-        : knowledge.categoriesForBase(base.id);
-    final category = _resolveCategory(knowledge, categories);
+        : knowledge
+              .categoriesForBase(base.id)
+              .where((category) => category.enabled)
+              .toList();
+    final category = _resolveCategory(categories);
     final entries = _visibleEntries(knowledge, base);
     final filtered = entries.where((entry) {
       final query = _search.trim().toLowerCase();
@@ -254,12 +257,21 @@ class _MemoryCardGenerationDialogState
           child: base == null
               ? const Center(child: Text('暂无知识库'))
               : filtered.isEmpty
-              ? const Center(child: Text('没有匹配的条目'))
+              ? Center(
+                  child: Text(
+                    _search.trim().isEmpty && _categoryId == null
+                        ? '这个知识库还没有启用的条目'
+                        : '没有匹配的条目',
+                  ),
+                )
               : ListView.builder(
                   itemCount: filtered.length,
                   itemBuilder: (context, index) {
                     final entry = filtered[index];
                     final selected = _selectedEntryIds.contains(entry.id);
+                    final categoryName = entry.categoryId == null
+                        ? null
+                        : knowledge.categoryById(entry.categoryId!)?.name;
                     return CheckboxListTile(
                       dense: true,
                       controlAffinity: ListTileControlAffinity.leading,
@@ -269,10 +281,31 @@ class _MemoryCardGenerationDialogState
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
-                      subtitle: Text(
-                        entry.content.replaceAll(RegExp(r'\s+'), ' ').trim(),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
+                      subtitle: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          if (categoryName != null) ...[
+                            Text(
+                              categoryName,
+                              style: Theme.of(context).textTheme.labelSmall
+                                  ?.copyWith(
+                                    color: Theme.of(
+                                      context,
+                                    ).colorScheme.primary,
+                                  ),
+                            ),
+                            const SizedBox(width: 6),
+                          ],
+                          Expanded(
+                            child: Text(
+                              entry.content
+                                  .replaceAll(RegExp(r'\s+'), ' ')
+                                  .trim(),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
                       ),
                       onChanged: (value) => setState(() {
                         if (value == true) {
@@ -533,13 +566,13 @@ class _MemoryCardGenerationDialogState
     return bases.isEmpty ? null : bases.first;
   }
 
-  KnowledgeCategory? _resolveCategory(
-    KnowledgeProvider provider,
-    List<KnowledgeCategory> categories,
-  ) {
+  KnowledgeCategory? _resolveCategory(List<KnowledgeCategory> categories) {
     final selected = _categoryId;
     if (selected == null) return null;
-    return provider.categoryById(selected);
+    for (final category in categories) {
+      if (category.id == selected) return category;
+    }
+    return null;
   }
 
   List<KnowledgeEntry> _visibleEntries(
@@ -547,7 +580,10 @@ class _MemoryCardGenerationDialogState
     KnowledgeBase? base,
   ) {
     if (base == null) return const [];
-    final entries = provider.entriesForBase(base.id);
+    final entries = provider
+        .entriesForBase(base.id)
+        .where((entry) => entry.enabled)
+        .toList();
     if (_categoryId == null) return entries;
     return entries.where((entry) => entry.categoryId == _categoryId).toList();
   }

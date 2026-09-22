@@ -48,6 +48,7 @@ class _MemoryCardStudyPageState extends State<MemoryCardStudyPage> {
   Timer? _waitTimer;
 
   bool _showBack = false;
+  bool _hintRevealed = false;
   int _reviewedCount = 0;
   final Map<MemoryCardRating, int> _ratingCounts = {
     MemoryCardRating.again: 0,
@@ -86,6 +87,7 @@ class _MemoryCardStudyPageState extends State<MemoryCardStudyPage> {
         _current = next;
         _waitingUntil = null;
         _showBack = false;
+        _hintRevealed = false;
       });
       return;
     }
@@ -110,6 +112,7 @@ class _MemoryCardStudyPageState extends State<MemoryCardStudyPage> {
     final provider = context.watch<MemoryCardProvider>();
     final counts = provider.counts(widget.deck.id);
     final card = _current?.card;
+    final showDeckCounts = MediaQuery.sizeOf(context).width >= 640;
 
     return CallbackShortcuts(
       bindings: {
@@ -123,6 +126,7 @@ class _MemoryCardStudyPageState extends State<MemoryCardStudyPage> {
             _rate(provider, MemoryCardRating.easy),
         const SingleActivator(LogicalKeyboardKey.space): () => _space(provider),
         const SingleActivator(LogicalKeyboardKey.keyU): () => _undo(provider),
+        const SingleActivator(LogicalKeyboardKey.keyH): _revealHint,
       },
       child: Focus(
         autofocus: true,
@@ -130,14 +134,16 @@ class _MemoryCardStudyPageState extends State<MemoryCardStudyPage> {
           appBar: AppBar(
             title: Text('复习 · ${widget.deck.name}'),
             actions: [
-              Center(
-                child: Text(
-                  '新 ${counts.newCards} · 学 ${counts.learningCards}'
-                  ' · 复 ${counts.reviewCards}',
-                  style: Theme.of(context).textTheme.labelLarge,
+              if (showDeckCounts) ...[
+                Center(
+                  child: Text(
+                    '新 ${counts.newCards} · 学 ${counts.learningCards}'
+                    ' · 复 ${counts.reviewCards}',
+                    style: Theme.of(context).textTheme.labelLarge,
+                  ),
                 ),
-              ),
-              const SizedBox(width: 12),
+                const SizedBox(width: 8),
+              ],
               IconButton(
                 tooltip: '撤销 (U)',
                 onPressed: _lastReviewedCard == null
@@ -146,11 +152,38 @@ class _MemoryCardStudyPageState extends State<MemoryCardStudyPage> {
                 icon: const Icon(Icons.undo),
               ),
               if (card != null)
-                Padding(
-                  padding: const EdgeInsets.only(right: 12),
-                  child: Center(child: Text('已复习 $_reviewedCount')),
+                IconButton(
+                  tooltip: '显示提示 (H)',
+                  onPressed:
+                      card.hint?.trim().isNotEmpty == true &&
+                          !_hintRevealed &&
+                          !_showBack
+                      ? _revealHint
+                      : null,
+                  icon: const Icon(Icons.lightbulb_outline),
                 ),
             ],
+            bottom: PreferredSize(
+              preferredSize: const Size.fromHeight(24),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: LinearProgressIndicator(
+                        value: _sessionProgress,
+                        minHeight: 4,
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Text(
+                      '已复习 $_reviewedCount · 余 $_pendingCount',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ],
+                ),
+              ),
+            ),
           ),
           body: card == null
               ? _waitingUntil != null
@@ -160,6 +193,21 @@ class _MemoryCardStudyPageState extends State<MemoryCardStudyPage> {
         ),
       ),
     );
+  }
+
+  /// 当前会话尚未评分的卡片数量（含当前卡片与稍后重现的卡片）。
+  int get _pendingCount {
+    final mainRemaining = _mainQueue.length - _mainIndex;
+    return (mainRemaining > 0 ? mainRemaining : 0) +
+        _reinsertions.length +
+        (_current == null ? 0 : 1);
+  }
+
+  /// 本轮进度，按「已复习 /（已复习 + 待复习）」估算。
+  double get _sessionProgress {
+    final total = _reviewedCount + _pendingCount;
+    if (total <= 0) return 1;
+    return (_reviewedCount / total).clamp(0.0, 1.0);
   }
 
   Widget _cardView(
@@ -198,7 +246,8 @@ class _MemoryCardStudyPageState extends State<MemoryCardStudyPage> {
                                     content: card.front,
                                   ),
                           ),
-                          if (_showBack && card.hint != null)
+                          if ((_showBack || _hintRevealed) &&
+                              card.hint?.trim().isNotEmpty == true)
                             Padding(
                               padding: const EdgeInsets.only(top: 12),
                               child: Text(
@@ -214,10 +263,24 @@ class _MemoryCardStudyPageState extends State<MemoryCardStudyPage> {
               ),
               const SizedBox(height: 16),
               if (!_showBack)
-                FilledButton.icon(
-                  onPressed: () => setState(() => _showBack = true),
-                  icon: const Icon(Icons.visibility_outlined),
-                  label: const Text('显示答案'),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    if (card.hint?.trim().isNotEmpty == true &&
+                        !_hintRevealed) ...[
+                      OutlinedButton.icon(
+                        onPressed: _revealHint,
+                        icon: const Icon(Icons.lightbulb_outline),
+                        label: const Text('显示提示 (H)'),
+                      ),
+                      const SizedBox(width: 12),
+                    ],
+                    FilledButton.icon(
+                      onPressed: () => setState(() => _showBack = true),
+                      icon: const Icon(Icons.visibility_outlined),
+                      label: const Text('显示答案'),
+                    ),
+                  ],
                 )
               else
                 _ratingButtons(context, provider, card),
@@ -298,8 +361,13 @@ class _MemoryCardStudyPageState extends State<MemoryCardStudyPage> {
           const Text('学习中的卡片尚未到期'),
           const SizedBox(height: 8),
           Text(
-            '下一张将在 ${_previewText(_waitingUntil!, DateTime.now())} 后出现',
+            '下一张将在${_previewText(_waitingUntil!, DateTime.now())}后出现',
             style: Theme.of(context).textTheme.bodyMedium,
+          ),
+          const SizedBox(height: 8),
+          Text(
+            '也可以先返回，稍后重新开始复习。',
+            style: Theme.of(context).textTheme.bodySmall,
           ),
           const SizedBox(height: 24),
           FilledButton(
@@ -321,7 +389,7 @@ class _MemoryCardStudyPageState extends State<MemoryCardStudyPage> {
           const SizedBox(height: 16),
           Text('本轮完成', style: Theme.of(context).textTheme.headlineSmall),
           const SizedBox(height: 8),
-          Text('已复习 $total 张卡片'),
+          Text('牌组「${widget.deck.name}」 · 已复习 $total 张卡片'),
           const SizedBox(height: 12),
           Wrap(
             spacing: 12,
@@ -404,6 +472,7 @@ class _MemoryCardStudyPageState extends State<MemoryCardStudyPage> {
       _reinsertions.removeWhere((item) => item.card.id == card.id);
       _current = _QueueItem(card: card, readyAt: DateTime.now());
       _showBack = false;
+      _hintRevealed = false;
       _waitingUntil = null;
       if (_reviewedCount > 0) _reviewedCount--;
       if (_ratingCounts[rating]! > 0) {
@@ -413,6 +482,13 @@ class _MemoryCardStudyPageState extends State<MemoryCardStudyPage> {
       _lastRating = null;
     });
     _waitTimer?.cancel();
+  }
+
+  void _revealHint() {
+    if (_showBack || _hintRevealed) return;
+    final card = _current?.card;
+    if (card == null || card.hint?.trim().isNotEmpty != true) return;
+    setState(() => _hintRevealed = true);
   }
 
   void _space(MemoryCardProvider provider) {

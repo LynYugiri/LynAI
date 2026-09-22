@@ -27,20 +27,30 @@ LynAI 是一个本地优先的跨平台 AI 客户端。它把多模型聊天、�
 
 | 模块 | 说明 |
 |------|------|
-| 对话 | 流式回复、停止生成、重试、编辑重发、回复版本切换、历史继续、长图分享。 |
+| 对话 | 流式回复、停止生成、重试、编辑重发、回复版本切换、历史继续、撤回撤销与分支、长图分享。 |
 | 模型管理 | 按 Chat、OCR、Speech、Image Generation 分类；Provider 下可配置多个子模型。 |
+| 本地模型 | Android 可加载内置 BlueLM 3B（MediaTek DX5/MT6993，arm64），模型放在设备目录，无需联网即可推理。 |
 | 附件 | 用户选择的长期附件会复制到应用私有目录，避免系统临时文件被清理。 |
 | 图片与文件理解 | 图片可走 OCR；文件可由 Chat 模型读取，也可按能力作为多模态或文本上下文发送。 |
 | 语音输入 | 可使用系统语音识别，也可配置语音模型做录音转写。 |
 | Markdown/LaTeX | Markdown、代码高亮、内联/块级公式、公式编辑、代码块和公式块复制/导出。 |
 | 代码高亮 | Tree-sitter 原生结构化语法高亮（16 种语言），支持代码块点击编辑。 |
-| 工具调用 | 模型可通过受控工具读取或修改本地日程、笔记和待办，也可调用插件注册的工具。 |
-| 插件系统 | Lua 沙箱运行时 + WebView 功能页，支持安装、卸载、快照、代码编辑和权限管理；对话中可由 AI 生成插件草稿，并在插件工坊与 AI 继续迭代。 |
+| 工具调用 | 模型可通过受控工具读取或修改日程、笔记、待办、知识库、随记和角色记忆，调用插件与 MCP 工具，并在本机工作区读写文件。 |
+| Agent Runtime | 多轮工具循环、工具轮数上限与强制最终回复、上下文预算与压缩、Subagent，以及本机 durable run graph。 |
+| MCP | 通过 Streamable HTTP 接入远程 MCP 工具，stdio 仅桌面端可用；凭据由 `SecretStore` 管理。 |
+| 插件系统 | Lua 沙箱运行时 + WebView 功能页，支持安装、卸载、快照、代码编辑、权限管理、可选依赖和内置插件。 |
+| 插件工坊 | 新建、编辑和发布插件的集中入口，支持恢复点、能力可视化编辑、插件文件内编辑与预览，并可绑定 AI 对话迭代。 |
+| 定时任务 | 按每天/每周规则在前台运行插件 Lua 脚本，记录运行历史，失败退避并在连续失败后自动停用。 |
+| 随记 | 按日期分组的时间线记录，支持 Markdown/LaTeX、附件、引用卡片、标签编辑和关键词/正则筛选，并提供 Agent 搜索工具。 |
+| 记忆卡片 | 间隔重复复习，支持牌组、每日新卡与复习上限、提示和四档评分，并可从知识库按条目 AI 生成卡片。 |
+| 持久记忆 | 角色隔离的长期记忆，支持跨会话搜索与精确编辑、后台 review 和维护提醒，并随备份恢复。 |
+| 知识库 | 管理知识库、类别、条目、解释和来源，支持自定义排序、搜索高亮和 Agent 检索，内置专有名词库。 |
 | 社区 | 游客浏览公开动态，登录后可发布和编辑 Markdown 帖子、上传图片、分享已上架插件、评论、点赞、收藏及维护个人主页。 |
-| 功能页 | Dashboard、对话历史、日程、笔记、待办、情景演绎、插件特性页。 |
+| 功能页 | Dashboard、对话历史、日程、笔记、任务、随记、情景演绎、知识库、记忆卡片、定时任务和插件工坊。 |
 | 角色与提示词 | 聊天角色、角色分组、系统提示词模板、角色默认模型和主题色。 |
 | 外观 | Material 3、主题色、浅色/深色/跟随系统、背景图和毛玻璃。 |
 | 数据管理 | 备份导出、备份预览、分区导入、storage_v2 升级和私有资源恢复。 |
+| 数据同步 | 选择性云同步与 LAN 同步；云同步按后端 origin + 用户 ID 隔离，LAN 同步面向安装级本地数据。 |
 | 新手向导 | 首次启动选择用途与身份，AI 生成角色、角色记忆、Agent 默认值、知识库、牌组、任务清单、笔记与 SKILL。 |
 
 ## 平台
@@ -121,6 +131,12 @@ LynAI 本地业务数据统一写入 storage_v2：结构化数据写入 Drift �
 | 任务与任务清单 | `TaskProvider`、`TaskRepository` |
 | 日历事件与纪念日 | `CalendarProvider`、`CalendarRepository` |
 | 笔记 | `FeatureProvider`、`FeatureRepository` |
+| 随记 | `JottingProvider`、`JottingRepository` |
+| 知识库 | `KnowledgeProvider`、`KnowledgeRepository` |
+| 记忆卡片 | `MemoryCardProvider`、`MemoryCardRepository` |
+| 角色记忆 | `RoleMemoryProvider`、`RoleMemoryRepository` |
+| 定时任务 | `ScheduledTaskProvider`、`ScheduledTaskRepository` |
+| 本机工作区 | `WorkspaceProvider`、`WorkspaceRepository` |
 | 情景演绎 | `RoleplayProvider`、`RoleplayRepository` |
 | 插件 | `PluginProvider`、`PluginRepository`、`PluginLuaRuntimeService` |
 | 备份导入导出 | `BackupService` |

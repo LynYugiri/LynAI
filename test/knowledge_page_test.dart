@@ -386,6 +386,111 @@ void main() {
       'person',
     ]);
   });
+
+  testWidgets('没有匹配条目时提供清除筛选', (tester) async {
+    final provider = await _knowledgeProvider(withSearchEntries: true);
+    await _pumpKnowledge(tester, provider, size: const Size(1200, 800));
+    expect(find.text('共 3 条'), findsOneWidget);
+
+    await tester.enterText(
+      find.widgetWithText(TextField, '搜索标题或内容'),
+      '完全不存在的关键词',
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('没有匹配的条目'), findsOneWidget);
+    expect(find.text('筛选出 0 / 共 3 条'), findsOneWidget);
+
+    await tester.tap(find.widgetWithText(FilledButton, '清除筛选'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('没有匹配的条目'), findsNothing);
+    expect(find.text('共 3 条'), findsOneWidget);
+  });
+
+  testWidgets('搜索框提供清除按钮', (tester) async {
+    final provider = await _knowledgeProvider(withSearchEntries: true);
+    await _pumpKnowledge(tester, provider, size: const Size(1200, 800));
+
+    await tester.enterText(
+      find.widgetWithText(TextField, '搜索标题或内容'),
+      'needle',
+    );
+    await tester.pumpAndSettle();
+    expect(find.byTooltip('清除搜索'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('清除搜索'));
+    await tester.pumpAndSettle();
+
+    expect(find.byTooltip('清除搜索'), findsNothing);
+    expect(find.text('共 3 条'), findsOneWidget);
+  });
+
+  testWidgets('详情页可切换到上一个和下一个条目', (tester) async {
+    final provider = await _knowledgeProvider(withSearchEntries: true);
+    await _pumpKnowledge(tester, provider, size: const Size(1200, 800));
+
+    await tester.tap(find.text('Markdown 条目').first);
+    await tester.pumpAndSettle();
+
+    expect(
+      tester
+          .widget<IconButton>(
+            find.widgetWithIcon(IconButton, Icons.keyboard_arrow_up),
+          )
+          .onPressed,
+      isNull,
+    );
+    await tester.tap(find.byTooltip('下一个条目'));
+    await tester.pumpAndSettle();
+    expect(find.text('正文命中'), findsWidgets);
+
+    await tester.tap(find.byTooltip('上一个条目'));
+    await tester.pumpAndSettle();
+    expect(find.text('Markdown 条目'), findsWidgets);
+  });
+
+  testWidgets('复制条目内容保留标题和 Markdown 正文', (tester) async {
+    final provider = await _knowledgeProvider();
+    String? clipboardText;
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      SystemChannels.platform,
+      (call) async {
+        if (call.method == 'Clipboard.setData') {
+          clipboardText = (call.arguments as Map)['text'] as String?;
+        }
+        return null;
+      },
+    );
+    addTearDown(
+      () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        null,
+      ),
+    );
+    await _pumpKnowledge(tester, provider, size: const Size(1200, 800));
+
+    await tester.tap(find.byTooltip('复制条目内容'));
+    await tester.pump();
+
+    expect(clipboardText, contains('# Markdown 条目'));
+    expect(clipboardText, contains(r'**正文**'));
+  });
+
+  testWidgets('条目编辑器在标题为空时给出提示', (tester) async {
+    final provider = await _knowledgeProvider();
+    await _pumpKnowledge(tester, provider, size: const Size(1200, 800));
+
+    await tester.tap(find.byTooltip('编辑条目'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.widgetWithText(TextField, '标题'), '');
+    await tester.tap(find.widgetWithText(FilledButton, '保存'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('请输入条目标题'), findsOneWidget);
+    expect(find.byType(AlertDialog), findsOneWidget);
+    expect(provider.entries.single.title, 'Markdown 条目');
+  });
 }
 
 Future<KnowledgeProvider> _knowledgeProvider({
