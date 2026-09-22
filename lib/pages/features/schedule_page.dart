@@ -59,7 +59,7 @@ class SchedulePageState extends State<SchedulePage> {
   double? _dayScaleStartDistance;
   final Map<int, Offset> _dayPointerPositions = {};
   double _scheduleControlsCollapse = 0;
-  _CalendarMode _mode = _CalendarMode.month;
+  _CalendarMode _mode = _CalendarMode.day;
   DateTime _focus = DateTime.now();
   DateTime? _selectedDate;
   DateTime? _dayWindowStart;
@@ -114,6 +114,28 @@ class SchedulePageState extends State<SchedulePage> {
       final delta = event.scrollDelta.dy < 0 ? 0.08 : -0.08;
       _setDayZoom(_dayZoom + delta);
     });
+  }
+
+  /// 与 [SingleChildScrollView] 等价，但把滚轮监听贴在滚动内容内侧。
+  ///
+  /// [PointerSignalResolver] 只把滚轮信号交给命中路径上最深的注册者；监听放在
+  /// 滚动视图外侧时，内层 [Scrollable] 更靠近命中的内容，会先抢到事件，Ctrl/⌘+
+  /// 滚轮就只会滚动而不会缩放。贴到内侧后按住修饰键即可缩放；不按修饰键时该
+  /// 监听不注册，滚动视图照常处理滚轮。
+  Widget _zoomWheelScroll({
+    required ScrollController controller,
+    required Widget child,
+    Axis scrollDirection = Axis.vertical,
+  }) {
+    return SingleChildScrollView(
+      controller: controller,
+      scrollDirection: scrollDirection,
+      child: Listener(
+        behavior: HitTestBehavior.opaque,
+        onPointerSignal: _handleDayPointerSignal,
+        child: child,
+      ),
+    );
   }
 
   void _handleDayPointerDown(PointerDownEvent event) {
@@ -189,14 +211,51 @@ class SchedulePageState extends State<SchedulePage> {
     );
   }
 
+  /// 随 [progress] 横向收缩并淡出的头部槽位。
+  ///
+  /// 上滑收起时用它包住左右箭头：宽度收到 0 后只留下中间的日期标题，
+  /// [progress] 超过 0.6 后不再响应点击，避免点到已经看不见的按钮。
+  Widget _collapsibleSlot({
+    Key? key,
+    required double progress,
+    required Alignment alignment,
+    required Offset slide,
+    required Widget child,
+  }) {
+    final factor = 1 - progress;
+    return ClipRect(
+      child: Align(
+        alignment: alignment,
+        widthFactor: factor,
+        child: Opacity(
+          opacity: factor,
+          child: Transform.translate(
+            offset: slide,
+            child: IgnorePointer(
+              key: key,
+              ignoring: progress > 0.6,
+              child: child,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _header() {
     final compact = MediaQuery.sizeOf(context).width < 620;
     final progress = _scheduleControlsCollapse;
     final navigator = Row(
       children: [
-        IconButton.filledTonal(
-          onPressed: () => _move(-1),
-          icon: const Icon(Icons.chevron_left),
+        _collapsibleSlot(
+          key: const ValueKey('schedule-prev'),
+          progress: progress,
+          alignment: Alignment.centerRight,
+          slide: Offset(12 * progress, 0),
+          child: IconButton.filledTonal(
+            onPressed: () => _move(-1),
+            icon: const Icon(Icons.chevron_left),
+          ),
         ),
         Expanded(
           child: Column(
@@ -221,9 +280,15 @@ class SchedulePageState extends State<SchedulePage> {
             ],
           ),
         ),
-        IconButton.filledTonal(
-          onPressed: () => _move(1),
-          icon: const Icon(Icons.chevron_right),
+        _collapsibleSlot(
+          key: const ValueKey('schedule-next'),
+          progress: progress,
+          alignment: Alignment.centerLeft,
+          slide: Offset(-12 * progress, 0),
+          child: IconButton.filledTonal(
+            onPressed: () => _move(1),
+            icon: const Icon(Icons.chevron_right),
+          ),
         ),
       ],
     );
@@ -739,7 +804,7 @@ class SchedulePageState extends State<SchedulePage> {
                       ),
                     ),
                     Expanded(
-                      child: SingleChildScrollView(
+                      child: _zoomWheelScroll(
                         controller: _headerController,
                         scrollDirection: Axis.horizontal,
                         child: Row(
@@ -799,7 +864,7 @@ class SchedulePageState extends State<SchedulePage> {
                 ),
               ),
               Expanded(
-                child: SingleChildScrollView(
+                child: _zoomWheelScroll(
                   controller: _verticalController,
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -825,7 +890,7 @@ class SchedulePageState extends State<SchedulePage> {
                         ),
                       ),
                       Expanded(
-                        child: SingleChildScrollView(
+                        child: _zoomWheelScroll(
                           controller: _horizontalController,
                           scrollDirection: Axis.horizontal,
                           child: SizedBox(
