@@ -106,7 +106,7 @@ Agent 工具轮数上限保存为 `ConversationSettings.maxToolRounds`（新建�
 
 ### 消息区
 
-消息使用 `MarkdownWithLatex` 渲染，支持 Markdown、代码高亮、LaTeX、公式块、代码块复制和单块图片导出。assistant 消息可显示折叠的 thinking 内容。Agent Plan 面板在消息列表与输入区之间常驻：收起态显示进度条和当前步骤，展开态显示每步状态 chip 与摘要，点击步骤可展开完整摘要，“详情”按钮打开底部完整计划视图（`lib/pages/chat/agent_plan_panel.dart`）。
+消息使用 `MarkdownWithLatex` 渲染，支持 Markdown、代码高亮、LaTeX、公式块、代码块复制和单块图片导出。宽表格按单元格内容排布列宽、单列宽度有上限，超出容器时在气泡内横向滚动，长文本在上限宽度内换行；只有不可断词的超长标识符或 URL 才会把该列撑得更宽。assistant 消息可显示折叠的 thinking 内容。Agent Plan 面板在消息列表与输入区之间常驻：收起态显示进度条和当前步骤，展开态显示每步状态 chip 与摘要，点击步骤可展开完整摘要，“详情”按钮打开底部完整计划视图（`lib/pages/chat/agent_plan_panel.dart`）。
 
 每条消息的气泡下方都有一排低干扰图标按钮，助手消息靠左、用户消息靠右，都带 tooltip：
 
@@ -131,7 +131,7 @@ Agent 工具轮数上限保存为 `ConversationSettings.maxToolRounds`（新建�
 
 ### 分享
 
-对话页可进入多选模式，把选中消息渲染成长图。桌面端优先写入剪贴板，移动端使用系统分享或图库保存。
+对话页可进入多选模式，把选中消息渲染成长图。桌面端优先写入剪贴板，移动端使用系统分享或图库保存。长图是固定宽度且不能横向滚动，渲染时必须对代码块和表格开启换行（`wrapCodeBlocks` / `wrapTables`），否则超出画布的内容会被滚动容器裁掉；笔记长图走同一约定。
 
 ## FeaturePage
 

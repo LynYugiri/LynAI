@@ -3905,6 +3905,7 @@ class NoteShareImage extends StatelessWidget {
                 content: content,
                 selectable: false,
                 wrapCodeBlocks: true,
+                wrapTables: true,
               ),
             ),
             const SizedBox(height: 18),

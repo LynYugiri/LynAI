@@ -36,6 +36,7 @@
 - 知识页支持库、类别和条目的自定义顺序。`ReorderableListView` 统一使用 `onReorderItem`，它已把目标槽位归一化成 Provider 需要的删除后索引，Page 直接透传，不要再自行 `newIndex - 1`（会造成向下拖动无效、末位不可达）；搜索、过滤或派生排序时不得允许条目拖拽。
 - 解释生成和自动保存必须防止晚到结果覆盖用户后续编辑。页面生成期间按条目去重并在写入前复核条目、类别、来源和原解释快照；释义弹窗保存期间禁止切换类别，类别被停用或删除时在当前保存终态后再切换。
 - 来源只允许打开和保存 `http`/`https` URL；复制来源时保留完整 URL，而显示层可仅展示 host。知识条目、解释和来源正文继续使用共享 `MarkdownWithLatex`，不要另建 Markdown 渲染路径。
+- 共享 `MarkdownWithLatex` 的表格按单元格内容排布列宽并对单列设宽度上限，超出容器时横向滚动，长文本在上限内换行。导出长图、截图等固定宽度且不能横向滚动的路径必须传 `wrapTables: true`（代码块同理用 `wrapCodeBlocks`），否则超宽表格会被滚动容器裁掉。不要用 `LayoutBuilder` 给 Markdown 取容器宽度：随记页在 `IntrinsicHeight` 下渲染它，`LayoutBuilder` 不参与 intrinsic 计算会让父级算出错误高度。
 
 ## MCP
 

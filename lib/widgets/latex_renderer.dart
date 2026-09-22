@@ -399,6 +399,12 @@ class MarkdownWithLatex extends StatelessWidget {
   final TextStyle? textStyle;
   final bool selectable;
   final bool wrapCodeBlocks;
+
+  /// 表格是否强制换行而不横向滚动。
+  ///
+  /// 导出长图等固定宽度且无法横向滚动的场景必须开启，否则宽表格会被滚动容器
+  /// 裁掉；默认关闭，宽表格按内容排布并横向滚动。
+  final bool wrapTables;
   final bool renderMermaid;
   final MarkdownBlockEditCallback? onEditLatexBlock;
   final MarkdownBlockEditCallback? onEditMermaidBlock;
@@ -417,6 +423,7 @@ class MarkdownWithLatex extends StatelessWidget {
     this.textStyle,
     this.selectable = true,
     this.wrapCodeBlocks = false,
+    this.wrapTables = false,
     this.renderMermaid = true,
     this.onEditLatexBlock,
     this.onEditMermaidBlock,
@@ -475,7 +482,7 @@ class MarkdownWithLatex extends StatelessWidget {
     String text, {
     bool withInlineLatex = false,
   }) {
-    final styleSheet = _markdownStyle(context);
+    final styleSheet = _markdownStyle(context, scrollWideTables: !wrapTables);
     final highlighter = createCodeHighlighter(
       styleSheet.code ?? const TextStyle(fontFamily: codeFontFamily),
     );
@@ -593,8 +600,21 @@ class MarkdownWithLatex extends StatelessWidget {
     );
   }
 
-  MarkdownStyleSheet _markdownStyle(BuildContext context) {
+  /// [scrollWideTables] 为真时宽表格按内容排布并横向滚动，为假时所有列平分
+  /// 容器宽度（导出长图等固定宽度场景）。
+  ///
+  /// 列宽上限随系统文字缩放放大，保证字号变大后一行仍保持大致相同的字数。
+  /// 这里不用 `LayoutBuilder` 取容器宽度：随记等页面在 `IntrinsicHeight` 下
+  /// 渲染 Markdown，而 `LayoutBuilder` 不参与 intrinsic 计算，会让父级算出
+  /// 错误高度。
+  MarkdownStyleSheet _markdownStyle(
+    BuildContext context, {
+    bool scrollWideTables = true,
+  }) {
     final baseStyle = textStyle ?? const TextStyle(fontSize: 15, height: 1.5);
+    final tableColumnCap = MediaQuery.textScalerOf(
+      context,
+    ).scale(_tableColumnCapBase).clamp(_tableColumnCapBase, _tableColumnCapMax);
     return MarkdownStyleSheet(
       p: baseStyle,
       h1: baseStyle.copyWith(fontSize: (baseStyle.fontSize ?? 15) + 9),
@@ -626,6 +646,21 @@ class MarkdownWithLatex extends StatelessWidget {
             width: 3,
           ),
         ),
+      ),
+      tableHead: baseStyle.copyWith(fontWeight: FontWeight.w600),
+      tableBody: baseStyle,
+      tableHeadAlign: TextAlign.left,
+      tableColumnWidth: scrollWideTables
+          ? _CappedTableColumnWidth(tableColumnCap)
+          : const FlexColumnWidth(),
+      tableCellsPadding: const EdgeInsets.symmetric(
+        horizontal: 10,
+        vertical: 6,
+      ),
+      tableHeadCellsDecoration: BoxDecoration(
+        color: Theme.of(
+          context,
+        ).colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
       ),
     );
   }
@@ -859,6 +894,72 @@ class MarkdownWithLatex extends StatelessWidget {
 }
 
 const _mermaidRendererAssetKey = 'assets/mermaid/renderer.html';
+
+/// 表格单列的默认宽度上限（逻辑像素）：15 号字下中文大约一行 12 个字。
+const double _tableColumnCapBase = 180;
+
+/// 文字放大后允许的最大列宽，避免一行字数被缩放挤没。
+const double _tableColumnCapMax = 260;
+
+/// 按单元格内容决定列宽，并把单列宽度压在上限以内。
+///
+/// 列宽取「单行不换行的宽度」，超过上限就在上限宽度内换行；不可断词的长
+/// 标识符、URL 比上限还宽时只能让步，否则单元格内容会溢出到相邻列。
+///
+/// 刻意继承 [FixedColumnWidth]：flutter_markdown_plus 只对
+/// `FixedColumnWidth` / `IntrinsicColumnWidth` 启用表格的横向滚动容器，换成
+/// 别的 [TableColumnWidth] 实现会让宽表格直接溢出父容器。基类的 `value`
+/// 不参与计算，只用来触发这条横向滚动路径。
+///
+/// 必须实现 `==`：`MarkdownStyleSheet` 靠值相等判断是否需要重新解析 Markdown，
+/// 每次 build 都产生不相等的列宽会让流式渲染重复解析整段内容。
+class _CappedTableColumnWidth extends FixedColumnWidth {
+  const _CappedTableColumnWidth(this.cap) : super(0);
+
+  /// 单列允许的最大宽度。
+  final double cap;
+
+  static double _minIntrinsic(Iterable<RenderBox> cells) {
+    var width = 0.0;
+    for (final cell in cells) {
+      width = math.max(width, cell.getMinIntrinsicWidth(double.infinity));
+    }
+    return width;
+  }
+
+  static double _maxIntrinsic(Iterable<RenderBox> cells) {
+    var width = 0.0;
+    for (final cell in cells) {
+      width = math.max(width, cell.getMaxIntrinsicWidth(double.infinity));
+    }
+    return width;
+  }
+
+  @override
+  double minIntrinsicWidth(Iterable<RenderBox> cells, double containerWidth) =>
+      math.min(_minIntrinsic(cells), cap);
+
+  @override
+  double maxIntrinsicWidth(Iterable<RenderBox> cells, double containerWidth) {
+    final maxIntrinsic = _maxIntrinsic(cells);
+    if (maxIntrinsic <= cap) return maxIntrinsic;
+    return math.max(cap, _minIntrinsic(cells));
+  }
+
+  /// 不参与剩余宽度分配：表格要么贴合内容，要么横向滚动。
+  @override
+  double? flex(Iterable<RenderBox> cells) => null;
+
+  @override
+  bool operator ==(Object other) =>
+      other is _CappedTableColumnWidth && other.cap == cap;
+
+  @override
+  int get hashCode => cap.hashCode;
+
+  @override
+  String toString() => '_CappedTableColumnWidth($cap)';
+}
 
 class _MermaidFence {
   final String code;

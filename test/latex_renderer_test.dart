@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter_math_fork/flutter_math.dart';
+import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lynai/widgets/latex_renderer.dart';
 
@@ -603,4 +604,115 @@ graph LR
       expect(find.textContaining('A --> B'), findsOneWidget);
     },
   );
+
+  group('MarkdownWithLatex 表格', () {
+    const wideTable = '''
+| 名称 | 类型 | 默认值 | 说明 | 备注 |
+| --- | --- | --- | --- | --- |
+| maxToolRounds | int | 24 | 单次 run 的工具轮数上限 | 共享默认值 |
+| contextWindow | int | 128000 | 上下文窗口 | 可本地覆盖 |
+''';
+    const narrowTable = '''
+| 项 | 值 |
+| --- | --- |
+| 模式 | 快速 |
+| 轮数 | 24 |
+''';
+    final longCellTable =
+        '| 项 | 说明 |\n'
+        '| --- | --- |\n'
+        '| relay | '
+        '${List.filled(6, '这是一段用来测试超长单元格换行的说明文字。').join()}'
+        ' |\n';
+
+    Finder horizontalScroller() => find.byWidgetPredicate(
+      (widget) =>
+          widget is SingleChildScrollView &&
+          widget.scrollDirection == Axis.horizontal,
+    );
+
+    Future<void> pumpTable(
+      WidgetTester tester,
+      String content, {
+      bool wrapTables = false,
+    }) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Center(
+              child: SizedBox(
+                width: 360,
+                child: MarkdownWithLatex(
+                  content: content,
+                  selectable: false,
+                  wrapTables: wrapTables,
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('宽表格按内容排布并横向滚动', (WidgetTester tester) async {
+      await pumpTable(tester, wideTable);
+
+      expect(tester.takeException(), isNull);
+      expect(horizontalScroller(), findsOneWidget);
+      expect(tester.getSize(find.byType(Table)).width, greaterThan(360));
+      // 长标识符所在列比短标签列宽，说明列宽来自内容而不是平分容器。
+      final firstColumn = tester.getSize(find.byType(TableCell).at(0)).width;
+      final secondColumn = tester.getSize(find.byType(TableCell).at(1)).width;
+      expect(firstColumn, greaterThan(secondColumn));
+    });
+
+    testWidgets('窄表格贴合容器宽度', (WidgetTester tester) async {
+      await pumpTable(tester, narrowTable);
+
+      expect(tester.takeException(), isNull);
+      expect(tester.getSize(find.byType(Table)).width, lessThanOrEqualTo(360));
+    });
+
+    testWidgets('超长单元格在上限内换行', (WidgetTester tester) async {
+      await pumpTable(tester, longCellTable);
+
+      expect(tester.takeException(), isNull);
+      final cells = find.byType(TableCell);
+      expect(cells, findsWidgets);
+      for (var i = 0; i < cells.evaluate().length; i++) {
+        expect(tester.getSize(cells.at(i)).width, lessThanOrEqualTo(202));
+      }
+      // 说明列换行后行高明显超过单行（第 0、1 个单元格是表头，第 3 个是长单元格）。
+      expect(tester.getSize(cells.at(3)).height, greaterThan(60));
+      expect(tester.getSize(find.byType(Table)).width, lessThanOrEqualTo(360));
+    });
+
+    testWidgets('wrapTables 关闭横向滚动', (WidgetTester tester) async {
+      await pumpTable(tester, wideTable, wrapTables: true);
+
+      expect(tester.takeException(), isNull);
+      expect(horizontalScroller(), findsNothing);
+      expect(tester.getSize(find.byType(Table)).width, lessThanOrEqualTo(360));
+    });
+
+    testWidgets('重复 build 得到相等的样式表', (WidgetTester tester) async {
+      Widget build() => const MaterialApp(
+        home: Scaffold(
+          body: MarkdownWithLatex(content: wideTable, selectable: false),
+        ),
+      );
+
+      await tester.pumpWidget(build());
+      final first = tester
+          .widget<MarkdownBody>(find.byType(MarkdownBody))
+          .styleSheet;
+      await tester.pumpWidget(build());
+      final second = tester
+          .widget<MarkdownBody>(find.byType(MarkdownBody))
+          .styleSheet;
+      // 样式表不相等会让 MarkdownBody 重新解析整段内容，流式渲染会退化。
+      expect(second, first);
+    });
+  });
 }
