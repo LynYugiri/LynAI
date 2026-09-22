@@ -425,9 +425,9 @@ void main() {
       final validateResult = validate['result'] as Map;
       expect(validateResult['valid'], isFalse);
       expect(
-        (validateResult['errors'] as List)
-            .cast<Map>()
-            .any((error) => error['path'] == 'data.json'),
+        (validateResult['errors'] as List).cast<Map>().any(
+          (error) => error['path'] == 'data.json',
+        ),
         isTrue,
       );
     } finally {
@@ -1630,10 +1630,7 @@ void main() {
           ),
         );
         final cid = conversations.createConversation(
-          ConversationSettings(
-            modelId: 'm1',
-            agentEnabled: false,
-          ),
+          ConversationSettings(modelId: 'm1', agentEnabled: false),
         );
         final service = ToolCallService(
           features,
@@ -1717,10 +1714,7 @@ void main() {
       ),
     );
     final cid = conversations.createConversation(
-      ConversationSettings(
-        modelId: 'm1',
-        agentEnabled: false,
-      ),
+      ConversationSettings(modelId: 'm1', agentEnabled: false),
     );
     final service = ToolCallService(
       features,
@@ -1775,10 +1769,7 @@ void main() {
       ),
     );
     final cid = conversations.createConversation(
-      ConversationSettings(
-        modelId: 'm1',
-        agentEnabled: true,
-      ),
+      ConversationSettings(modelId: 'm1', agentEnabled: true),
     );
     final service = ToolCallService(
       FeatureProvider(),
@@ -1794,9 +1785,7 @@ void main() {
 
     // 修改全局权限后，新 snapshot 立即反映变化。
     await settings.replaceSettings(
-      AppSettings.defaults().copyWith(
-        agentGrantedPermissions: const [],
-      ),
+      AppSettings.defaults().copyWith(agentGrantedPermissions: const []),
     );
     final cleared = service.createRunSnapshot(
       agentEnabled: true,
@@ -2314,10 +2303,7 @@ void main() {
     try {
       final conversations = memoryConversationProvider();
       final cid = conversations.createConversation(
-        ConversationSettings(
-          modelId: 'chat-1',
-          agentEnabled: true,
-        ),
+        ConversationSettings(modelId: 'chat-1', agentEnabled: true),
       );
       conversations.addMessage(cid, 'user', 'draw a cat');
       conversations.addMessage(cid, 'assistant', '', save: false);
@@ -2552,10 +2538,7 @@ return {
                         'index': 0,
                         'id': 'call_$requests',
                         'type': 'function',
-                        'function': {
-                          'name': 'get_current_time',
-                          'arguments': '{}',
-                        },
+                        'function': {'name': 'get_current_time', 'arguments': '{}'},
                       },
                     ],
                   },
