@@ -303,7 +303,7 @@ void main() {
       await tester.tap(find.byTooltip('编辑').first);
       await tester.pumpAndSettle();
 
-      expect(find.text('编辑消息 · 从此处开始新对话'), findsOneWidget);
+      expect(find.text('编辑消息'), findsOneWidget);
       expect(find.text('开始新对话'), findsOneWidget);
       expect(find.text('撤回并删除后续'), findsNothing);
 

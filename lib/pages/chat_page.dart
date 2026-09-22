@@ -5095,7 +5095,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: Text(isLastUserMsg ? '编辑消息' : '编辑消息 · 从此处开始新对话'),
+        title: const Text('编辑消息'),
         content: TextField(
           controller: ctrl,
           maxLines: 5,
