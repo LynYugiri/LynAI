@@ -2829,7 +2829,11 @@ class BackupService {
     if (applied) await conversationProvider.flushPendingSaves();
   }
 
-  /// 导出草稿：附件换成归档后的资产路径。
+  /// 导出草稿：附件带上 Resource ID，路径换成归档后的资产路径。
+  ///
+  /// 没有归档成功的附件（[addPrivateAsset] 返回 null）不能把本机绝对路径写进备份，
+  /// 与消息附件一致退化成空路径；这类附件保留 Resource ID 与展示元数据，恢复时按
+  /// Resource 重新解析本机文件，解析不到就显示占位而不是丢掉条目。
   static Map<String, dynamic> _composerDraftForExport(
     ComposerDraft draft,
     Map<String, String> archivedAssetPaths,
@@ -2838,7 +2842,9 @@ class BackupService {
     'attachments': [
       for (final attachment in draft.attachments)
         {
-          'path': archivedAssetPaths[attachment.path] ?? attachment.path,
+          if (attachment.resourceId != null && attachment.resourceId!.isNotEmpty)
+            'resourceId': attachment.resourceId,
+          'path': archivedAssetPaths[attachment.path] ?? '',
           'name': attachment.name,
           'size': attachment.size,
           'mimeType': attachment.mimeType,

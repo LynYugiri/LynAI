@@ -61,6 +61,10 @@ class ConversationProvider extends ChangeNotifier with SerializedSaveQueue {
   Timer? _draftDebounce;
   Map<String, ComposerDraft>? _pendingDraftSnapshot;
 
+  /// 待落盘的删除槽位，与 [_pendingDraftSnapshot] 一起被写盘消费。
+  final Set<String> _pendingDraftRemovals = <String>{};
+  Set<String>? _pendingDraftRemovalSnapshot;
+
   ConversationProvider({
     StorageV2Service? storageV2,
     ConversationRepository? repository,
@@ -130,14 +134,20 @@ class ConversationProvider extends ChangeNotifier with SerializedSaveQueue {
     final slot = ComposerDraftRepository.slotFor(conversationId);
     if (draft.isEmpty) {
       if (_composerDrafts.remove(slot) == null) return;
+      // 删除必须显式声明：repository 只合并本次提到的槽位，否则清空草稿不会落盘，
+      // 已删除的草稿还会在下次加载时回来。
+      _pendingDraftRemovals.add(slot);
     } else {
       _composerDrafts[slot] = draft;
+      // 同一槽位又被写回内容时，撤销尚未落盘的删除。
+      _pendingDraftRemovals.remove(slot);
     }
     _queueComposerDraftSave();
   }
 
   void _queueComposerDraftSave({bool immediate = false}) {
     _pendingDraftSnapshot = Map<String, ComposerDraft>.of(_composerDrafts);
+    _pendingDraftRemovalSnapshot = Set<String>.of(_pendingDraftRemovals);
     if (immediate) {
       _enqueueComposerDraftSave();
       return;
@@ -151,8 +161,14 @@ class ConversationProvider extends ChangeNotifier with SerializedSaveQueue {
     _draftDebounce = null;
     final snapshot = _pendingDraftSnapshot;
     if (snapshot == null) return;
+    final removed = _pendingDraftRemovalSnapshot ?? const <String>{};
     _pendingDraftSnapshot = null;
-    enqueueSave(() => _composerDraftRepository.save(snapshot));
+    _pendingDraftRemovalSnapshot = null;
+    // 已经被这次写盘消费，清掉以免下一次保存把同名槽位又删一次。
+    _pendingDraftRemovals.clear();
+    enqueueSave(
+      () => _composerDraftRepository.save(snapshot, removed: removed),
+    );
   }
 
   /// 把当前对话快照排入保存队列。
@@ -675,19 +691,29 @@ class ConversationProvider extends ChangeNotifier with SerializedSaveQueue {
     final conversation = getConversation(conversationId);
     if (conversation == null) return;
     final draft = _composerDrafts.remove(conversationId);
-    await _recycleBinRepository.add(
-      RecycleBinItem(
-        owner: RecycleBinOwners.core,
-        category: RecycleBinCategories.conversations,
-        type: RecycleBinItemTypes.conversation,
-        title: conversation.title.isEmpty ? '未命名对话' : conversation.title,
-        preview: conversation.preview,
-        payload: {
-          'conversation': conversation.toJson(),
-          if (draft != null && !draft.isEmpty) 'composerDraft': draft.toJson(),
-        },
-      ),
-    );
+    _pendingDraftRemovals.add(conversationId);
+    try {
+      await _recycleBinRepository.add(
+        RecycleBinItem(
+          owner: RecycleBinOwners.core,
+          category: RecycleBinCategories.conversations,
+          type: RecycleBinItemTypes.conversation,
+          title: conversation.title.isEmpty ? '未命名对话' : conversation.title,
+          preview: conversation.preview,
+          payload: {
+            'conversation': conversation.toJson(),
+            if (draft != null && !draft.isEmpty)
+              'composerDraft': draft.toJson(),
+          },
+        ),
+      );
+    } catch (_) {
+      // 回收站写入失败时不能让内存与磁盘分叉：把草稿放回去并撤销这次删除，
+      // 否则对话还在，草稿却在下次保存时被当成已删除。
+      if (draft != null) _composerDrafts[conversationId] = draft;
+      _pendingDraftRemovals.remove(conversationId);
+      rethrow;
+    }
     _queueComposerDraftSave(immediate: true);
     _conversations.removeWhere((c) => c.id == conversationId);
     _queueSaveConversations();
@@ -698,10 +724,16 @@ class ConversationProvider extends ChangeNotifier with SerializedSaveQueue {
     Conversation conversation, {
     ComposerDraft? draft,
   }) async {
-    if (_conversations.any((item) => item.id == conversation.id)) return;
-    _conversations.insert(0, conversation);
-    if (draft != null && !draft.isEmpty) {
+    final exists = _conversations.any((item) => item.id == conversation.id);
+    final restoresDraft = draft != null && !draft.isEmpty;
+    // 对话已存在又没有草稿要写回时保持原样：不做无意义的写盘。
+    if (exists && !restoresDraft) return;
+    if (!exists) _conversations.insert(0, conversation);
+    // 对话已经存在时也要把回收站里的草稿写回：删除对话时草稿随快照一起进回收站，
+    // 之前的提前返回会让它在恢复时被静默丢掉。
+    if (restoresDraft) {
       _composerDrafts[conversation.id] = draft;
+      _pendingDraftRemovals.remove(conversation.id);
       _queueComposerDraftSave(immediate: true);
     }
     _queueSaveConversations(immediate: true);
@@ -785,6 +817,9 @@ class ConversationProvider extends ChangeNotifier with SerializedSaveQueue {
     );
     _conversations[index] = _conversations[index].copyWith(
       referencePool: next,
+      // 引用池是对话记录的一部分，必须一起刷新 updatedAt，否则只改过池子的
+      // 对话会带着旧时间戳参与同步与排序。
+      updatedAt: DateTime.now(),
     );
     _queueSaveConversations();
     notifyListeners();

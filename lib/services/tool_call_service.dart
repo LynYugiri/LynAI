@@ -6179,6 +6179,8 @@ ${ToolCallService.currentTimeContext()}${sharedContext.isEmpty ? '' : '\n\n$shar
           'get_current_screen',
           'call_plugin_function',
           'execute_lua',
+          'read_conversation',
+          'list_conversation_references',
           'knowledge_search',
           'read_knowledge_base',
           'read_knowledge_entry',
@@ -6215,6 +6217,8 @@ ${ToolCallService.currentTimeContext()}${sharedContext.isEmpty ? '' : '\n\n$shar
     }
     if (schema == null &&
         const {
+          'read_conversation',
+          'list_conversation_references',
           'knowledge_search',
           'read_knowledge_base',
           'read_knowledge_entry',
@@ -6239,6 +6243,9 @@ ${ToolCallService.currentTimeContext()}${sharedContext.isEmpty ? '' : '\n\n$shar
         true,
         workspaceManageAvailable: true,
         workspaceFileAvailable: true,
+        // 这里只为了取到 schema 做派发前校验，不代表工具已注册。
+        conversationsReadAvailable: true,
+        referencePoolAvailable: true,
       );
       final function = tools
           .map((tool) => tool['function'])

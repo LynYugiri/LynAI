@@ -176,9 +176,13 @@ class MemoryComposerDraftRepository implements ComposerDraftRepository {
   ];
 
   @override
-  Future<void> save(Map<String, ComposerDraft> drafts) async {
+  Future<void> save(
+    Map<String, ComposerDraft> drafts, {
+    Set<String> removed = const {},
+  }) async {
+    // 与真实 repository 一致：只覆盖本次提到的槽位，未提到的保持原样。
     this.drafts
-      ..clear()
+      ..removeWhere((slot, _) => removed.contains(slot))
       ..addAll(drafts);
   }
 }

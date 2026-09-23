@@ -107,7 +107,6 @@ class ComposerTriggerPalette extends StatefulWidget {
   const ComposerTriggerPalette({
     super.key,
     required this.sourceRows,
-    required this.onSourceRowsChanged,
     required this.itemRows,
     required this.pendingItems,
     required this.query,
@@ -123,9 +122,6 @@ class ComposerTriggerPalette extends StatefulWidget {
 
   /// 次层候选项（已进入某个引用源）。
   final List<ComposerPaletteRow> itemRows;
-
-  /// [pendingItems] 解析完成后回调，供页面更新键盘可选项。
-  final ValueChanged<List<ComposerPaletteRow>> onSourceRowsChanged;
 
   /// 是否处于「已进入某个引用源」的次层。
   final bool pendingItems;

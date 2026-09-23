@@ -286,10 +286,28 @@ class _PendingImage {
 /// 记住触发符位置与种类，避免同一段文本在光标移动后立刻重新弹出面板；
 /// 用户继续输入或 `@` / `/` 前的文本变化时，触发位置改变，面板自然恢复。
 class DismissedComposerTrigger {
-  const DismissedComposerTrigger({required this.kind, required this.start});
+  const DismissedComposerTrigger({
+    required this.kind,
+    required this.start,
+    required this.end,
+    required this.query,
+  });
 
   final ComposerTriggerKind kind;
   final int start;
+  final int end;
+  final String query;
+
+  /// 只有触发词原样未变时才算「还是被 Esc 关掉的那一次」。
+  ///
+  /// 之前只比 (kind, start)：`@笔记` 按 Esc 后再改成 `@知识库` 时 start 不变，
+  /// 面板会一直保持关闭；现在删改 token 就会重新打开。
+  bool matches(ComposerTriggerMatch? other) =>
+      other != null &&
+      other.kind == kind &&
+      other.start == start &&
+      other.end == end &&
+      other.query == query;
 }
 
 /// `/总结` 的结果：一段只给用户看的文字，不进入会话上下文。
@@ -1812,7 +1830,10 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     return registry;
   }
 
-  /// 内置指令 + 插件指令。
+  /// 内置 `/` 指令。
+  ///
+  /// 插件指令不作为 `/` 指令出现：它们在 [ComposerSelector] 里以 `@` 数据源
+  /// 的形式注册（选中后同样可以覆盖本次发送模型），`/` 只保留内置的两条。
   ComposerCommandRegistry _commandRegistryOf() =>
       buildBuiltInCommandRegistry();
 
@@ -1858,9 +1879,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     final match = selection.isValid && selection.isCollapsed
         ? detectComposerTrigger(text: _msgCtrl.text, cursor: selection.start)
         : null;
-    if (_dismissedTrigger != null &&
-        (_dismissedTrigger!.start != match?.start ||
-            _dismissedTrigger!.kind != match?.kind)) {
+    if (_dismissedTrigger != null && !_dismissedTrigger!.matches(match)) {
       _dismissedTrigger = null;
     }
     if (match != null && _dismissedTrigger != null) return;
@@ -2052,7 +2071,10 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
               modelId: selector.modelId,
             ),
       ];
-      _composerSelectedIndex = 0;
+      _composerSelectedIndex = _composerSelectedIndex.clamp(
+        0,
+        _composerItemRows.isEmpty ? 0 : _composerItemRows.length - 1,
+      );
     });
   }
 
@@ -2067,6 +2089,8 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
             : DismissedComposerTrigger(
                 kind: _composerTrigger!.kind,
                 start: _composerTrigger!.start,
+                end: _composerTrigger!.end,
+                query: _composerTrigger!.query,
               );
         _closeComposerPalette();
       });
@@ -6368,7 +6392,46 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
         // 触发面板贴在输入区上方，锚定输入框，不随消息列表滚动。
         if (_composerTrigger != null)
           Positioned(left: 0, right: 0, bottom: 0, child: _composerPaletteOverlay()),
+        // `/压缩`、`/总结` 期间给出可见进度：它们要跑一次模型调用，没有反馈时
+        // 用户会以为没反应而重复触发。
+        if (_composerCommandBusy != null)
+          Positioned(left: 0, right: 0, bottom: 0, child: _composerBusyBanner()),
       ],
+    );
+  }
+
+  /// `/压缩`、`/总结` 进行中的进度条。
+  Widget _composerBusyBanner() {
+    final scheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 0, 12, 6),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: scheme.surfaceContainerHighest,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          child: Row(
+            children: [
+              const SizedBox(
+                width: 14,
+                height: 14,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  _composerCommandBusy!,
+                  style: const TextStyle(fontSize: 12),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
@@ -6387,10 +6450,6 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
           child: ComposerTriggerPalette(
             sourceRows: _composerSourceRows,
             itemRows: _composerItemRows,
-            onSourceRowsChanged: (rows) {
-              if (identical(rows, _composerSourceRows)) return;
-              setState(() => _composerSourceRows = rows);
-            },
             pendingItems: trigger.isReference && _composerPendingSelector != null,
             query: trigger.query,
             selectedIndex: _composerSelectedIndex,
@@ -7221,6 +7280,9 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     }
     final canSend =
         !_preparingSend &&
+        // `/压缩`、`/总结` 正在跑模型调用时不允许再发送：它们吃的是当前上下文
+        // 快照，期间追加消息会让结果对不上。
+        _composerCommandBusy == null &&
         (_msgCtrl.text.trim().isNotEmpty || _pendingImages.isNotEmpty);
     if (_transcribingSpeech) {
       return const Padding(

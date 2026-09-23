@@ -123,7 +123,7 @@ signature = Ed25519-Sign(identityPrivateKey, enrollmentMessage)
 
 ## 5. 同步变更请求签名与幂等
 
-服务端对每条 change 的 `table` 使用固定白名单，白名单新增（或移除）任何表都属于 wire 兼容性变更：v1 期间新增过 `composer_drafts`（对话分区：对话页输入框草稿，记录形状 `{id, conversationId?, draft, updatedAt}`，`draft` 是含 `segments`/`attachments` 数组的对象）。客户端按用户选择的分区上传，不会先探测后端是否支持某张表；旧后端会整批拒绝含该表的请求（HTTP 400），因此新后端必须先于新客户端部署。
+服务端对每条 change 的 `table` 使用固定白名单，白名单新增（或移除）任何表都属于 wire 兼容性变更：v1 期间新增过 `composer_drafts`（对话分区：对话页输入框草稿，记录形状 `{id, conversationId?, draft, updatedAt}`）。服务端对该表强制约束：`conversationId` 可省略，存在时必须是 1..256 bytes 的非空字符串；`draft` 必须是 JSON object，其中 `segments`/`attachments` 存在时必须是数组；`updatedAt` 必须是 RFC3339 时间。`composer_drafts` 在云端索引中归入 `conversations` category：`objectId` 取 payload 的 `conversationId`，未创建对话的草稿没有 `conversationId`，`objectId` 回退为记录自身 ID；因此 selective purge 与 reseed 都按该 category/object 作用域进行，对话的 object purge 会删除草稿的当前 projection 和按 payload 归属到该对话的 upsert 历史，缺少 `data` 的 delete 历史按记录 ID 归属（客户端绑定对话的草稿记录 ID 就是 `conversationId`，因此同样会被删除）。客户端按用户选择的分区上传，不会先探测后端是否支持某张表；旧后端会整批拒绝含该表的请求（HTTP 400），因此新后端必须先于新客户端部署。
 
 同步仍使用 Bearer token，设备签名不替代 TLS。v1 签名适用于 `POST /sync/changes`、兼容别名 `POST /sync/v1/changes`、`POST /sync/blobs/:sha256`、`POST /sync/manage/purge` 和 `POST /sync/manage/operations/:id/ack`。canonical target 使用服务端路由模板，不含 scheme、authority、query 或 fragment；后两个管理路由的 canonical target 精确为 `/sync/manage/purge` 和 `/sync/manage/operations/:id/ack`，不得把实际 operation ID 代入模板。blob 的 body hash 必须是实际传输的原始 octet-stream bytes；同一写请求重试必须复用稳定 request ID 和完全相同的 body bytes。
 

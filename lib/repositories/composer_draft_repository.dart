@@ -61,43 +61,70 @@ class ComposerDraftRepository {
   }
 
   /// 读取原始行：附件路径保持存储时的样子，供保存时判断内容是否变化。
-  Future<List<ComposerDraftEntry>> _readRows() async {
+  Future<List<ComposerDraftEntry>> _readRows() async =>
+      (await _readRowsWithRaw()).entries;
+
+  /// 同时给出解析后的行与原始行。
+  ///
+  /// 原始行用于「本次保存没有提到的槽位原样写回」：重新序列化会丢掉未知字段，
+  /// 也会让未改动的行看上去变了一次。
+  Future<
+    ({List<ComposerDraftEntry> entries, Map<String, Map<String, dynamic>> raw})
+  >
+  _readRowsWithRaw() async {
     final json = await _storageV2.loadDataFile(fileName);
     final entries = <ComposerDraftEntry>[];
+    final raw = <String, Map<String, dynamic>>{};
     for (final item in json['drafts'] as List<dynamic>? ?? const []) {
       if (item is! Map) continue;
       final row = Map<String, dynamic>.from(item);
       final slot = row['id'] as String?;
-      final raw = row['draft'];
-      if (slot == null || slot.isEmpty || raw is! Map) continue;
+      if (slot == null || slot.isEmpty) continue;
+      raw[slot] = row;
+      final draft = row['draft'];
+      if (draft is! Map) continue;
       entries.add(
         ComposerDraftEntry(
           slot: slot,
-          draft: ComposerDraft.fromJson(Map<String, dynamic>.from(raw)),
+          draft: ComposerDraft.fromJson(Map<String, dynamic>.from(draft)),
           updatedAt:
               DateTime.tryParse(row['updatedAt'] as String? ?? '') ??
               _now().toUtc(),
         ),
       );
     }
-    return entries;
+    return (entries: entries, raw: raw);
   }
 
-  /// 覆盖写入全部草稿。
+  /// 保存草稿。
   ///
-  /// 内容没变的槽位保留原来的 `updatedAt`，否则整表覆盖会让每条草稿都产生一次
-  /// 无意义的同步变更。
-  Future<void> save(Map<String, ComposerDraft> drafts) async {
-    final existing = {for (final entry in await _readRows()) entry.slot: entry};
+  /// [drafts] 里出现的槽位按内容写入，[removed] 里的槽位删除，**两者都没提到的
+  /// 槽位保持数据库里的原样**。合并语义是必须的：内存缓存可能是部分状态（启动时
+  /// [ConversationProvider.loadConversations] 因 mutation generation 变化提前返回，
+  /// 或草稿读取失败时保留旧缓存），整表覆盖会把没提到的对话草稿一起删掉，并经云/LAN
+  /// 同步传播到其他设备。
+  Future<void> save(
+    Map<String, ComposerDraft> drafts, {
+    Set<String> removed = const {},
+  }) async {
+    final (:entries, :raw) = await _readRowsWithRaw();
+    final existing = {for (final entry in entries) entry.slot: entry};
     final now = _now().toUtc().toIso8601String();
+    final slots = <String>{...raw.keys, ...drafts.keys}..removeAll(removed);
     final rows = <Map<String, dynamic>>[];
-    for (final entry in drafts.entries) {
-      final draft = await _ensureResourceIds(entry.value);
-      final previous = existing[entry.key];
+    for (final slot in slots) {
+      final incoming = drafts[slot];
+      if (incoming == null) {
+        // 没有被本次保存提到：原样写回，不重新序列化、不刷新 updatedAt。
+        rows.add(raw[slot]!);
+        continue;
+      }
+      final draft = await _ensureResourceIds(incoming);
+      final previous = existing[slot];
       final unchanged = previous != null && _sameContent(previous.draft, draft);
       rows.add({
-        'id': entry.key,
-        if (entry.key != newConversationSlot) 'conversationId': entry.key,
+        'id': slot,
+        if (slot != newConversationSlot) 'conversationId': slot,
         'draft': draft.toJson(),
         'updatedAt': unchanged ? previous.updatedAt.toIso8601String() : now,
       });
@@ -131,9 +158,11 @@ class ComposerDraftRepository {
 
   /// 判断草稿内容是否变化。
   ///
-  /// 附件只比较路径与展示元数据：`resourceId` 是补齐出来的派生信息（撤回消息、
-  /// 从备份恢复的附件本来没有），把它算进去会让每次保存都刷新 `updatedAt`，产生
-  /// 无意义的同步变更。
+  /// 附件按「Resource 身份」比较：读回时 `path` 会被解析成 Resource 的私有路径，
+  /// 而存储行里可能还是选择时的暂存路径，按路径比较会让每次启动后的第一次保存都
+  /// 刷新 `updatedAt`，推出一条无意义的同步变更。只有还没有 `resourceId` 的附件
+  /// （刚撤回或刚从备份恢复，尚未补 Resource）才回退到路径比较；等
+  /// [_ensureResourceIds] 补上 Resource 后会再刷新一次 `updatedAt`，之后就收敛。
   static bool _sameContent(ComposerDraft a, ComposerDraft b) {
     final left = a.toJson()..['attachments'] = _attachmentsForCompare(a);
     final right = b.toJson()..['attachments'] = _attachmentsForCompare(b);
@@ -144,12 +173,20 @@ class ComposerDraftRepository {
     ComposerDraft draft,
   ) => [
     for (final attachment in draft.attachments)
-      {
-        'path': attachment.path,
-        'name': attachment.name,
-        'size': attachment.size,
-        'mimeType': attachment.mimeType,
-      },
+      if (attachment.resourceId != null)
+        {
+          'resourceId': attachment.resourceId,
+          'name': attachment.name,
+          'size': attachment.size,
+          'mimeType': attachment.mimeType,
+        }
+      else
+        {
+          'path': attachment.path,
+          'name': attachment.name,
+          'size': attachment.size,
+          'mimeType': attachment.mimeType,
+        },
   ];
 
   ComposerDraft _resolveAttachmentPaths(

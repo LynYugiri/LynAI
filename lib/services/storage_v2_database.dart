@@ -4576,10 +4576,20 @@ END, h.client_created_at, h.updated_at, h.table_name, h.record_id
             if (op.op == 'upsert' && op.data != null) {
               await upsertConversationRow(op.data!, transactionDb: db);
             } else if (op.op == 'delete') {
-              await deleteConversationRow(
-                op.data!['id'] as String,
-                transactionDb: db,
-              );
+              final conversationId = op.data!['id'] as String;
+              await deleteConversationRow(conversationId, transactionDb: db);
+              // 草稿属于对话：远端删除对话后草稿行不能留成孤儿。同一槽位还没上传的
+              // 变更也要丢掉，否则它会被重新上传，把孤儿草稿带回其他设备。
+              await deleteComposerDraftRow(conversationId, transactionDb: db);
+              if (scope != null) {
+                await (db.delete(db.syncOutboxRows)..where(
+                      (row) =>
+                          row.scope.equals(scope) &
+                          row.table.equals('composer_drafts') &
+                          row.recordId.equals(conversationId),
+                    ))
+                    .go();
+              }
             }
           case 'messages':
             if (op.op == 'upsert' && op.data != null) {
@@ -8154,7 +8164,11 @@ CREATE TABLE IF NOT EXISTS cloud_reseed_tasks (
         if (op == 'upsert') {
           await upsertConversationRow(data, transactionDb: db);
         } else {
-          await deleteConversationRow(data['id'] as String, transactionDb: db);
+          final conversationId = data['id'] as String;
+          await deleteConversationRow(conversationId, transactionDb: db);
+          // 草稿属于对话：远端删掉对话后草稿行不能留成孤儿，否则它会一直参与
+          // 同步与备份。
+          await deleteComposerDraftRow(conversationId, transactionDb: db);
         }
       case 'messages':
         if (op == 'upsert') {

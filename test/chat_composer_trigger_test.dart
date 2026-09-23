@@ -147,6 +147,20 @@ void main() {
     await settleDrafts(tester);
   });
 
+  testWidgets('Esc 关闭后继续改写触发词会重新打开面板', (tester) async {
+    await pumpChat(tester);
+    await typeInComposer(tester, '@笔记');
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pump();
+    expect(find.byType(ComposerTriggerPalette), findsNothing);
+
+    // 触发词本身变了（start 不变、query 变了）：不能因为「同一个起点」就
+    // 一直保持关闭，否则用户改成别的引用词时面板永远不再出现。
+    await typeInComposer(tester, '@知识库');
+    expect(find.byType(ComposerTriggerPalette), findsOneWidget);
+    await settleDrafts(tester);
+  });
+
   testWidgets('引用按钮等价于输入 @，保持与键盘触发同一套状态', (tester) async {
     await pumpChat(tester);
     expect(find.byType(ComposerTriggerPalette), findsNothing);
@@ -232,8 +246,7 @@ void main() {
       );
     });
 
-    testWidgets('引用源支持进入文件夹并在层级间返回', (tester) async {
-      await pumpChat(tester, features: features);
+    testWidgets('引用源支持进入文件夹并在层级间返回', (tester) async {      await pumpChat(tester, features: features);
 
       // 面板会盖住输入框，键盘导航比点击可靠：首层第 0 行是「笔记」源。
       await typeInComposer(tester, '@');

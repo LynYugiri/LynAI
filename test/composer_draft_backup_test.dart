@@ -91,6 +91,58 @@ void main() {
       await targetRoot.delete(recursive: true);
     }
   });
+
+  test('未归档的草稿附件不把本机路径写进备份，并保留 Resource ID', () async {
+    final sourceRoot = await Directory.systemTemp.createTemp(
+      'draft_backup_missing_',
+    );
+    final sourceStorage = await _readyStorage(sourceRoot);
+    try {
+      final source = ConversationProvider(storageV2: sourceStorage);
+      await source.loadConversations();
+      final conversationId = _addConversation(source);
+      const outsidePath = '/definitely/not/here/secret.png';
+      source.saveComposerDraft(
+        conversationId,
+        const ComposerDraft(
+          segments: [ComposerTextSegment('看下 ')],
+          attachments: [
+            ComposerDraftAttachment(
+              resourceId: 'res-1',
+              path: outsidePath,
+              name: 'secret.png',
+              size: 12,
+              mimeType: 'image/png',
+            ),
+          ],
+        ),
+      );
+      await source.flushPendingSaves();
+
+      final service = _service(source, sourceStorage);
+      final bytes = await service.exportZipBytes(
+        BackupSelection(
+          const {BackupSection.conversations},
+          conversationIds: {conversationId},
+        ),
+      );
+      final archive = await service.readZipBytes(bytes);
+      final exported = archive
+          .data
+          .composerDrafts![conversationId]!
+          .attachments
+          .single;
+
+      // 归档失败（文件缺失）时不能把导出机器的绝对路径写进备份。
+      expect(exported.path, isEmpty);
+      expect(exported.name, 'secret.png');
+      // Resource ID 保留，恢复后仍可按 Resource 重新解析本机文件。
+      expect(exported.resourceId, 'res-1');
+    } finally {
+      await sourceStorage.close();
+      await sourceRoot.delete(recursive: true);
+    }
+  });
 }
 
 String _addConversation(ConversationProvider conversations) {

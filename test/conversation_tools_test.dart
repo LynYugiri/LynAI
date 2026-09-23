@@ -252,8 +252,24 @@ void main() {
     );
   });
 
-  test('buildApiMessages 按可用性决定是否提 read_conversation', () {
-    final conversation = Conversation(
+  test('read_conversation 参数在派发前按 schema 校验', () async {
+    final (id, conversations) = _seedConversation();
+    final service = _service(conversations, id);
+    final snapshot = service.createRunSnapshot(
+      agentEnabled: true,
+      imageGenerationEnabled: false,
+    );
+
+    // conversationId 必须是字符串：坏参数要在派发前被 schema 拦下，而不是带着
+    // 它进入执行路径（这个工具此前不在派发期校验清单里）。
+    final result = await _run(service, snapshot, 'read_conversation', {
+      'conversationId': 42,
+    });
+    expect(result.status, isNot(AgentToolResultStatus.success));
+    expect(result.errorMessage, contains(r'$.conversationId'));
+  });
+
+  test('buildApiMessages 按可用性决定是否提 read_conversation', () {    final conversation = Conversation(
       id: 'conv-1',
       title: '标题',
       messages: [

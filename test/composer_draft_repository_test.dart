@@ -37,9 +37,67 @@ void main() {
     expect(_textOf(loaded['a']!), '会话 A 的内容');
     expect(_textOf(loaded['b']!), '会话 B');
 
-    await repository.save({'b': _text('会话 B')});
+    await repository.save({'b': _text('会话 B')}, removed: {'a'});
     final afterDelete = await repository.load();
     expect(afterDelete.map((entry) => entry.slot), ['b']);
+  });
+
+  test('未提到的槽位不会被部分保存删掉', () async {
+    final storage = StorageV2Service(rootDirectory: root);
+    addTearDown(storage.close);
+    final repository = ComposerDraftRepository(storageV2: storage);
+
+    await repository.save({'a': _text('会话 A'), 'b': _text('会话 B')});
+    // 内存缓存可能是部分状态（启动时 loadConversations 提前返回，或草稿读取失败
+    // 保留了空缓存），这时一次按键不能把其他对话的草稿一起删掉。
+    await repository.save({'a': _text('会话 A 的新内容')});
+
+    final loaded = {
+      for (final entry in await repository.load()) entry.slot: entry.draft,
+    };
+    expect(_textOf(loaded['a']!), '会话 A 的新内容');
+    expect(_textOf(loaded['b']!), '会话 B');
+  });
+
+  test('未提到的槽位原样写回，不刷新 updatedAt', () async {
+    final storage = StorageV2Service(rootDirectory: root);
+    addTearDown(storage.close);
+    final repository = ComposerDraftRepository(storageV2: storage);
+
+    Future<Map<String, Map>> rows() async {
+      final raw = await storage.loadDataFile('composer_drafts.json');
+      return {
+        for (final row in (raw['drafts'] as List).cast<Map>())
+          row['id'] as String: row,
+      };
+    }
+
+    await repository.save({'a': _text('会话 A'), 'b': _text('会话 B')});
+    final before = await rows();
+
+    await repository.save({'a': _text('会话 A 的新内容')});
+    final after = await rows();
+
+    // 未提到的行逐字段一致，因此不会产生多余的同步变更。
+    expect(after['b'], before['b']);
+    expect(after['a']!['updatedAt'], isNot(before['a']!['updatedAt']));
+  });
+
+  test('removed 里的槽位被删除，之后重新写入仍然生效', () async {
+    final storage = StorageV2Service(rootDirectory: root);
+    addTearDown(storage.close);
+    final repository = ComposerDraftRepository(storageV2: storage);
+
+    await repository.save({'a': _text('会话 A'), 'b': _text('会话 B')});
+    await repository.save(const {}, removed: {'a'});
+    expect((await repository.load()).map((entry) => entry.slot), ['b']);
+
+    await repository.save({'a': _text('会话 A 回来了')});
+    final loaded = {
+      for (final entry in await repository.load()) entry.slot: entry.draft,
+    };
+    expect(_textOf(loaded['a']!), '会话 A 回来了');
+    expect(loaded.keys, containsAll(['a', 'b']));
   });
 
   test('未创建对话的槽位不带 conversationId', () async {
@@ -124,8 +182,37 @@ void main() {
     expect(File(restored.path).readAsBytesSync(), [1, 2, 3, 4]);
   });
 
-  test('内容没变的槽位保留 updatedAt，改动后才更新', () async {
+  test('启动读回后按 Resource 解析的路径不会刷新 updatedAt', () async {
     final storage = StorageV2Service(rootDirectory: root);
+    addTearDown(storage.close);
+    final repository = ComposerDraftRepository(storageV2: storage);
+    final file = File('${root.path}/cat.png')..writeAsBytesSync([1, 2, 3, 4]);
+
+    await repository.save({
+      'a': ComposerDraft(
+        attachments: [
+          ComposerDraftAttachment(
+            path: file.path,
+            name: 'cat.png',
+            size: 4,
+            mimeType: 'image/png',
+          ),
+        ],
+      ),
+    });
+    final stored = (await repository.load()).single;
+
+    // 模拟「启动时读回草稿，用户随后只改了正文」：读回后附件 path 已被解析成
+    // Resource 私有路径，而存储行里还是选择时的暂存路径。文件身份没变，不该因此
+    // 多推一条同步变更。
+    final resolved = (await repository.load()).single.draft;
+    await Future<void>.delayed(const Duration(milliseconds: 5));
+    await repository.save({'a': resolved});
+
+    expect((await repository.load()).single.updatedAt, stored.updatedAt);
+  });
+
+  test('内容没变的槽位保留 updatedAt，改动后才更新', () async {    final storage = StorageV2Service(rootDirectory: root);
     addTearDown(storage.close);
     final repository = ComposerDraftRepository(storageV2: storage);
 

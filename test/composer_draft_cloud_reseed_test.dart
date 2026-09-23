@@ -41,8 +41,7 @@ void main() {
       }
     });
 
-    test('inbound draft deletes follow the conversations selection', () {
-      const conversations = SyncDataSelection({SyncDataCategory.conversations});
+    test('inbound draft deletes follow the conversations selection', () {      const conversations = SyncDataSelection({SyncDataCategory.conversations});
       const notes = SyncDataSelection({SyncDataCategory.notes});
       // 删除变更只带 id（LAN 甚至连 id 都不在 data 里），分类只能退化成
       // 「无 data」判断：按对话分区决定是否接受，而不是静默丢弃或报策略错误。
@@ -139,6 +138,51 @@ void main() {
                   as List)
               .cast<Map>();
       expect(drafts.single['id'], 'conversation-1');
+    });
+
+    test('远端删除对话会一并清掉它的草稿行', () async {
+      const scope = 'https://cloud.example|user-draft';
+      await database.activateSyncScope(scope, deviceId: _deviceId);
+      await database.acknowledgeSyncOutbox(
+        scope,
+        await database.loadSyncOutbox(scope),
+      );
+      await database.writeDataFile('composer_drafts.json', {
+        'drafts': [_draftRecord('conversation-1', 'draft')],
+      });
+      await database.acknowledgeSyncOutbox(
+        scope,
+        await database.loadSyncOutbox(scope),
+      );
+
+      await database.batchIncremental(
+        [
+          (
+            table: 'conversations',
+            op: 'delete',
+            data: {'id': 'conversation-1'},
+            change: SyncChange(
+              seq: 1,
+              changeId: 'change-1',
+              deviceId: _deviceId,
+              clientCreatedAt: DateTime.utc(2026, 9, 23),
+              table: 'conversations',
+              op: 'delete',
+              recordId: 'conversation-1',
+            ),
+          ),
+        ],
+        remote: true,
+        scope: scope,
+        nextSince: 1,
+      );
+
+      // 草稿属于对话：对话被远端删掉后草稿行不能留成孤儿，否则它会一直参与
+      // 同步与备份。
+      final drafts =
+          ((await database.loadDataFile('composer_drafts.json'))?['drafts']
+              as List);
+      expect(drafts, isEmpty);
     });
 
     test('clearing a bound draft produces an uploadable delete', () async {
