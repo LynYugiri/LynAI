@@ -60,6 +60,8 @@ class ImageGenerationService {
         name: _imageName(i, _mimeTypeFromBytes(bytes)),
         fallbackName: 'generated_image',
         mimeType: _mimeTypeFromBytes(bytes),
+        // 生成图会作为消息附件发送，导入 Resource 让草稿与消息都能跨设备恢复。
+        resourceRole: 'message_image',
       );
       images.add(
         MessageImage(

@@ -85,11 +85,13 @@ Provider 的更新策略是：先改内存并通知 UI，再把持久化操作�
 | `ensurePluginConversation()` | 旧桥接保留：查找或创建绑定指定插件的对话；新的插件工坊 AI 协作改走新建工作区路径。 |
 | `updateMessageContent()` | 编辑或重试时替换指定消息正文。 |
 | `updateMessageImages()` | 重试版本切换时替换附件。 |
-| `deleteMessage()` / `deleteConversation()` | 删除消息或对话；删除对话会同时删掉该对话的输入框草稿（`ComposerDraftService`），从回收站恢复对话时不还原草稿。 |
+| `deleteMessage()` / `deleteConversation()` | 删除消息或对话。删除对话时草稿随对话快照一起进回收站，`restoreConversation(..., draft:)` 会一并写回。 |
 | `deleteMessagesFrom()` | 撤回时截断指定消息及其后的全部消息。 |
 | `restoreWithdrawnMessages()` | 撤销撤回：把截断掉的消息尾部原样放回对话末尾。仅在对话当前消息数仍等于撤回时保留的前缀长度时生效，否则拒绝恢复。 |
 | `searchConversations()` | 搜索标题、正文和附件名，返回类型化命中结果和高亮范围。 |
 | `repairModelReferences()` | 修复已删除模型留下的对话引用。 |
+
+输入框草稿由 `composerDraftFor()` / `saveComposerDraft()` 读写，内存缓存是权威状态、写盘 400ms 防抖并随 `flushPendingSaves()` 落盘。草稿存在 `composer_drafts` 表（`composer_drafts.json`），跟随对话分区备份与同步；尚未创建对话的槽位（`null`，存成 `new`）没有 `conversationId`，只留在本机。附件只保存 storage_v2 Resource ID 与展示元数据，本机路径由 `ComposerDraftRepository` 按 Resource 解析。
 
 `updateLastMessage()` 的 `thinkingContent` 有特殊语义：不传表示保留，传字符串表示覆盖，显式传 `null` 表示清空。
 

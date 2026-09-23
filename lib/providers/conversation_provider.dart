@@ -5,15 +5,16 @@ import 'package:uuid/uuid.dart';
 import '../models/agent_plan.dart';
 import '../models/agent_trace.dart';
 import '../models/agent_working_memory.dart';
+import '../models/composer_draft.dart';
+import '../models/composer_reference.dart';
 import '../models/conversation.dart';
 import '../models/conversation_plugin_artifact.dart';
-import '../models/composer_reference.dart';
 import '../models/message.dart';
 import '../models/model_config.dart';
 import '../models/recycle_bin_item.dart';
+import '../repositories/composer_draft_repository.dart';
 import '../repositories/conversation_repository.dart';
 import '../repositories/recycle_bin_repository.dart';
-import '../services/composer_draft_service.dart';
 import '../services/storage_v2_service.dart';
 import '../utils/chat_search_matcher.dart';
 import 'serialized_save_queue.dart';
@@ -48,20 +49,28 @@ class ConversationProvider extends ChangeNotifier with SerializedSaveQueue {
   List<Conversation>? _pendingSaveSnapshot;
   static const _sentinel = Object();
   static const _saveDebounceDuration = Duration(milliseconds: 500);
+  static const _draftDebounceDuration = Duration(milliseconds: 400);
   final ConversationRepository _repository;
   final RecycleBinRepository _recycleBinRepository;
-  final ComposerDraftService? _composerDrafts;
+  final ComposerDraftRepository _composerDraftRepository;
   bool _usingStorageV2 = false;
+
+  /// 输入框草稿，键是槽位（对话 ID，或未创建对话时的 `new`）。
+  final Map<String, ComposerDraft> _composerDrafts = {};
+  Timer? _draftDebounce;
+  Map<String, ComposerDraft>? _pendingDraftSnapshot;
 
   ConversationProvider({
     StorageV2Service? storageV2,
     ConversationRepository? repository,
     RecycleBinRepository? recycleBinRepository,
-    ComposerDraftService? composerDrafts,
+    ComposerDraftRepository? composerDraftRepository,
   }) : _repository = repository ?? ConversationRepository(storageV2: storageV2),
        _recycleBinRepository =
            recycleBinRepository ?? RecycleBinRepository(storageV2: storageV2),
-       _composerDrafts = composerDrafts;
+       _composerDraftRepository =
+           composerDraftRepository ??
+           ComposerDraftRepository(storageV2: storageV2);
 
   void _touchConversation(int index) {
     final updated = _conversations.removeAt(index);
@@ -88,9 +97,61 @@ class ConversationProvider extends ChangeNotifier with SerializedSaveQueue {
     await flushPendingSaves();
     final result = await _repository.load();
     if (generation != _mutationGeneration) return;
+    // 草稿是对话的附属状态：读取失败时保留已有缓存，不阻塞对话加载。
+    try {
+      final drafts = await _composerDraftRepository.load();
+      if (generation != _mutationGeneration) return;
+      _composerDrafts
+        ..clear()
+        ..addEntries(drafts.map((entry) => MapEntry(entry.slot, entry.draft)));
+    } catch (error) {
+      debugPrint('输入框草稿加载失败: $error');
+    }
     _conversations = List<Conversation>.from(result.conversations);
     _usingStorageV2 = result.usingStorageV2;
     notifyListeners();
+  }
+
+  /// 全部草稿，按槽位索引（含未创建对话的 `new` 槽位）。
+  Map<String, ComposerDraft> get composerDrafts =>
+      Map.unmodifiable(_composerDrafts);
+
+  /// 读取某个对话的输入框草稿；没有草稿时返回空草稿。
+  ComposerDraft composerDraftFor(String? conversationId) =>
+      _composerDrafts[ComposerDraftRepository.slotFor(conversationId)] ??
+      const ComposerDraft();
+
+  /// 暂存某个对话的输入框草稿；正文与附件都为空时删除该槽位。
+  ///
+  /// 写盘防抖，`flushPendingSaves()` 会连同对话一起落盘；绑定对话的草稿随对话
+  /// 分区同步与备份，未创建对话的槽位只留在本机。
+  void saveComposerDraft(String? conversationId, ComposerDraft draft) {
+    final slot = ComposerDraftRepository.slotFor(conversationId);
+    if (draft.isEmpty) {
+      if (_composerDrafts.remove(slot) == null) return;
+    } else {
+      _composerDrafts[slot] = draft;
+    }
+    _queueComposerDraftSave();
+  }
+
+  void _queueComposerDraftSave({bool immediate = false}) {
+    _pendingDraftSnapshot = Map<String, ComposerDraft>.of(_composerDrafts);
+    if (immediate) {
+      _enqueueComposerDraftSave();
+      return;
+    }
+    _draftDebounce?.cancel();
+    _draftDebounce = Timer(_draftDebounceDuration, _enqueueComposerDraftSave);
+  }
+
+  void _enqueueComposerDraftSave() {
+    _draftDebounce?.cancel();
+    _draftDebounce = null;
+    final snapshot = _pendingDraftSnapshot;
+    if (snapshot == null) return;
+    _pendingDraftSnapshot = null;
+    enqueueSave(() => _composerDraftRepository.save(snapshot));
   }
 
   /// 把当前对话快照排入保存队列。
@@ -119,6 +180,7 @@ class ConversationProvider extends ChangeNotifier with SerializedSaveQueue {
   @override
   Future<void> onBeforeFlush() async {
     _enqueuePendingSave();
+    _enqueueComposerDraftSave();
   }
 
   Future<bool> migrateModelIds(Map<String, String> migrations) async {
@@ -176,7 +238,9 @@ class ConversationProvider extends ChangeNotifier with SerializedSaveQueue {
   @override
   void dispose() {
     _enqueuePendingSave();
+    _enqueueComposerDraftSave();
     _saveDebounce?.cancel();
+    _draftDebounce?.cancel();
     super.dispose();
   }
 
@@ -604,12 +668,12 @@ class ConversationProvider extends ChangeNotifier with SerializedSaveQueue {
 
   /// 删除对话
   ///
-  /// 输入框草稿是对话的本地附属状态，随对话一起删除；对话从回收站恢复时不还原
-  /// 草稿。
+  /// 输入框草稿属于对话，随回收站快照一起保存：删除后一并移除，从回收站恢复时
+  /// 由 [restoreConversation] 写回。
   Future<void> deleteConversation(String conversationId) async {
     final conversation = getConversation(conversationId);
     if (conversation == null) return;
-    _composerDrafts?.removeDraft(conversationId);
+    final draft = _composerDrafts.remove(conversationId);
     await _recycleBinRepository.add(
       RecycleBinItem(
         owner: RecycleBinOwners.core,
@@ -617,17 +681,28 @@ class ConversationProvider extends ChangeNotifier with SerializedSaveQueue {
         type: RecycleBinItemTypes.conversation,
         title: conversation.title.isEmpty ? '未命名对话' : conversation.title,
         preview: conversation.preview,
-        payload: {'conversation': conversation.toJson()},
+        payload: {
+          'conversation': conversation.toJson(),
+          if (draft != null && !draft.isEmpty) 'composerDraft': draft.toJson(),
+        },
       ),
     );
+    _queueComposerDraftSave(immediate: true);
     _conversations.removeWhere((c) => c.id == conversationId);
     _queueSaveConversations();
     notifyListeners();
   }
 
-  Future<void> restoreConversation(Conversation conversation) async {
+  Future<void> restoreConversation(
+    Conversation conversation, {
+    ComposerDraft? draft,
+  }) async {
     if (_conversations.any((item) => item.id == conversation.id)) return;
     _conversations.insert(0, conversation);
+    if (draft != null && !draft.isEmpty) {
+      _composerDrafts[conversation.id] = draft;
+      _queueComposerDraftSave(immediate: true);
+    }
     _queueSaveConversations(immediate: true);
     await flushPendingSaves();
     notifyListeners();

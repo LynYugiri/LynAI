@@ -611,20 +611,6 @@ assets/blobs/{sha256Prefix}/{sha256}
 
 长截图通常用于分享对话历史、笔记全文、待办清单和情景演绎消息。
 
-## ComposerDraftService
-
-文件：`lib/services/composer_draft_service.dart`
-
-按对话暂存对话页输入框里的草稿：正文片段（含引用 Chip）与暂存附件。草稿是纯本地 UI 状态：它不属于 storage_v2 的会话数据，不进入普通/加密备份、云同步或 LAN 同步，也不随对话进入回收站；删除对话时 `ConversationProvider.deleteConversation` 会一并删除该对话的草稿，对话从回收站恢复时不还原草稿。
-
-| 行为 | 说明 |
-|------|------|
-| 存储 | SharedPreferences，键为 `chat.composer_draft.v1.<对话 ID>`；尚未创建对话时用固定的 `new` 槽位，因此切换对话时各对话的草稿互不覆盖。 |
-| 内容 | `ComposerDraft`：与消息一致地保存 `ComposerSegment` 片段列表（含引用 Chip）和 `MessageImage` 附件元数据；两者都为空等于删除草稿，只有附件也算草稿。 |
-| 附件 | 只记录应用私有存储中的路径与名称/大小/MIME，文件本身由附件存储管理；页面恢复时丢弃文件已不存在的条目。 |
-| 读盘 | `ensureLoaded()` 一次读出全部草稿并缓存；单条损坏或读取失败按空草稿处理，不影响输入。 |
-| 写盘 | 内存缓存是权威状态：`saveDraft` 立即更新缓存并做 300ms 防抖落盘，切换对话时立即 `flush()`，应用进入后台或退出时由组合根的 `_flushCriticalSaves` 兜底落盘。 |
-
 ## ChangelogParser
 
 文件：`lib/utils/changelog_parser.dart`

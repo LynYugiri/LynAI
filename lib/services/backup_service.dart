@@ -16,6 +16,7 @@ import '../models/anniversary.dart';
 import '../models/backup_models.dart';
 import '../models/calendar_event.dart';
 import '../models/chat_role.dart';
+import '../models/composer_draft.dart';
 import '../models/conversation.dart';
 import '../models/local_date.dart';
 import '../models/knowledge_base.dart';
@@ -305,6 +306,26 @@ class BackupService {
           }
         }
       }
+      final selectedConversationIds = conversations
+          .map((item) => item.id)
+          .toSet();
+      final drafts = {
+        for (final entry in conversationProvider.composerDrafts.entries)
+          if (selectedConversationIds.contains(entry.key))
+            entry.key: entry.value,
+      };
+      for (final draft in drafts.values) {
+        for (final attachment in draft.attachments) {
+          await addPrivateAsset(
+            attachment.path,
+            attachment.mimeType.startsWith('image/')
+                ? 'message_image'
+                : 'message_attachment',
+            name: attachment.name,
+            mimeType: attachment.mimeType,
+          );
+        }
+      }
       if (usingV2) {
         final convRows = <Map<String, dynamic>>[];
         final msgRows = <Map<String, dynamic>>[];
@@ -361,6 +382,18 @@ class BackupService {
           'conversations': convRows,
           'messages': msgRows,
           'messageAttachments': attRows,
+          if (drafts.isNotEmpty)
+            'drafts': [
+              for (final entry in drafts.entries)
+                {
+                  'id': entry.key,
+                  'conversationId': entry.key,
+                  'draft': _composerDraftForExport(
+                    entry.value,
+                    archivedAssetPaths,
+                  ),
+                },
+            ],
         });
       } else {
         addJson('conversations.json', {
@@ -1050,6 +1083,7 @@ class BackupService {
         ),
         modelApiKeys: modelApiKeys,
         conversations: conversations,
+        composerDrafts: _parseComposerDrafts(conversationsJson, warnings),
         noteFolders: _parseList(
           foldersJson?['folders'],
           NoteFolder.fromJson,
@@ -1288,6 +1322,10 @@ class BackupService {
                   conversationsJson['messageAttachments'] is! List))) {
         throw const FormatException('conversations.json 扁平容器不完整');
       }
+      if (conversationsJson.containsKey('drafts') &&
+          conversationsJson['drafts'] is! List) {
+        throw const FormatException('conversations.json 草稿容器格式无效');
+      }
     }
     require('notes/folders.json', foldersJson, 'folders', List);
     require('notes/notes.json', notesJson, 'notes', List);
@@ -1523,6 +1561,7 @@ class BackupService {
           schemaVersion,
           warnings,
         ),
+        composerDrafts: _parseComposerDrafts(conversationsJson, warnings),
         noteFolders: _parseList(
           foldersJson?['folders'],
           NoteFolder.fromJson,
@@ -2731,17 +2770,20 @@ class BackupService {
         incomingItems.map((item) => _remapConversation(item, idMap)),
       );
       await conversationProvider.replaceConversations(items);
+      await _applyComposerDrafts(data.composerDrafts, incomingIds);
       return ImportResult(added: 0, replaced: incomingItems.length, skipped: 0);
     }
     var added = 0;
     var replaced = 0;
     var skipped = 0;
+    final appliedIds = <String>{};
     final items = List<Conversation>.from(conversationProvider.conversations);
     for (final raw in incomingItems) {
       final incoming = _remapConversation(raw, idMap);
       final index = items.indexWhere((item) => item.id == incoming.id);
       if (index == -1) {
         items.add(incoming);
+        appliedIds.add(incoming.id);
         added++;
       } else if (_sameJson(items[index], incoming)) {
         skipped++;
@@ -2753,9 +2795,12 @@ class BackupService {
         );
         if (action == ImportConflictAction.replaceLocal) {
           items[index] = incoming;
+          appliedIds.add(incoming.id);
           replaced++;
         } else if (action == ImportConflictAction.keepBoth) {
-          items.add(_copyConversationWithNewIds(incoming));
+          final copy = _copyConversationWithNewIds(incoming);
+          items.add(copy);
+          appliedIds.add(copy.id);
           added++;
         } else {
           skipped++;
@@ -2763,7 +2808,102 @@ class BackupService {
       }
     }
     await conversationProvider.replaceConversations(items);
+    await _applyComposerDrafts(data.composerDrafts, appliedIds);
     return ImportResult(added: added, replaced: replaced, skipped: skipped);
+  }
+
+  /// 把备份里的草稿写回已经在本次导入中落地的对话。
+  ///
+  /// 被跳过的对话保留本地草稿，不用备份里的旧内容覆盖。
+  Future<void> _applyComposerDrafts(
+    Map<String, ComposerDraft>? drafts,
+    Set<String> conversationIds,
+  ) async {
+    if (drafts == null || drafts.isEmpty) return;
+    var applied = false;
+    for (final entry in drafts.entries) {
+      if (!conversationIds.contains(entry.key)) continue;
+      conversationProvider.saveComposerDraft(entry.key, entry.value);
+      applied = true;
+    }
+    if (applied) await conversationProvider.flushPendingSaves();
+  }
+
+  /// 导出草稿：附件换成归档后的资产路径。
+  static Map<String, dynamic> _composerDraftForExport(
+    ComposerDraft draft,
+    Map<String, String> archivedAssetPaths,
+  ) => {
+    'segments': draft.toJson()['segments'],
+    'attachments': [
+      for (final attachment in draft.attachments)
+        {
+          'path': archivedAssetPaths[attachment.path] ?? attachment.path,
+          'name': attachment.name,
+          'size': attachment.size,
+          'mimeType': attachment.mimeType,
+        },
+    ],
+  };
+
+  /// 解析备份里的草稿；单条损坏只记警告。
+  static Map<String, ComposerDraft>? _parseComposerDrafts(
+    Map<String, dynamic>? conversationsJson,
+    List<String> warnings,
+  ) {
+    final raw = conversationsJson?['drafts'];
+    if (raw is! List) return null;
+    final drafts = <String, ComposerDraft>{};
+    for (final item in raw) {
+      if (item is! Map) continue;
+      final row = Map<String, dynamic>.from(item);
+      final slot = row['id'] as String?;
+      final draft = row['draft'];
+      if (slot == null || slot.isEmpty || draft is! Map) {
+        warnings.add('跳过损坏的输入框草稿');
+        continue;
+      }
+      drafts[slot] = ComposerDraft.fromJson(Map<String, dynamic>.from(draft));
+    }
+    return drafts.isEmpty ? null : drafts;
+  }
+
+  /// 草稿附件换成本机恢复后的资产路径；资产缺失的附件直接丢弃。
+  static Map<String, ComposerDraft>? _remapComposerDraftPaths(
+    Map<String, ComposerDraft>? drafts,
+    Map<String, String> assetPaths,
+  ) {
+    if (drafts == null || drafts.isEmpty) return drafts;
+    final remapped = <String, ComposerDraft>{};
+    for (final entry in drafts.entries) {
+      var changed = false;
+      final attachments = <ComposerDraftAttachment>[];
+      for (final attachment in entry.value.attachments) {
+        if (!assetPaths.containsKey(attachment.path)) {
+          attachments.add(attachment);
+          continue;
+        }
+        final path = assetPaths[attachment.path];
+        changed = true;
+        if (path == null || path.isEmpty) continue;
+        attachments.add(
+          ComposerDraftAttachment(
+            resourceId: attachment.resourceId,
+            path: path,
+            name: attachment.name,
+            size: attachment.size,
+            mimeType: attachment.mimeType,
+          ),
+        );
+      }
+      remapped[entry.key] = changed
+          ? ComposerDraft(
+              segments: entry.value.segments,
+              attachments: attachments,
+            )
+          : entry.value;
+    }
+    return remapped;
   }
 
   Future<ImportResult> _applyNotes(
@@ -4840,6 +4980,13 @@ class BackupService {
         }
       }
     }
+    // 草稿附件同样要保留，否则恢复后会被当成未引用资源清理掉。
+    for (final draft
+        in data.composerDrafts?.values ?? const <ComposerDraft>[]) {
+      for (final attachment in draft.attachments) {
+        if (attachment.path.isNotEmpty) paths.add(attachment.path);
+      }
+    }
     return paths;
   }
 
@@ -4869,6 +5016,7 @@ class BackupService {
                 _remapConversationAssetPaths(conversation, assetPaths),
           )
           .toList(),
+      composerDrafts: _remapComposerDraftPaths(data.composerDrafts, assetPaths),
       noteFolders: data.noteFolders,
       notes: data.notes,
       notePages: data.notePages,
@@ -5154,6 +5302,13 @@ class BackupService {
       conversations: data.conversations
           ?.where((item) => selection.conversationIds.contains(item.id))
           .toList(),
+      composerDrafts: data.composerDrafts == null
+          ? null
+          : {
+              for (final entry in data.composerDrafts!.entries)
+                if (selection.conversationIds.contains(entry.key))
+                  entry.key: entry.value,
+            },
       noteFolders: data.noteFolders
           ?.where((item) => folderIds.contains(item.id))
           .toList(),

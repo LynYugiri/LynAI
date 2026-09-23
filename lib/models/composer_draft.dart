@@ -1,38 +1,73 @@
 import 'composer_reference.dart';
-import 'message.dart';
 
-/// 对话页输入框草稿：正文片段与暂存附件。
+/// 对话页输入框草稿的载荷：正文片段 + 暂存附件。
 ///
-/// 附件沿用消息附件的形式（[MessageImage]），路径指向已复制进应用私有存储的文件，
-/// 因此草稿恢复后仍能预览和发送；文件已被外部清理时由页面在恢复时丢弃。
+/// 同一份形状用于 `composer_drafts` 行的 `draft_json`、云/LAN 同步记录里的
+/// `draft` 字段和备份里的草稿列表，因此 JSON 读写只在这里定义一次。
 class ComposerDraft {
   final List<ComposerSegment> segments;
-  final List<MessageImage> images;
+  final List<ComposerDraftAttachment> attachments;
 
-  const ComposerDraft({this.segments = const [], this.images = const []});
+  const ComposerDraft({this.segments = const [], this.attachments = const []});
 
-  bool get isEmpty => segments.isEmpty && images.isEmpty;
+  /// 正文与附件都为空时草稿不再需要保留（对应行会被删除）。
+  bool get isEmpty => segments.isEmpty && attachments.isEmpty;
 
   Map<String, dynamic> toJson() => {
     'segments': composerSegmentsToJson(segments),
-    'images': images.map((image) => image.toJson()).toList(),
+    'attachments': attachments.map((item) => item.toJson()).toList(),
   };
 
-  /// 解析草稿；兼容早期只存片段列表的格式，损坏内容按空草稿处理。
-  factory ComposerDraft.fromJson(Object? raw) {
-    if (raw is List) {
-      return ComposerDraft(segments: composerSegmentsFromJson(raw));
-    }
-    if (raw is! Map) return const ComposerDraft();
-    final images = <MessageImage>[];
-    for (final item in raw['images'] as List? ?? const []) {
-      if (item is Map) {
-        images.add(MessageImage.fromJson(Map<String, dynamic>.from(item)));
-      }
+  factory ComposerDraft.fromJson(Map<String, dynamic> json) {
+    final attachments = <ComposerDraftAttachment>[];
+    for (final item in json['attachments'] as List? ?? const []) {
+      if (item is! Map) continue;
+      attachments.add(
+        ComposerDraftAttachment.fromJson(Map<String, dynamic>.from(item)),
+      );
     }
     return ComposerDraft(
-      segments: composerSegmentsFromJson(raw['segments']),
-      images: images,
+      segments: composerSegmentsFromJson(json['segments']),
+      attachments: attachments,
+    );
+  }
+}
+
+/// 草稿里的暂存附件。
+///
+/// 与消息附件不同，草稿附件以 storage_v2 的 resource 为准：[resourceId] 是另一台
+/// 设备认回内容的依据，[path] 只是本机缓存（远端恢复或资源尚未下载时可能为空）。
+class ComposerDraftAttachment {
+  final String? resourceId;
+  final String path;
+  final String name;
+  final int size;
+  final String mimeType;
+
+  const ComposerDraftAttachment({
+    this.resourceId,
+    this.path = '',
+    required this.name,
+    required this.size,
+    this.mimeType = 'application/octet-stream',
+  });
+
+  Map<String, dynamic> toJson() => {
+    if (resourceId != null && resourceId!.isNotEmpty) 'resourceId': resourceId,
+    'path': path,
+    'name': name,
+    'size': size,
+    'mimeType': mimeType,
+  };
+
+  factory ComposerDraftAttachment.fromJson(Map<String, dynamic> json) {
+    final resourceId = json['resourceId'] as String?;
+    return ComposerDraftAttachment(
+      resourceId: resourceId == null || resourceId.isEmpty ? null : resourceId,
+      path: json['path'] as String? ?? '',
+      name: json['name'] as String? ?? '',
+      size: (json['size'] as num?)?.toInt() ?? 0,
+      mimeType: json['mimeType'] as String? ?? 'application/octet-stream',
     );
   }
 }

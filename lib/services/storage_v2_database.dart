@@ -143,6 +143,32 @@ class MessageAttachmentRows extends Table {
   Set<Column> get primaryKey => {id};
 }
 
+/// 对话页输入框草稿：正文片段、引用 Chip 与暂存附件。
+///
+/// [slot] 是对话 ID；尚未创建对话时用 `'new'`，此时 [conversationId] 为空，这类
+/// 草稿只留在本机（同步侧按 [conversationId] 判空跳过）。已绑定对话的草稿随对话
+/// 一起备份与同步。
+///
+/// [conversationId] 不加外键：草稿是独立的逻辑分区，新建对话后立刻打字时草稿行可能
+/// 先于对话行落盘，外键会让这次写入整个失败。对话删除由 `ConversationProvider`
+/// 显式删除草稿，其他设备通过同步收到的删除变更保持一致（与 `runs` 的做法一致）。
+@TableIndex(
+  name: 'idx_composer_drafts_conversation',
+  columns: {#conversationId},
+)
+class ComposerDraftRows extends Table {
+  @override
+  String get tableName => 'composer_drafts';
+
+  TextColumn get slot => text()();
+  TextColumn get conversationId => text().named('conversation_id').nullable()();
+  TextColumn get draftJson => text().named('draft_json')();
+  TextColumn get updatedAt => text().named('updated_at')();
+
+  @override
+  Set<Column> get primaryKey => {slot};
+}
+
 class NoteFolderRows extends Table {
   @override
   String get tableName => 'note_folders';
@@ -1085,6 +1111,7 @@ class SyncScopeState {
     ConversationRows,
     MessageRows,
     MessageAttachmentRows,
+    ComposerDraftRows,
     NoteFolderRows,
     NoteRows,
     NotePageRows,
@@ -1136,7 +1163,7 @@ class SyncScopeState {
 class StorageV2DriftDatabase extends _$StorageV2DriftDatabase {
   StorageV2DriftDatabase(File file) : super(_open(file));
 
-  static const currentSchemaVersion = 34;
+  static const currentSchemaVersion = 35;
 
   bool needsTransportHeadBackfill = false;
 
@@ -1436,6 +1463,10 @@ SET captures_local = active
       if (from < 34) {
         await _addColumnIfMissing('conversations', 'workspace_id', 'TEXT');
         await _addColumnIfMissing('conversations', 'workspace_name', 'TEXT');
+      }
+      // v35: 输入框草稿独立成表，跟随对话备份、同步并在对话删除时级联删除。
+      if (from < 35) {
+        await m.createTable(composerDraftRows);
       }
       await _ensureCloudDataColumns();
     },
@@ -2386,6 +2417,7 @@ WHERE id IN (${List.filled(runIds.length, '?').join(', ')})
       'roleplay_scenarios.json' => await _loadRoleplayScenarios(db),
       'roleplay_threads.json' => await _loadRoleplayThreads(db),
       'recycle_bin.json' => await _loadRecycleBin(db),
+      'composer_drafts.json' => await _loadComposerDrafts(db),
       _ => await _loadGenericDataFile(db, fileName),
     };
   }
@@ -2422,6 +2454,8 @@ WHERE id IN (${List.filled(runIds.length, '?').join(', ')})
           await _replaceRoleplayThreads(db, data);
         case 'recycle_bin.json':
           await _replaceRecycleBin(db, data);
+        case 'composer_drafts.json':
+          await _replaceComposerDrafts(db, data);
         default:
           await _replaceGenericDataFile(db, fileName, data);
       }
@@ -2479,6 +2513,40 @@ WHERE id IN (${List.filled(runIds.length, '?').join(', ')})
             updatedAt: json['updatedAt'] as String? ?? '',
           ),
         );
+  }
+
+  Future<void> upsertComposerDraftRow(
+    Map<String, dynamic> json, {
+    StorageV2DriftDatabase? transactionDb,
+  }) async {
+    final db = transactionDb ?? await _open();
+    final slot = json['id'] as String?;
+    if (slot == null || slot.isEmpty) return;
+    final conversationId = json['conversationId'] as String?;
+    await db
+        .into(db.composerDraftRows)
+        .insertOnConflictUpdate(
+          ComposerDraftRowsCompanion.insert(
+            slot: slot,
+            conversationId: Value(
+              conversationId == null || conversationId.isEmpty
+                  ? null
+                  : conversationId,
+            ),
+            draftJson: jsonEncode(json['draft'] ?? const {}),
+            updatedAt: json['updatedAt'] as String? ?? '',
+          ),
+        );
+  }
+
+  Future<void> deleteComposerDraftRow(
+    String slot, {
+    StorageV2DriftDatabase? transactionDb,
+  }) async {
+    final db = transactionDb ?? await _open();
+    await (db.delete(
+      db.composerDraftRows,
+    )..where((row) => row.slot.equals(slot))).go();
   }
 
   Future<void> deleteConversationRow(
@@ -5655,6 +5723,14 @@ CREATE TABLE IF NOT EXISTS message_attachments (
   FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE,
   FOREIGN KEY (resource_id) REFERENCES resources(id) ON DELETE SET NULL
 );
+CREATE TABLE IF NOT EXISTS composer_drafts (
+  slot TEXT PRIMARY KEY,
+  conversation_id TEXT,
+  draft_json TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_composer_drafts_conversation
+  ON composer_drafts(conversation_id);
 CREATE TABLE IF NOT EXISTS note_folders (
   id TEXT PRIMARY KEY,
   title TEXT NOT NULL,
@@ -7432,6 +7508,38 @@ CREATE TABLE IF NOT EXISTS cloud_reseed_tasks (
     await _deleteMeta(db, 'datafile.recycle_bin.json');
   }
 
+  Future<Map<String, dynamic>> _loadComposerDrafts(
+    StorageV2DriftDatabase db,
+  ) async {
+    final rows = await db.select(db.composerDraftRows).get();
+    return {
+      'drafts': rows
+          .map(
+            (row) => {
+              'id': row.slot,
+              if (row.conversationId != null)
+                'conversationId': row.conversationId,
+              'draft': jsonDecode(row.draftJson),
+              'updatedAt': row.updatedAt,
+            },
+          )
+          .toList(),
+    };
+  }
+
+  Future<void> _replaceComposerDrafts(
+    StorageV2DriftDatabase db,
+    Map<String, dynamic> data,
+  ) async {
+    await db.delete(db.composerDraftRows).go();
+    for (final item in data['drafts'] as List<dynamic>? ?? const []) {
+      await upsertComposerDraftRow(
+        item is Map ? Map<String, dynamic>.from(item) : const {},
+        transactionDb: db,
+      );
+    }
+  }
+
   Future<void> _replaceGenericDataFile(
     StorageV2DriftDatabase db,
     String fileName,
@@ -7508,6 +7616,7 @@ CREATE TABLE IF NOT EXISTS cloud_reseed_tasks (
     'roleplay_scenarios.json' => {'roleplay_scenarios'},
     'roleplay_threads.json' => {'roleplay_threads'},
     'recycle_bin.json' => {'recycle_bin'},
+    'composer_drafts.json' => {'composer_drafts'},
     'notes.json' => {
       'note_folders',
       'notes',
@@ -7540,6 +7649,12 @@ CREATE TABLE IF NOT EXISTS cloud_reseed_tasks (
       add('conversations', data['conversations'] as List);
       add('messages', data['messages'] as List);
       add('message_attachments', data['messageAttachments'] as List);
+    }
+    if (tables.contains('composer_drafts')) {
+      add(
+        'composer_drafts',
+        ((await _loadComposerDrafts(db))['drafts'] as List),
+      );
     }
     if (tables.contains('resources')) {
       add(
@@ -8036,6 +8151,12 @@ CREATE TABLE IF NOT EXISTS cloud_reseed_tasks (
           await upsertMessageRow(data, transactionDb: db);
         } else {
           await deleteMessageRow(data['id'] as String, transactionDb: db);
+        }
+      case 'composer_drafts':
+        if (op == 'upsert') {
+          await upsertComposerDraftRow(data, transactionDb: db);
+        } else {
+          await deleteComposerDraftRow(data['id'] as String, transactionDb: db);
         }
       case 'message_attachments':
         if (op == 'upsert') {

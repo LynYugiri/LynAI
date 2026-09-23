@@ -17,7 +17,8 @@ import 'package:lynai/repositories/role_memory_repository.dart';
 import 'package:lynai/repositories/roleplay_repository.dart';
 import 'package:lynai/repositories/settings_repository.dart';
 import 'package:lynai/repositories/workspace_repository.dart';
-import 'package:lynai/services/composer_draft_service.dart';
+import 'package:lynai/models/composer_draft.dart';
+import 'package:lynai/repositories/composer_draft_repository.dart';
 
 class MemoryConversationRepository implements ConversationRepository {
   List<Conversation> _conversations = const [];
@@ -160,13 +161,35 @@ class MemoryWorkspaceRepository implements WorkspaceRepository {
   }
 }
 
+/// 内存草稿仓库：测试不触碰真实存储。
+class MemoryComposerDraftRepository implements ComposerDraftRepository {
+  final Map<String, ComposerDraft> drafts = {};
+
+  @override
+  Future<List<ComposerDraftEntry>> load() async => [
+    for (final entry in drafts.entries)
+      ComposerDraftEntry(
+        slot: entry.key,
+        draft: entry.value,
+        updatedAt: DateTime.utc(2026),
+      ),
+  ];
+
+  @override
+  Future<void> save(Map<String, ComposerDraft> drafts) async {
+    this.drafts
+      ..clear()
+      ..addAll(drafts);
+  }
+}
+
 ConversationProvider memoryConversationProvider({
-  ComposerDraftService? drafts,
+  ComposerDraftRepository? drafts,
 }) {
   return ConversationProvider(
     repository: MemoryConversationRepository(),
     recycleBinRepository: MemoryRecycleBinRepository(),
-    composerDrafts: drafts,
+    composerDraftRepository: drafts ?? MemoryComposerDraftRepository(),
   );
 }
 

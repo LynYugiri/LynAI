@@ -15,11 +15,9 @@ import 'package:lynai/providers/knowledge_provider.dart';
 import 'package:lynai/providers/plugin_provider.dart';
 import 'package:lynai/providers/task_provider.dart';
 import 'package:lynai/services/backend_client.dart';
-import 'package:lynai/services/composer_draft_service.dart';
 import 'package:lynai/services/storage_v2_service.dart';
 import 'package:lynai/services/storage_v2_upgrade_service.dart';
 import 'package:provider/provider.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import 'support/memory_repositories.dart';
 
@@ -28,7 +26,6 @@ void main() {
   late StorageV2Service storage;
 
   setUp(() async {
-    SharedPreferences.setMockInitialValues({});
     storageRoot = await Directory.systemTemp.createTemp(
       'lynai_composer_draft_',
     );
@@ -42,11 +39,10 @@ void main() {
   });
 
   testWidgets('各对话的输入内容互相独立', (tester) async {
-    final drafts = ComposerDraftService();
-    final conversations = memoryConversationProvider(drafts: drafts);
+    final conversations = memoryConversationProvider();
     _addConversation(conversations, '甲会话');
     _addConversation(conversations, '乙会话');
-    await _pumpChat(tester, storage, conversations, drafts);
+    await _pumpChat(tester, storage, conversations);
 
     // 还没创建对话时输入的内容属于「新对话」槽位。
     await tester.enterText(_composer(), '新对话的草稿');
@@ -76,16 +72,14 @@ void main() {
     // 切走再切回同一个对话，草稿不串位也不丢。
     await _selectConversation(tester, '乙会话');
     expect(_composerText(tester), '乙的内容');
-    await _finish(tester, conversations, drafts);
+    await _finish(tester, conversations);
   });
 
   testWidgets('切换对话时引用 Chip 一起暂存与恢复', (tester) async {
-    final drafts = ComposerDraftService();
-    final conversations = memoryConversationProvider(drafts: drafts);
+    final conversations = memoryConversationProvider();
     final first = _addConversation(conversations, '甲会话');
     _addConversation(conversations, '乙会话');
-    await _pumpChat(tester, storage, conversations, drafts);
-    await drafts.ensureLoaded();
+    await _pumpChat(tester, storage, conversations);
 
     const reference = ComposerReference(
       localId: 'ref-1',
@@ -93,7 +87,7 @@ void main() {
       id: 'note-1',
       title: '笔记一',
     );
-    drafts.saveDraft(
+    conversations.saveComposerDraft(
       first,
       const ComposerDraft(
         segments: [
@@ -107,12 +101,11 @@ void main() {
     expect(_composerText(tester), '');
     await _selectConversation(tester, '甲会话');
     expect(_composerText(tester), '看下 ${String.fromCharCode(0xE000)}');
-    await _finish(tester, conversations, drafts);
+    await _finish(tester, conversations);
   });
 
   testWidgets('暂存附件随对话切换一起搬运', (tester) async {
-    final drafts = ComposerDraftService();
-    final conversations = memoryConversationProvider(drafts: drafts);
+    final conversations = memoryConversationProvider();
     final attachment = File('${storageRoot.path}/notes.txt')
       ..writeAsStringSync('附件内容');
     final first = _addConversation(
@@ -128,7 +121,7 @@ void main() {
       ],
     );
     _addConversation(conversations, '乙会话');
-    await _pumpChat(tester, storage, conversations, drafts);
+    await _pumpChat(tester, storage, conversations);
 
     // 撤回把这条消息的正文和附件一起回填输入框。
     await _selectConversation(tester, '甲会话');
@@ -142,23 +135,23 @@ void main() {
 
     await _selectConversation(tester, '甲会话');
     expect(find.text('notes.txt'), findsOneWidget);
-    expect(drafts.draftFor(first).images.single.name, 'notes.txt');
-    await _finish(tester, conversations, drafts);
+    expect(
+      conversations.composerDraftFor(first).attachments.single.name,
+      'notes.txt',
+    );
+    await _finish(tester, conversations);
   });
 
-  testWidgets('附件文件已丢失时不再恢复该条目', (tester) async {
-    final drafts = ComposerDraftService();
-    final conversations = memoryConversationProvider(drafts: drafts);
+  testWidgets('附件文件缺失时保留占位而不是丢掉草稿条目', (tester) async {
+    final conversations = memoryConversationProvider();
     final missing = _addConversation(conversations, '甲会话');
     _addConversation(conversations, '乙会话');
-    await _pumpChat(tester, storage, conversations, drafts);
-    await drafts.ensureLoaded();
-    drafts.saveDraft(
+    await _pumpChat(tester, storage, conversations);
+    conversations.saveComposerDraft(
       missing,
       const ComposerDraft(
-        images: [
-          MessageImage(
-            path: '/nonexistent/lynai/missing.png',
+        attachments: [
+          ComposerDraftAttachment(
             name: 'missing.png',
             size: 1,
             mimeType: 'image/png',
@@ -168,46 +161,76 @@ void main() {
     );
 
     await _selectConversation(tester, '甲会话');
-    expect(find.text('missing.png'), findsNothing);
-    await _finish(tester, conversations, drafts);
+    // 远端草稿的附件可能还没下载完，这里只提示缺失，不能把条目删掉。
+    expect(find.text('missing.png'), findsOneWidget);
+    expect(conversations.composerDraftFor(missing).attachments, hasLength(1));
+    await _finish(tester, conversations);
   });
 
   testWidgets('进程重启后重新打开对话仍能恢复草稿', (tester) async {
-    final before = ComposerDraftService();
-    final conversations = memoryConversationProvider(drafts: before);
+    final conversationRepository = MemoryConversationRepository();
+    final drafts = MemoryComposerDraftRepository();
+    final conversations = ConversationProvider(
+      repository: conversationRepository,
+      recycleBinRepository: MemoryRecycleBinRepository(),
+      composerDraftRepository: drafts,
+    );
     _addConversation(conversations, '甲会话');
     _addConversation(conversations, '乙会话');
-    await _pumpChat(tester, storage, conversations, before);
+    await _pumpChat(tester, storage, conversations);
 
     await _selectConversation(tester, '甲会话');
     await tester.enterText(_composer(), '重启后还要在');
     await tester.pump();
-    await before.flush();
-    await _finish(tester, conversations, before);
+    await _finish(tester, conversations);
 
-    // 模拟重启：新的草稿服务从同一份存储里读回内容。
-    final after = ComposerDraftService();
-    await _pumpChat(tester, storage, conversations, after);
+    // 模拟重启：新 Provider 从同一份持久化数据里读回草稿。
+    final restarted = ConversationProvider(
+      repository: conversationRepository,
+      recycleBinRepository: MemoryRecycleBinRepository(),
+      composerDraftRepository: drafts,
+    );
+    await restarted.loadConversations();
+    await _pumpChat(tester, storage, restarted);
     await _selectConversation(tester, '甲会话');
     expect(_composerText(tester), '重启后还要在');
-    await _finish(tester, conversations, after);
+    await _finish(tester, restarted);
   });
 
-  testWidgets('删除对话会同时删除它的草稿', (tester) async {
-    final drafts = ComposerDraftService();
-    await drafts.ensureLoaded();
-    final conversations = memoryConversationProvider(drafts: drafts);
+  testWidgets('删除对话会把草稿一起放进回收站并可恢复', (tester) async {
+    final recycleBin = MemoryRecycleBinRepository();
+    final conversations = ConversationProvider(
+      repository: MemoryConversationRepository(),
+      recycleBinRepository: recycleBin,
+      composerDraftRepository: MemoryComposerDraftRepository(),
+    );
     final cid = _addConversation(conversations, '甲会话');
-    drafts.saveDraft(
+    conversations.saveComposerDraft(
       cid,
       const ComposerDraft(segments: [ComposerTextSegment('跟着对话一起走')]),
     );
+    await conversations.flushPendingSaves();
+    await tester.pumpWidget(const SizedBox.shrink());
 
     await conversations.deleteConversation(cid);
+    expect(conversations.composerDraftFor(cid).isEmpty, isTrue);
 
-    expect(drafts.draftFor(cid).isEmpty, isTrue);
-    await drafts.flush();
-    await conversations.flushPendingSaves();
+    final item = (await recycleBin.load()).single;
+    expect((item.payload['composerDraft'] as Map)['segments'], isNotEmpty);
+
+    await conversations.restoreConversation(
+      Conversation.fromJson(
+        Map<String, dynamic>.from(item.payload['conversation'] as Map),
+      ),
+      draft: ComposerDraft.fromJson(
+        Map<String, dynamic>.from(item.payload['composerDraft'] as Map),
+      ),
+    );
+    final restored = conversations.composerDraftFor(cid);
+    expect(
+      restored.segments.whereType<ComposerTextSegment>().single.text,
+      '跟着对话一起走',
+    );
   });
 }
 
@@ -217,7 +240,7 @@ String _addConversation(
   List<MessageImage> images = const <MessageImage>[],
 }) {
   return conversations.createConversationWithMessages(
-    ConversationSettings(modelId: ''),
+    ConversationSettings(modelId: 'model'),
     messages: [
       (
         role: 'user',
@@ -240,7 +263,6 @@ Future<void> _pumpChat(
   WidgetTester tester,
   StorageV2Service storage,
   ConversationProvider conversations,
-  ComposerDraftService drafts,
 ) async {
   await tester.binding.setSurfaceSize(const Size(500, 800));
   addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -259,7 +281,6 @@ Future<void> _pumpChat(
         ChangeNotifierProvider(create: (_) => JottingProvider()),
         ChangeNotifierProvider.value(value: memoryRoleMemoryProvider()),
         ChangeNotifierProvider(create: (_) => BackendClient()),
-        Provider<ComposerDraftService>.value(value: drafts),
         Provider.value(value: storage),
       ],
       child: const MaterialApp(home: ChatPage()),
@@ -281,10 +302,8 @@ Future<void> _selectConversation(WidgetTester tester, String title) async {
 Future<void> _finish(
   WidgetTester tester,
   ConversationProvider conversations,
-  ComposerDraftService drafts,
 ) async {
-  // 草稿写盘是防抖的，收尾时显式落盘，避免测试结束时还留着计时器。
-  await drafts.flush();
+  await conversations.flushPendingSaves();
   await tester.pumpWidget(const SizedBox.shrink());
   await tester.pump(const Duration(milliseconds: 500));
   await conversations.flushPendingSaves();

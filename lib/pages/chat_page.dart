@@ -43,7 +43,6 @@ import '../services/attachment_storage_service.dart';
 import '../services/api_message_builder.dart';
 import '../services/api_service.dart';
 import '../services/on_device_llm_service.dart';
-import '../services/composer_draft_service.dart';
 import '../services/composer_selector_registry.dart';
 import '../services/agent_context_builder.dart';
 import '../services/agent_loop_runtime.dart';
@@ -251,17 +250,30 @@ class _PendingImage {
   final String name;
   final int size;
   final String mimeType;
+
+  /// 应用私有存储中对应的 Resource ID，用于草稿跨设备恢复。
+  final String? resourceId;
+
   const _PendingImage({
     required this.path,
     required this.name,
     required this.size,
     required this.mimeType,
+    this.resourceId,
   });
 
   bool get isImage => mimeType.startsWith('image/');
 
   MessageImage toMessageImage() =>
       MessageImage(path: path, name: name, size: size, mimeType: mimeType);
+
+  ComposerDraftAttachment toDraftAttachment() => ComposerDraftAttachment(
+    resourceId: resourceId,
+    path: path,
+    name: name,
+    size: size,
+    mimeType: mimeType,
+  );
 }
 
 /// 流式响应草稿状态。
@@ -380,17 +392,12 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
   final _streamDraft = ValueNotifier<_StreamDraft>(const _StreamDraft());
   final _inputRevision = ValueNotifier<int>(0);
 
-  ComposerDraftService? _composerDrafts;
-
   /// 输入框内容当前归属的对话；null 表示还没创建对话（新对话草稿）。
   String? _composerDraftSlot;
-
-  /// 输入框内容是否已经和草稿存储对齐。
-  ///
-  /// 未对齐时输入框是空的只是「还没恢复」，不能当成用户清空了草稿。
-  bool _composerDraftReady = false;
-  int _composerDraftGen = 0;
   String? _lastComposerDraftText;
+
+  /// 正在回填草稿：期间输入框通知只反映中间状态，不能写回缓存。
+  bool _applyingComposerDraft = false;
 
   String? _convId;
   String? _pendingModelId;
@@ -505,11 +512,6 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     } on ProviderNotFoundException {
       // Focused widget tests may omit optional web search composition.
     }
-    try {
-      _composerDrafts = context.read<ComposerDraftService>();
-    } on ProviderNotFoundException {
-      // Focused widget tests may omit composer draft persistence.
-    }
     _ownsApi = widget.api == null;
     _api = widget.api ?? ApiService(backend: backend);
     _recognition = ModelRecognitionService(api: _api);
@@ -534,7 +536,11 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     _maybeScheduleInitialPrompt();
     _msgCtrl.addListener(_onComposerChanged);
     // 初始提示词优先于草稿，因此这里只在输入框仍为空时填入。
-    unawaited(_restoreComposerDraft(_convId, replace: false));
+    _applyComposerDraft(
+      _convId,
+      context.read<ConversationProvider>().composerDraftFor(_convId),
+      replace: false,
+    );
   }
 
   /// 预填并可选自动发送由调用方（如插件工坊）传入的初始指令。
@@ -2805,6 +2811,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
               mimeType:
                   item.mimeType ??
                   AttachmentStorageService.inferMimeType(item.path),
+              resourceRole: 'message_image',
             ),
           ),
         );
@@ -2873,6 +2880,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
         directoryName: 'message_attachments',
         name: name,
         mimeType: mimeType,
+        resourceRole: 'message_attachment',
       ),
     );
   }
@@ -2884,6 +2892,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       await _attachmentStorage.storePayload(
         source,
         directoryName: 'message_attachments',
+        resourceRole: 'message_attachment',
       ),
     );
   }
@@ -2894,6 +2903,17 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       name: stored.name,
       size: stored.size,
       mimeType: stored.mimeType,
+      resourceId: stored.resourceId,
+    );
+  }
+
+  _PendingImage _pendingImageFromDraft(ComposerDraftAttachment attachment) {
+    return _PendingImage(
+      path: attachment.path,
+      name: attachment.name,
+      size: attachment.size,
+      mimeType: attachment.mimeType,
+      resourceId: attachment.resourceId,
     );
   }
 
@@ -2973,6 +2993,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
         directoryName: 'message_images',
         name: fileName,
         fallbackName: 'image',
+        resourceRole: 'message_image',
       );
       if (!mounted) return;
       _updatePendingImages(
@@ -5231,16 +5252,15 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     _syncComposerDraft();
   }
 
-  /// 把输入框当前正文与暂存附件写入当前对话的草稿。
+  /// 把输入框当前正文与暂存附件写入当前槽位的草稿。
   void _syncComposerDraft() {
-    final drafts = _composerDrafts;
-    if (drafts == null || !_composerDraftReady) return;
-    drafts.saveDraft(
+    if (_applyingComposerDraft) return;
+    context.read<ConversationProvider>().saveComposerDraft(
       _composerDraftSlot,
       ComposerDraft(
         segments: _msgCtrl.segments,
-        images: _pendingImages
-            .map((image) => image.toMessageImage())
+        attachments: _pendingImages
+            .map((image) => image.toDraftAttachment())
             .toList(growable: false),
       ),
     );
@@ -5249,68 +5269,58 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
   /// 切换对话时搬运输入框：旧对话的草稿落盘，新对话的草稿回填。
   void _switchComposerDraft(String? conversationId) {
     if (conversationId == _composerDraftSlot) return;
-    final drafts = _composerDrafts;
-    if (drafts != null && _composerDraftReady) {
-      final slot = _composerDraftSlot;
-      final removed =
-          slot != null &&
-          context.read<ConversationProvider>().getConversation(slot) == null;
-      // 对话已被删除（例如刚删掉正在查看的对话）时不再写回，否则删除后会被
-      // 输入框里的内容重新复活一份草稿。
-      if (!removed) {
-        _syncComposerDraft();
-        // 切换对话是明确的落点，不必等防抖。
-        unawaited(drafts.flush());
-      }
+    final conversations = context.read<ConversationProvider>();
+    final slot = _composerDraftSlot;
+    // 对话已被删除（例如刚删掉正在查看的对话）时不再写回，否则删除后会被输入框
+    // 里的内容重新复活一份草稿。
+    if (slot == null || conversations.getConversation(slot) != null) {
+      _syncComposerDraft();
     }
-    unawaited(_restoreComposerDraft(conversationId, replace: true));
+    _applyComposerDraft(
+      conversationId,
+      conversations.composerDraftFor(conversationId),
+    );
   }
 
   /// 发送时新建了对话：输入框内容原地转交给新对话，不读草稿也不改输入框。
   void _rebindComposerDraft(String conversationId) {
     if (conversationId == _composerDraftSlot) return;
     // 正在发送的内容不再算草稿；随后的清空会顺手删掉新对话的空草稿。
-    _composerDrafts?.removeDraft(_composerDraftSlot);
+    context.read<ConversationProvider>().saveComposerDraft(
+      _composerDraftSlot,
+      const ComposerDraft(),
+    );
     _composerDraftSlot = conversationId;
     _lastComposerDraftText = _msgCtrl.text;
-    _composerDraftReady = true;
   }
 
-  /// 把 [conversationId] 的草稿恢复到输入框。
+  /// 把 [conversationId] 槽位的草稿回填输入框。
   ///
-  /// [replace] 为真时无条件替换输入框内容（切换对话）；为假时只在输入框为空时
-  /// 填入，让调用方传入的 `initialPrompt` 优先。
-  Future<void> _restoreComposerDraft(
-    String? conversationId, {
-    required bool replace,
-  }) async {
-    final drafts = _composerDrafts;
+  /// [replace] 为假时只在输入框为空时填入，让调用方传入的 `initialPrompt` 优先。
+  void _applyComposerDraft(
+    String? conversationId,
+    ComposerDraft draft, {
+    bool replace = true,
+  }) {
     _composerDraftSlot = conversationId;
-    _composerDraftReady = false;
-    if (drafts == null) return;
-    final generation = ++_composerDraftGen;
-    await drafts.ensureLoaded();
-    if (!mounted || generation != _composerDraftGen) return;
-    final draft = drafts.draftFor(conversationId);
-    if (replace || _msgCtrl.text.isEmpty) {
-      _msgCtrl.replaceSegments(draft.segments);
-      _msgCtrl.selection = TextSelection.collapsed(
-        offset: _msgCtrl.text.length,
-      );
-      _inputRevision.value++;
-      // 附件文件可能已被外部清理，恢复时丢弃失效条目。
-      final images = draft.images
-          .where((image) => _attachmentExists(image.path))
-          .map(_pendingImageFromMessageImage)
-          .toList(growable: false);
-      setState(() {
-        _pendingImages
-          ..clear()
-          ..addAll(images);
-      });
+    _applyingComposerDraft = true;
+    try {
+      if (replace || _msgCtrl.text.isEmpty) {
+        _msgCtrl.replaceSegments(draft.segments);
+        _msgCtrl.selection = TextSelection.collapsed(
+          offset: _msgCtrl.text.length,
+        );
+        _inputRevision.value++;
+        setState(() {
+          _pendingImages
+            ..clear()
+            ..addAll(draft.attachments.map(_pendingImageFromDraft));
+        });
+      }
+    } finally {
+      _applyingComposerDraft = false;
     }
     _lastComposerDraftText = _msgCtrl.text;
-    _composerDraftReady = true;
   }
 
   /// 把一条用户消息的正文（含引用 Chip）和附件回填到输入框。
@@ -6321,6 +6331,10 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
   }
 
   Widget _pendingAttachmentPreview(_PendingImage file) {
+    // 远端同步过来的草稿附件可能还没落到本机，或文件已被外部清理。
+    if (!_attachmentExists(file.path)) {
+      return _fileChip(file.toMessageImage(), exists: false);
+    }
     if (file.mimeType.startsWith('image/')) {
       return ClipRRect(
         borderRadius: BorderRadius.circular(10),

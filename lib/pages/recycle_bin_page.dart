@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../models/composer_draft.dart';
 import '../models/conversation.dart';
 import '../models/calendar_event.dart';
 import '../models/anniversary.dart';
@@ -180,8 +181,12 @@ class _RecycleBinPageState extends State<RecycleBinPage> {
           case RecycleBinItemTypes.conversation:
             final raw = item.payload['conversation'];
             if (raw is! Map) throw Exception('回收站数据损坏');
+            final draft = item.payload['composerDraft'];
             await conversations.restoreConversation(
               Conversation.fromJson(Map<String, dynamic>.from(raw)),
+              draft: draft is Map
+                  ? ComposerDraft.fromJson(Map<String, dynamic>.from(draft))
+                  : null,
             );
           case RecycleBinItemTypes.note:
             await features.restoreNotePayload(item.payload);

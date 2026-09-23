@@ -245,7 +245,7 @@ Repository 只读写 storage_v2。启动阶段由 `StorageV2UpgradeService` 创�
 
 `tasks.json`/`calendar.json` 是 Repository、备份和同步的逻辑分区名称，不是在 `storage_v2/data/` 下维护的镜像。结构化唯一权威仍是 `app.db`。
 
-对话页输入框草稿是另一类本机状态：`ComposerDraftService` 按对话 ID 存在 SharedPreferences 里（键 `chat.composer_draft.v1.<对话 ID>`，未创建对话用 `new` 槽位），不写入 `app.db`，也不进入逻辑分区、备份、云同步或 LAN 同步；它需要跨进程存活，所以不能只放在内存里。草稿里的附件只保存应用私有存储（`message_images/`、`message_attachments/`）中的路径与元数据，文件仍是普通附件文件，不额外导入 resource/blob。同类本机 UI/设备状态（后端地址、悬浮窗位置、语音识别偏好）同样走 SharedPreferences，而不是 storage_v2。
+对话页输入框草稿（正文片段、引用 Chip 与暂存附件）属于对话分区：它存在 `composer_drafts` 表（逻辑文件名 `composer_drafts.json`），随对话一起备份与同步，删除对话时由 `ConversationProvider` 显式删除并把草稿快照放进回收站。尚未创建对话的草稿用 `slot = 'new'` 且没有 `conversationId`，只留在本机（同步侧按此判空跳过）。附件只保存 storage_v2 Resource ID 与展示元数据，文件仍是普通 Resource/Blob：另一台设备收到草稿行后按 Resource 解析本机路径，本地内容尚未到达或已被清理时输入框显示占位而不是丢掉条目。表不设 `conversations` 外键——新建对话后立刻打字时草稿行可能先于对话行落盘，外键会让这次写入整体失败；一致性由 Provider 的显式删除和同步删除变更保证（与 `runs` 的做法一致）。其他本机 UI/设备状态（后端地址、悬浮窗位置、语音识别偏好）继续走 SharedPreferences，而不是 storage_v2。
 
 ## 笔记时间线
 

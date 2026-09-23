@@ -45,7 +45,6 @@ import 'services/server_capabilities_service.dart';
 import 'services/dataset_secret_store.dart';
 import 'services/dataset_runtime_coordinator.dart';
 import 'services/dataset_runtime_barrier.dart';
-import 'services/composer_draft_service.dart';
 import 'services/device_settings_service.dart';
 import 'services/on_device_llm_service.dart';
 import 'services/agent_tool_registry.dart';
@@ -78,6 +77,7 @@ const _conversationSyncTables = {
   'conversations',
   'messages',
   'message_attachments',
+  'composer_drafts',
   'resources',
 };
 const _featureSyncTables = {
@@ -136,7 +136,6 @@ Future<void> main() async {
           ),
         ),
         Provider(create: (_) => DeviceSettingsService()),
-        Provider(create: (_) => ComposerDraftService()),
         Provider(create: (_) => AgentToolRegistry()),
         Provider<AgentToolResultProcessor>(
           create: (ctx) => SanitizingAgentToolResultProcessor(
@@ -204,10 +203,8 @@ Future<void> main() async {
           ),
         ),
         ChangeNotifierProvider(
-          create: (ctx) => ConversationProvider(
-            storageV2: ctx.read<StorageV2Service>(),
-            composerDrafts: ctx.read<ComposerDraftService>(),
-          ),
+          create: (ctx) =>
+              ConversationProvider(storageV2: ctx.read<StorageV2Service>()),
         ),
         ChangeNotifierProvider(
           create: (ctx) =>
@@ -740,7 +737,6 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
   bool _hasError = false;
   String _errorMessage = '';
   ConversationProvider? _conversationProvider;
-  ComposerDraftService? _composerDrafts;
   WorkspaceProvider? _workspaceProvider;
   FeatureProvider? _featureProvider;
   CalendarProvider? _calendarProvider;
@@ -777,13 +773,6 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
   void didChangeDependencies() {
     super.didChangeDependencies();
     _conversationProvider ??= context.read<ConversationProvider>();
-    if (_composerDrafts == null) {
-      try {
-        _composerDrafts = context.read<ComposerDraftService>();
-      } on ProviderNotFoundException {
-        // Focused widget tests may omit composer draft persistence.
-      }
-    }
     _workspaceProvider ??= context.read<WorkspaceProvider>();
     _featureProvider ??= context.read<FeatureProvider>();
     _calendarProvider ??= context.read<CalendarProvider>();
@@ -846,8 +835,6 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
             await flushAllTasks([
               if (_conversationProvider case final provider?)
                 (name: 'conversations', flush: provider.flushPendingSaves),
-              if (_composerDrafts case final drafts?)
-                (name: 'composerDrafts', flush: drafts.flush),
               if (_workspaceProvider case final provider?)
                 (name: 'workspaces', flush: provider.flushPendingSaves),
               if (_featureProvider case final provider?)

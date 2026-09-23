@@ -116,6 +116,43 @@ void main() {
     );
   });
 
+  test('composer drafts follow their conversation and never sync unsaved', () {
+    const conversations = SyncDataSelection({SyncDataCategory.conversations});
+    const notes = SyncDataSelection({SyncDataCategory.notes});
+
+    expect(
+      SyncDataRegistry.categoryForChange('composer_drafts', const {
+        'conversationId': 'conversation-1',
+      }),
+      SyncDataCategory.conversations,
+    );
+    // 尚未创建对话的草稿没有可归属的对话，只留在本机。
+    expect(
+      SyncDataRegistry.categoryForChange('composer_drafts', const {
+        'id': 'new',
+      }),
+      isNull,
+    );
+    expect(
+      SyncDataRegistry.allowsChange(conversations, 'composer_drafts', const {
+        'conversationId': 'conversation-1',
+      }),
+      isTrue,
+    );
+    expect(
+      SyncDataRegistry.allowsChange(notes, 'composer_drafts', const {
+        'conversationId': 'conversation-1',
+      }),
+      isFalse,
+    );
+    expect(
+      SyncDataRegistry.allowsChange(conversations, 'composer_drafts', const {
+        'id': 'new',
+      }),
+      isFalse,
+    );
+  });
+
   test('exact acknowledgement rejects duplicates and mismatched IDs', () {
     LanSyncCoordinator.validateExactAcknowledgement(
       const ['a', 'b'],

@@ -3617,6 +3617,333 @@ class MessageAttachmentRowsCompanion
   }
 }
 
+class $ComposerDraftRowsTable extends ComposerDraftRows
+    with TableInfo<$ComposerDraftRowsTable, ComposerDraftRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $ComposerDraftRowsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _slotMeta = const VerificationMeta('slot');
+  @override
+  late final GeneratedColumn<String> slot = GeneratedColumn<String>(
+    'slot',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _conversationIdMeta = const VerificationMeta(
+    'conversationId',
+  );
+  @override
+  late final GeneratedColumn<String> conversationId = GeneratedColumn<String>(
+    'conversation_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _draftJsonMeta = const VerificationMeta(
+    'draftJson',
+  );
+  @override
+  late final GeneratedColumn<String> draftJson = GeneratedColumn<String>(
+    'draft_json',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _updatedAtMeta = const VerificationMeta(
+    'updatedAt',
+  );
+  @override
+  late final GeneratedColumn<String> updatedAt = GeneratedColumn<String>(
+    'updated_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    slot,
+    conversationId,
+    draftJson,
+    updatedAt,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'composer_drafts';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<ComposerDraftRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('slot')) {
+      context.handle(
+        _slotMeta,
+        slot.isAcceptableOrUnknown(data['slot']!, _slotMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_slotMeta);
+    }
+    if (data.containsKey('conversation_id')) {
+      context.handle(
+        _conversationIdMeta,
+        conversationId.isAcceptableOrUnknown(
+          data['conversation_id']!,
+          _conversationIdMeta,
+        ),
+      );
+    }
+    if (data.containsKey('draft_json')) {
+      context.handle(
+        _draftJsonMeta,
+        draftJson.isAcceptableOrUnknown(data['draft_json']!, _draftJsonMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_draftJsonMeta);
+    }
+    if (data.containsKey('updated_at')) {
+      context.handle(
+        _updatedAtMeta,
+        updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_updatedAtMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {slot};
+  @override
+  ComposerDraftRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return ComposerDraftRow(
+      slot: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}slot'],
+      )!,
+      conversationId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}conversation_id'],
+      ),
+      draftJson: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}draft_json'],
+      )!,
+      updatedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}updated_at'],
+      )!,
+    );
+  }
+
+  @override
+  $ComposerDraftRowsTable createAlias(String alias) {
+    return $ComposerDraftRowsTable(attachedDatabase, alias);
+  }
+}
+
+class ComposerDraftRow extends DataClass
+    implements Insertable<ComposerDraftRow> {
+  final String slot;
+  final String? conversationId;
+  final String draftJson;
+  final String updatedAt;
+  const ComposerDraftRow({
+    required this.slot,
+    this.conversationId,
+    required this.draftJson,
+    required this.updatedAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['slot'] = Variable<String>(slot);
+    if (!nullToAbsent || conversationId != null) {
+      map['conversation_id'] = Variable<String>(conversationId);
+    }
+    map['draft_json'] = Variable<String>(draftJson);
+    map['updated_at'] = Variable<String>(updatedAt);
+    return map;
+  }
+
+  ComposerDraftRowsCompanion toCompanion(bool nullToAbsent) {
+    return ComposerDraftRowsCompanion(
+      slot: Value(slot),
+      conversationId: conversationId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(conversationId),
+      draftJson: Value(draftJson),
+      updatedAt: Value(updatedAt),
+    );
+  }
+
+  factory ComposerDraftRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return ComposerDraftRow(
+      slot: serializer.fromJson<String>(json['slot']),
+      conversationId: serializer.fromJson<String?>(json['conversationId']),
+      draftJson: serializer.fromJson<String>(json['draftJson']),
+      updatedAt: serializer.fromJson<String>(json['updatedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'slot': serializer.toJson<String>(slot),
+      'conversationId': serializer.toJson<String?>(conversationId),
+      'draftJson': serializer.toJson<String>(draftJson),
+      'updatedAt': serializer.toJson<String>(updatedAt),
+    };
+  }
+
+  ComposerDraftRow copyWith({
+    String? slot,
+    Value<String?> conversationId = const Value.absent(),
+    String? draftJson,
+    String? updatedAt,
+  }) => ComposerDraftRow(
+    slot: slot ?? this.slot,
+    conversationId: conversationId.present
+        ? conversationId.value
+        : this.conversationId,
+    draftJson: draftJson ?? this.draftJson,
+    updatedAt: updatedAt ?? this.updatedAt,
+  );
+  ComposerDraftRow copyWithCompanion(ComposerDraftRowsCompanion data) {
+    return ComposerDraftRow(
+      slot: data.slot.present ? data.slot.value : this.slot,
+      conversationId: data.conversationId.present
+          ? data.conversationId.value
+          : this.conversationId,
+      draftJson: data.draftJson.present ? data.draftJson.value : this.draftJson,
+      updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('ComposerDraftRow(')
+          ..write('slot: $slot, ')
+          ..write('conversationId: $conversationId, ')
+          ..write('draftJson: $draftJson, ')
+          ..write('updatedAt: $updatedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(slot, conversationId, draftJson, updatedAt);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is ComposerDraftRow &&
+          other.slot == this.slot &&
+          other.conversationId == this.conversationId &&
+          other.draftJson == this.draftJson &&
+          other.updatedAt == this.updatedAt);
+}
+
+class ComposerDraftRowsCompanion extends UpdateCompanion<ComposerDraftRow> {
+  final Value<String> slot;
+  final Value<String?> conversationId;
+  final Value<String> draftJson;
+  final Value<String> updatedAt;
+  final Value<int> rowid;
+  const ComposerDraftRowsCompanion({
+    this.slot = const Value.absent(),
+    this.conversationId = const Value.absent(),
+    this.draftJson = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  ComposerDraftRowsCompanion.insert({
+    required String slot,
+    this.conversationId = const Value.absent(),
+    required String draftJson,
+    required String updatedAt,
+    this.rowid = const Value.absent(),
+  }) : slot = Value(slot),
+       draftJson = Value(draftJson),
+       updatedAt = Value(updatedAt);
+  static Insertable<ComposerDraftRow> custom({
+    Expression<String>? slot,
+    Expression<String>? conversationId,
+    Expression<String>? draftJson,
+    Expression<String>? updatedAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (slot != null) 'slot': slot,
+      if (conversationId != null) 'conversation_id': conversationId,
+      if (draftJson != null) 'draft_json': draftJson,
+      if (updatedAt != null) 'updated_at': updatedAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  ComposerDraftRowsCompanion copyWith({
+    Value<String>? slot,
+    Value<String?>? conversationId,
+    Value<String>? draftJson,
+    Value<String>? updatedAt,
+    Value<int>? rowid,
+  }) {
+    return ComposerDraftRowsCompanion(
+      slot: slot ?? this.slot,
+      conversationId: conversationId ?? this.conversationId,
+      draftJson: draftJson ?? this.draftJson,
+      updatedAt: updatedAt ?? this.updatedAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (slot.present) {
+      map['slot'] = Variable<String>(slot.value);
+    }
+    if (conversationId.present) {
+      map['conversation_id'] = Variable<String>(conversationId.value);
+    }
+    if (draftJson.present) {
+      map['draft_json'] = Variable<String>(draftJson.value);
+    }
+    if (updatedAt.present) {
+      map['updated_at'] = Variable<String>(updatedAt.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('ComposerDraftRowsCompanion(')
+          ..write('slot: $slot, ')
+          ..write('conversationId: $conversationId, ')
+          ..write('draftJson: $draftJson, ')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
 class $NoteFolderRowsTable extends NoteFolderRows
     with TableInfo<$NoteFolderRowsTable, NoteFolderRow> {
   @override
@@ -27372,6 +27699,8 @@ abstract class _$StorageV2DriftDatabase extends GeneratedDatabase {
   late final $MessageRowsTable messageRows = $MessageRowsTable(this);
   late final $MessageAttachmentRowsTable messageAttachmentRows =
       $MessageAttachmentRowsTable(this);
+  late final $ComposerDraftRowsTable composerDraftRows =
+      $ComposerDraftRowsTable(this);
   late final $NoteFolderRowsTable noteFolderRows = $NoteFolderRowsTable(this);
   late final $NoteRowsTable noteRows = $NoteRowsTable(this);
   late final $NotePageRowsTable notePageRows = $NotePageRowsTable(this);
@@ -27452,6 +27781,10 @@ abstract class _$StorageV2DriftDatabase extends GeneratedDatabase {
   late final $ToolCallRowsTable toolCallRows = $ToolCallRowsTable(this);
   late final $SnapshotRowsTable snapshotRows = $SnapshotRowsTable(this);
   late final $McpServerRowsTable mcpServerRows = $McpServerRowsTable(this);
+  late final Index idxComposerDraftsConversation = Index(
+    'idx_composer_drafts_conversation',
+    'CREATE INDEX idx_composer_drafts_conversation ON composer_drafts (conversation_id)',
+  );
   late final Index idxSyncOutboxScopeUpdatedTableRecord = Index(
     'idx_sync_outbox_scope_updated_table_record',
     'CREATE INDEX idx_sync_outbox_scope_updated_table_record ON sync_outbox (scope, updated_at, table_name, record_id)',
@@ -27500,6 +27833,7 @@ abstract class _$StorageV2DriftDatabase extends GeneratedDatabase {
     conversationRows,
     messageRows,
     messageAttachmentRows,
+    composerDraftRows,
     noteFolderRows,
     noteRows,
     notePageRows,
@@ -27546,6 +27880,7 @@ abstract class _$StorageV2DriftDatabase extends GeneratedDatabase {
     toolCallRows,
     snapshotRows,
     mcpServerRows,
+    idxComposerDraftsConversation,
     idxSyncOutboxScopeUpdatedTableRecord,
     idxSyncOutboxScopeChangeMutation,
     idxSyncConflictsScopeTableRecord,
@@ -29556,6 +29891,202 @@ typedef $$MessageAttachmentRowsTableProcessedTableManager =
         >,
       ),
       MessageAttachmentRow,
+      PrefetchHooks Function()
+    >;
+typedef $$ComposerDraftRowsTableCreateCompanionBuilder =
+    ComposerDraftRowsCompanion Function({
+      required String slot,
+      Value<String?> conversationId,
+      required String draftJson,
+      required String updatedAt,
+      Value<int> rowid,
+    });
+typedef $$ComposerDraftRowsTableUpdateCompanionBuilder =
+    ComposerDraftRowsCompanion Function({
+      Value<String> slot,
+      Value<String?> conversationId,
+      Value<String> draftJson,
+      Value<String> updatedAt,
+      Value<int> rowid,
+    });
+
+class $$ComposerDraftRowsTableFilterComposer
+    extends Composer<_$StorageV2DriftDatabase, $ComposerDraftRowsTable> {
+  $$ComposerDraftRowsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get slot => $composableBuilder(
+    column: $table.slot,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get conversationId => $composableBuilder(
+    column: $table.conversationId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get draftJson => $composableBuilder(
+    column: $table.draftJson,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$ComposerDraftRowsTableOrderingComposer
+    extends Composer<_$StorageV2DriftDatabase, $ComposerDraftRowsTable> {
+  $$ComposerDraftRowsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get slot => $composableBuilder(
+    column: $table.slot,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get conversationId => $composableBuilder(
+    column: $table.conversationId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get draftJson => $composableBuilder(
+    column: $table.draftJson,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$ComposerDraftRowsTableAnnotationComposer
+    extends Composer<_$StorageV2DriftDatabase, $ComposerDraftRowsTable> {
+  $$ComposerDraftRowsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get slot =>
+      $composableBuilder(column: $table.slot, builder: (column) => column);
+
+  GeneratedColumn<String> get conversationId => $composableBuilder(
+    column: $table.conversationId,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get draftJson =>
+      $composableBuilder(column: $table.draftJson, builder: (column) => column);
+
+  GeneratedColumn<String> get updatedAt =>
+      $composableBuilder(column: $table.updatedAt, builder: (column) => column);
+}
+
+class $$ComposerDraftRowsTableTableManager
+    extends
+        RootTableManager<
+          _$StorageV2DriftDatabase,
+          $ComposerDraftRowsTable,
+          ComposerDraftRow,
+          $$ComposerDraftRowsTableFilterComposer,
+          $$ComposerDraftRowsTableOrderingComposer,
+          $$ComposerDraftRowsTableAnnotationComposer,
+          $$ComposerDraftRowsTableCreateCompanionBuilder,
+          $$ComposerDraftRowsTableUpdateCompanionBuilder,
+          (
+            ComposerDraftRow,
+            BaseReferences<
+              _$StorageV2DriftDatabase,
+              $ComposerDraftRowsTable,
+              ComposerDraftRow
+            >,
+          ),
+          ComposerDraftRow,
+          PrefetchHooks Function()
+        > {
+  $$ComposerDraftRowsTableTableManager(
+    _$StorageV2DriftDatabase db,
+    $ComposerDraftRowsTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$ComposerDraftRowsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$ComposerDraftRowsTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$ComposerDraftRowsTableAnnotationComposer(
+                $db: db,
+                $table: table,
+              ),
+          updateCompanionCallback:
+              ({
+                Value<String> slot = const Value.absent(),
+                Value<String?> conversationId = const Value.absent(),
+                Value<String> draftJson = const Value.absent(),
+                Value<String> updatedAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => ComposerDraftRowsCompanion(
+                slot: slot,
+                conversationId: conversationId,
+                draftJson: draftJson,
+                updatedAt: updatedAt,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String slot,
+                Value<String?> conversationId = const Value.absent(),
+                required String draftJson,
+                required String updatedAt,
+                Value<int> rowid = const Value.absent(),
+              }) => ComposerDraftRowsCompanion.insert(
+                slot: slot,
+                conversationId: conversationId,
+                draftJson: draftJson,
+                updatedAt: updatedAt,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$ComposerDraftRowsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$StorageV2DriftDatabase,
+      $ComposerDraftRowsTable,
+      ComposerDraftRow,
+      $$ComposerDraftRowsTableFilterComposer,
+      $$ComposerDraftRowsTableOrderingComposer,
+      $$ComposerDraftRowsTableAnnotationComposer,
+      $$ComposerDraftRowsTableCreateCompanionBuilder,
+      $$ComposerDraftRowsTableUpdateCompanionBuilder,
+      (
+        ComposerDraftRow,
+        BaseReferences<
+          _$StorageV2DriftDatabase,
+          $ComposerDraftRowsTable,
+          ComposerDraftRow
+        >,
+      ),
+      ComposerDraftRow,
       PrefetchHooks Function()
     >;
 typedef $$NoteFolderRowsTableCreateCompanionBuilder =
@@ -45489,6 +46020,8 @@ class $StorageV2DriftDatabaseManager {
       $$MessageRowsTableTableManager(_db, _db.messageRows);
   $$MessageAttachmentRowsTableTableManager get messageAttachmentRows =>
       $$MessageAttachmentRowsTableTableManager(_db, _db.messageAttachmentRows);
+  $$ComposerDraftRowsTableTableManager get composerDraftRows =>
+      $$ComposerDraftRowsTableTableManager(_db, _db.composerDraftRows);
   $$NoteFolderRowsTableTableManager get noteFolderRows =>
       $$NoteFolderRowsTableTableManager(_db, _db.noteFolderRows);
   $$NoteRowsTableTableManager get noteRows =>

@@ -12,15 +12,24 @@ class StoredAttachment {
   final int size;
   final String mimeType;
 
+  /// 应用私有存储中对应的 Resource ID，导入失败或未导入时为空。
+  final String? resourceId;
+
   const StoredAttachment({
     required this.path,
     required this.name,
     required this.size,
     required this.mimeType,
+    this.resourceId,
   });
 }
 
 /// Copies user selected files into app-private storage and returns metadata.
+///
+/// 传入 `resourceRole` 时，文件复制完成后会顺带导入成 storage_v2 Resource：内容是
+/// 哈希去重的，所以同一份文件在发送或再次导入时复用同一条 Resource 与同一份 blob。
+/// 聊天附件依赖这条 Resource 记录实现草稿跨设备恢复（见 `ComposerDraftAttachment`）；
+/// 其他调用方（情景演绎、插件函数）不传就保持纯文件暂存。
 class AttachmentStorageService {
   const AttachmentStorageService({
     Directory? baseDirectory,
@@ -37,14 +46,16 @@ class AttachmentStorageService {
     required String name,
     String fallbackName = 'file',
     String? mimeType,
+    String? resourceRole,
   }) async {
     final target = await _targetFile(directoryName, name, fallbackName);
     final stored = await source.copy(target.path);
-    return StoredAttachment(
+    return _stored(
       path: stored.path,
       name: name,
       size: await stored.length(),
       mimeType: mimeType ?? inferMimeType(name, fallbackPath: source.path),
+      role: resourceRole,
     );
   }
 
@@ -52,14 +63,16 @@ class AttachmentStorageService {
     PickedFilePayload source, {
     required String directoryName,
     String fallbackName = 'file',
+    String? resourceRole,
   }) async {
     final target = await _targetFile(directoryName, source.name, fallbackName);
     await source.copyTo(target);
-    return StoredAttachment(
+    return _stored(
       path: target.path,
       name: source.name,
       size: await target.length(),
       mimeType: inferMimeType(source.name, fallbackPath: source.path),
+      role: resourceRole,
     );
   }
 
@@ -69,16 +82,53 @@ class AttachmentStorageService {
     required String name,
     String fallbackName = 'file',
     String? mimeType,
+    String? resourceRole,
   }) async {
     final target = await _targetFile(directoryName, name, fallbackName);
     await target.writeAsBytes(bytes, flush: true);
-    return StoredAttachment(
+    return _stored(
       path: target.path,
       name: name,
       size: bytes.length,
       mimeType: mimeType ?? inferMimeType(name),
+      role: resourceRole,
     );
   }
+
+  /// 按需导入 Resource 并返回附件元数据；导入失败不阻塞附件暂存。
+  Future<StoredAttachment> _stored({
+    required String path,
+    required String name,
+    required int size,
+    required String mimeType,
+    required String? role,
+  }) async {
+    String? resourceId;
+    final storage = _storageV2;
+    if (storage != null && role != null) {
+      try {
+        resourceId = (await storage.importResourceFile(
+          path,
+          originalName: name,
+          mimeType: mimeType,
+          role: role,
+        )).id;
+      } catch (_) {
+        resourceId = null;
+      }
+    }
+    return StoredAttachment(
+      path: path,
+      name: name,
+      size: size,
+      mimeType: mimeType,
+      resourceId: resourceId,
+    );
+  }
+
+  /// 聊天附件使用的 Resource 角色：图片与文件分开，两者都参与同步。
+  static String messageResourceRole(String mimeType) =>
+      mimeType.startsWith('image/') ? 'message_image' : 'message_attachment';
 
   Future<File> _targetFile(
     String directoryName,

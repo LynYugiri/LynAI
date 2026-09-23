@@ -1,6 +1,7 @@
-import 'app_settings.dart';
 import 'anniversary.dart';
+import 'app_settings.dart';
 import 'calendar_event.dart';
+import 'composer_draft.dart';
 import 'conversation.dart';
 import 'knowledge_base.dart';
 import 'knowledge_category.dart';
@@ -437,6 +438,9 @@ class BackupData {
   /// 对话记录列表。
   final List<Conversation>? conversations;
 
+  /// 输入框草稿，按槽位（对话 ID）索引。
+  final Map<String, ComposerDraft>? composerDrafts;
+
   /// 笔记文件夹列表。
   final List<NoteFolder>? noteFolders;
 
@@ -501,6 +505,7 @@ class BackupData {
     this.modelConfigs,
     this.modelApiKeys,
     this.conversations,
+    this.composerDrafts,
     this.noteFolders,
     this.notes,
     this.notePages,

@@ -81,6 +81,7 @@ class SyncDataRegistry {
     'conversations',
     'messages',
     'message_attachments',
+    'composer_drafts',
     'tasks',
     'task_lists',
     'task_list_entries',
@@ -118,6 +119,8 @@ class SyncDataRegistry {
     'conversations' ||
     'messages' ||
     'message_attachments' => SyncDataCategory.conversations,
+    // 尚未创建对话的草稿没有可绑定的对话，只留在本机。
+    'composer_drafts' => _composerDraftOwner(data),
     'note_folders' ||
     'notes' ||
     'note_pages' ||
@@ -161,6 +164,12 @@ class SyncDataRegistry {
     Map<String, dynamic>? data,
     Map<String, dynamic>? localHint,
   ) => data ?? localHint;
+
+  static SyncDataCategory? _composerDraftOwner(Map<String, dynamic>? data) {
+    final conversationId = data?['conversationId'];
+    if (conversationId is! String || conversationId.isEmpty) return null;
+    return SyncDataCategory.conversations;
+  }
 
   static SyncDataCategory? _resourceOwner(Object? role) => switch (role) {
     'message_attachment' || 'message_image' => SyncDataCategory.conversations,
