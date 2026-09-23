@@ -90,7 +90,7 @@ flutter test
 
 进入 `设置 -> API` 添加模型配置。Chat 配置可以使用预设 Endpoint，也可以填写自定义 OpenAI 兼容接口。
 
-当前源码内置的远程后端地址使用未加密 HTTP，仅用于隔离测试和联调。不要向其提交真实账号、常用密码或生产数据。生产部署和正式 Release 必须配置受信任的 HTTPS 后端；稳定版发布工作流会阻止内置后端仍为 HTTP 的版本发布。
+当前源码内置的远程后端地址使用未加密 HTTP，仅用于隔离测试和联调。不要向其提交真实账号、常用密码或生产数据。生产部署和正式 Release 必须配置受信任的 HTTPS 后端。
 
 | 分类 | 用途 | 关键字段 |
 |------|------|----------|
@@ -182,7 +182,7 @@ GitHub Actions 工作流位于 `.github/workflows/build.yml`。
 |------|------|
 | push 到主分支 | 构建 Android、Linux、Windows、macOS，并更新 nightly 预发布。 |
 | pull request 到主分支 | 构建验证。 |
-| tag `v*` | 仅在内置生产后端为 HTTPS 时创建正式 Release。 |
+| tag `v*` | 创建正式 Release。 |
 
 ## 许可证
 
