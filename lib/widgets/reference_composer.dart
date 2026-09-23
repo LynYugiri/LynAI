@@ -41,8 +41,8 @@ class ReferenceComposerController extends TextEditingController {
   /// 发送给模型的正文：引用替换为 `<lynai_ref .../>`。
   String get modelText => _render(ComposerReferenceCodec.encode);
 
-  /// 气泡展示的正文：引用替换为 `@标题`。
-  String get displayText => _render((ref) => '@${ref.title}');
+  /// 气泡展示的正文：引用替换为 `@标题`；文件夹引用带层级后缀以便区分。
+  String get displayText => _render((ref) => '@${ref.displayTitle}');
 
   /// 片段列表，供消息持久化。
   List<ComposerSegment> get segments {
@@ -88,6 +88,56 @@ class ReferenceComposerController extends TextEditingController {
     value = TextEditingValue(
       text: text.replaceRange(start, end, token),
       selection: TextSelection.collapsed(offset: start + token.length),
+    );
+  }
+
+  /// 把 `[start, end)`（通常是 `@查询词` 触发段）整体替换成一个引用 Chip。
+  ///
+  /// 光标停在 Chip 之后，触发文本不残留。
+  void replaceRangeWithReference(
+    int start,
+    int end,
+    ComposerReference reference,
+  ) {
+    final safeStart = start.clamp(0, text.length);
+    final safeEnd = end.clamp(safeStart, text.length);
+    final code = _allocateCode();
+    _refsByCode[code] = reference;
+    final token = String.fromCharCode(code);
+    final next = text.replaceRange(safeStart, safeEnd, token);
+    value = TextEditingValue(
+      text: next,
+      selection: TextSelection.collapsed(offset: safeStart + token.length),
+    );
+  }
+
+  /// 把 `[start, end)`（通常是 `/查询词` 触发段）替换成普通文本。
+  ///
+  /// [replacement] 为空即删除该段；光标停在替换文本之后。用于指令面板：
+  /// 立即执行的指令吃光触发文本，插入文本型指令留下可编辑正文。
+  void replaceRangeWithText(int start, int end, String replacement) {
+    final safeStart = start.clamp(0, text.length);
+    final safeEnd = end.clamp(safeStart, text.length);
+    final next = text.replaceRange(safeStart, safeEnd, replacement);
+    value = TextEditingValue(
+      text: next,
+      selection: TextSelection.collapsed(
+        offset: safeStart + replacement.length,
+      ),
+    );
+  }
+
+  /// 用普通文本替换当前选区（无选区时在光标处插入）。
+  ///
+  /// 引用按钮用它插入 `@` 触发符：触发态由文本推导，按钮不必另存状态。
+  void replaceSelectionWithText(String replacement) {
+    final sel = selection;
+    final start = sel.isValid ? sel.start : text.length;
+    final end = sel.isValid ? sel.end : start;
+    final next = text.replaceRange(start, end, replacement);
+    value = TextEditingValue(
+      text: next,
+      selection: TextSelection.collapsed(offset: start + replacement.length),
     );
   }
 
@@ -207,12 +257,19 @@ class _ReferenceChip extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(_typeIcon(reference.type), size: 12, color: scheme.primary),
+          Icon(
+            composerReferenceIcon(
+              reference.type,
+              scope: reference.scope,
+            ),
+            size: 12,
+            color: scheme.primary,
+          ),
           const SizedBox(width: 3),
           ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 120),
             child: Text(
-              reference.title,
+              reference.displayTitle,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(fontSize: 13, color: scheme.primary),
@@ -222,8 +279,15 @@ class _ReferenceChip extends StatelessWidget {
       ),
     );
   }
+}
 
-  IconData _typeIcon(ComposerReferenceType type) => switch (type) {
+/// 引用类型的显示图标；文件夹层级用文件夹图标区分「整个文件夹」。
+IconData composerReferenceIcon(
+  ComposerReferenceType type, {
+  ComposerReferenceScope scope = ComposerReferenceScope.entity,
+}) {
+  if (scope == ComposerReferenceScope.folder) return Icons.folder_outlined;
+  return switch (type) {
     ComposerReferenceType.note => Icons.note,
     ComposerReferenceType.notePage => Icons.description,
     ComposerReferenceType.task => Icons.check_circle_outline,
@@ -232,5 +296,6 @@ class _ReferenceChip extends StatelessWidget {
     ComposerReferenceType.knowledgeEntry => Icons.description_outlined,
     ComposerReferenceType.pluginResource => Icons.extension,
     ComposerReferenceType.pluginSkill => Icons.auto_awesome,
+    ComposerReferenceType.conversation => Icons.forum_outlined,
   };
 }

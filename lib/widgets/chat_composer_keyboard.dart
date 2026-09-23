@@ -29,11 +29,20 @@ class ChatComposerKeyboard extends StatelessWidget {
     required this.onSend,
     required this.child,
     this.onPaste,
+    this.onPaletteKey,
   });
 
   final TextEditingController controller;
   final VoidCallback onSend;
   final VoidCallback? onPaste;
+
+  /// `@` / `/` 触发面板打开时的按键拦截；返回 true 表示已消费。
+  ///
+  /// 面板的候选项选中态由页面持有，所以键盘语义（↑/↓ 移动、Enter 确认、
+  /// Esc 关闭）在这里统一转发给页面；面板关闭时该回调为 null，回车与方向键
+  /// 的既有行为完全不变。
+  final bool Function(KeyEvent event)? onPaletteKey;
+
   final Widget child;
 
   @override
@@ -42,6 +51,15 @@ class ChatComposerKeyboard extends StatelessWidget {
   }
 
   KeyEventResult _handleKeyEvent(FocusNode node, KeyEvent event) {
+    final paletteKey = onPaletteKey;
+    if (paletteKey != null &&
+        (event is KeyDownEvent || event is KeyRepeatEvent)) {
+      // 输入法组合期间不抢键：此时 Enter 属于上屏而不是确认候选项。
+      final composingRange = controller.value.composing;
+      final composing =
+          composingRange.isValid && !composingRange.isCollapsed;
+      if (!composing && paletteKey(event)) return KeyEventResult.handled;
+    }
     if (event is! KeyDownEvent) return KeyEventResult.ignored;
     final keyboard = HardwareKeyboard.instance;
     if (event.logicalKey == LogicalKeyboardKey.enter) {

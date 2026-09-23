@@ -8,6 +8,7 @@ import '../models/agent_working_memory.dart';
 import '../models/composer_draft.dart';
 import '../models/composer_reference.dart';
 import '../models/conversation.dart';
+import '../models/conversation_context.dart';
 import '../models/conversation_plugin_artifact.dart';
 import '../models/message.dart';
 import '../models/model_config.dart';
@@ -744,6 +745,80 @@ class ConversationProvider extends ChangeNotifier with SerializedSaveQueue {
     _touchConversation(index);
     _queueSaveConversations();
     notifyListeners();
+  }
+
+  /// 设置或清除 `/压缩` 产生的上下文检查点。
+  ///
+  /// 只改检查点，不动原始消息：被覆盖的历史仍然完整保留在 [Conversation.messages]。
+  void setContextCheckpoint(
+    String conversationId,
+    ConversationContextCheckpoint? checkpoint,
+  ) {
+    final index = _conversations.indexWhere((c) => c.id == conversationId);
+    if (index == -1) return;
+    _conversations[index] = _conversations[index].copyWith(
+      contextCheckpoint: checkpoint,
+      updatedAt: DateTime.now(),
+    );
+    _touchConversation(index);
+    _queueSaveConversations();
+    notifyListeners();
+  }
+
+  /// 把引用并入会话引用池。
+  ///
+  /// 池子独立于消息上下文，不进入 [buildApiMessages]，也不受上下文压缩影响；
+  /// 同键条目只更新时间与标题，超出上限时淘汰最久未引用的条目。
+  void rememberComposerReferences(
+    String conversationId,
+    Iterable<ComposerReference> references,
+  ) {
+    final list = references
+        .where((reference) => reference.id.isNotEmpty)
+        .toList(growable: false);
+    if (list.isEmpty) return;
+    final index = _conversations.indexWhere((c) => c.id == conversationId);
+    if (index == -1) return;
+    final next = _conversations[index].referencePool.merged(
+      list,
+      now: DateTime.now(),
+    );
+    _conversations[index] = _conversations[index].copyWith(
+      referencePool: next,
+    );
+    _queueSaveConversations();
+    notifyListeners();
+  }
+
+  /// 消息被编辑或撤回后收敛检查点覆盖范围；覆盖集合清空则清除检查点。
+  void reconcileContextCheckpoint(String conversationId) {
+    final index = _conversations.indexWhere((c) => c.id == conversationId);
+    if (index == -1) return;
+    final conversation = _conversations[index];
+    final checkpoint = conversation.contextCheckpoint;
+    if (checkpoint == null) return;
+    final next = checkpoint.withCoveredMessages(
+      conversation.messages.map((message) => message.id),
+    );
+    if (identical(next, checkpoint)) return;
+    _conversations[index] = next == null
+        ? conversation.copyWith(contextCheckpoint: null)
+        : conversation.copyWith(contextCheckpoint: next);
+    _queueSaveConversations();
+    notifyListeners();
+  }
+
+  /// 取当前有效检查点：覆盖集合与现存消息对不上时视为已失效。
+  ///
+  /// 撤回、分支重置或远端同步改写消息 ID 后，旧检查点描述的历史已不存在，
+  /// 继续用它顶替会误导模型，因此按失效处理（只改内存视图，下一次落盘时自然
+  /// 以修正后的集合写回）。
+  ConversationContextCheckpoint? liveContextCheckpoint(String conversationId) {
+    final conversation = getConversation(conversationId);
+    final checkpoint = conversation?.contextCheckpoint;
+    if (conversation == null || checkpoint == null) return null;
+    final alive = conversation.messages.map((message) => message.id).toSet();
+    return checkpoint.withCoveredMessages(alive);
   }
 
   void updateAgentWorkingMemory(

@@ -41,11 +41,15 @@ void main() {
       LynAIPermissions.notesRead,
     ]);
 
+    // 权限清单会随新增权限变长；scrollUntilVisible 只保证目标「露出一点」，
+    // 目标中心仍可能落在视口外导致点击落空，因此再 ensureVisible 收尾。
     await tester.scrollUntilVisible(
       find.text('访问网络'),
       300,
       scrollable: find.byType(Scrollable).first,
     );
+    await tester.ensureVisible(find.text('访问网络'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('访问网络'));
     await tester.pump();
     expect(settings.settings.agentEnabledByDefault, isTrue);

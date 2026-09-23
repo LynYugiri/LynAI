@@ -55,7 +55,19 @@
 
 文件：`lib/models/composer_reference.dart`
 
-`ComposerReference` 是引用面板选中的类型化引用，仅携带 `type`（`note`/`note_page`/`task`/`task_list`/`plugin_resource`/`plugin_skill`）、稳定 `id`、本地显示标题与 `qualifiers`。`ComposerReferenceCodec` 唯一负责生成/解析 `<lynai_ref type="..." id="..." .../>`：发送给模型的正文只包含 type/id 与稳定限定字段，不含标题或正文。`ComposerSegment` 区分 `ComposerTextSegment` 与 `ComposerReferenceSegment`，`encodeComposerSegments`/`decodeComposerSegments` 负责消息持久化的序列化；`composerSegmentsToJson`/`composerSegmentsFromJson` 供需要嵌套编码的调用方复用。
+`ComposerReference` 是引用面板选中的类型化引用，仅携带 `type`（`note`/`note_page`/`task`/`task_list`/`knowledge_base`/`knowledge_entry`/`plugin_resource`/`plugin_skill`/`conversation`）、稳定 `id`、本地显示标题、`scope` 与 `qualifiers`。`ComposerReferenceCodec` 唯一负责生成/解析 `<lynai_ref type="..." id="..." .../>`：发送给模型的正文只包含 type/id、`scope` 与稳定限定字段，不含标题或正文。
+
+**资源类型不等于分级层级**：引用面板每一级都能直接引用，在文件夹层停下就是「引用整个文件夹」，层级由 `ComposerReferenceScope`（`entity`/`folder`）表达，不为每种分级再造类型。`folder` 编码为 `scope="folder"` 限定字段，`entity` 省略不写，因此既有的 `<lynai_ref/>` wire 完全不变。`displayTitle` 为文件夹引用追加「（整个文件夹）」后缀，避免与同名实体混淆；`poolKey` 是引用池去重键（`type:scope:id`），必须与 `ConversationReferenceEntry.key` 保持一致。
+
+`ComposerSegment` 区分 `ComposerTextSegment` 与 `ComposerReferenceSegment`，`encodeComposerSegments`/`decodeComposerSegments` 负责消息持久化的序列化；`composerSegmentsToJson`/`composerSegmentsFromJson` 供需要嵌套编码的调用方复用。
+
+## 对话上下文检查点与会话引用池
+
+文件：`lib/models/conversation_context.dart`
+
+`ConversationContextCheckpoint` 是 `/压缩` 指令产生的**对话级**检查点：`summary`、`coveredMessageIds`、`createdAt` 与生成用的 `modelId`。原始消息一条都不删除，发送时由 `buildApiMessages` 把被覆盖的那段历史整体换成一条 `Context checkpoint:` 系统消息；`withCoveredMessages` 在编辑、撤回或远端同步改写消息 ID 后收敛覆盖集合，集合为空即视为失效。它与自动压缩的区别是持久化在对话数据里（随对话备份与云/LAN 同步），而自动压缩只在单次请求内临时顶替被裁剪的历史。
+
+`ConversationReferencePool` 是会话引用池：用户在对话里引用过的资源自动沉淀进来，按 `type:scope:id` 去重、按上限（`maxEntries`）淘汰最久未引用的条目。池子**独立于消息上下文**——不进入 `buildApiMessages`、不受上下文压缩影响，模型只能通过 `list_conversation_references` 查询清单，再用各资源自己的读取工具按 id 取正文。`ConversationReferenceEntry.scopeLabel` 把层级翻译成 `entity`/`folder`，避免模型把文件夹当成单个实体去读。
 
 ## 输入框草稿
 

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
-import '../models/composer_reference.dart';
 import '../services/composer_selector_registry.dart';
+import 'reference_composer.dart';
 
 /// 引用面板：从选择器注册表选取实体，生成类型化引用。
 ///
@@ -179,8 +179,9 @@ class _ComposerReferencePaletteState extends State<ComposerReferencePalette> {
             child: Center(child: CircularProgressIndicator()),
           );
         }
+        final root = selector.rootValue?.call(_path);
         final items = snapshot.data!;
-        if (items.isEmpty) {
+        if (items.isEmpty && root == null) {
           return const Padding(
             padding: EdgeInsets.all(24),
             child: Text('没有匹配项', textAlign: TextAlign.center),
@@ -189,60 +190,83 @@ class _ComposerReferencePaletteState extends State<ComposerReferencePalette> {
         return ListView(
           shrinkWrap: true,
           children: [
+            // 当前层的范围引用放在最前：不继续下钻就等于引用整层。
+            if (root != null)
+              ListTile(
+                dense: true,
+                leading: Icon(
+                  composerReferenceIcon(root.type, scope: root.scope),
+                  size: 20,
+                ),
+                title: Text(
+                  '引用整个「${root.title}」',
+                  style: const TextStyle(fontSize: 14),
+                ),
+                subtitle: root.subtitle == null
+                    ? null
+                    : Text(
+                        root.subtitle!,
+                        style: const TextStyle(fontSize: 12),
+                      ),
+                onTap: () => widget.onSelected(root, selector.modelId),
+              ),
             for (final item in items)
-              item.kind == ComposerSelectorItemKind.folder
-                  ? ListTile(
-                      dense: true,
-                      leading: const Icon(Icons.folder_outlined, size: 20),
-                      title: Text(
-                        item.title,
-                        style: const TextStyle(fontSize: 14),
-                      ),
-                      subtitle: item.subtitle == null
-                          ? null
-                          : Text(
-                              item.subtitle!,
-                              style: const TextStyle(fontSize: 12),
-                            ),
-                      trailing: const Icon(Icons.chevron_right, size: 20),
-                      onTap: () => setState(() {
-                        _path.add(item.key.split(':').last);
-                      }),
-                    )
-                  : ListTile(
-                      dense: true,
-                      leading: Icon(_valueIcon(item.value?.type), size: 20),
-                      title: Text(
-                        item.title,
-                        style: const TextStyle(fontSize: 14),
-                      ),
-                      subtitle: item.subtitle == null
-                          ? null
-                          : Text(
-                              item.subtitle!,
-                              style: const TextStyle(fontSize: 12),
-                            ),
-                      onTap: () {
-                        final value = item.value;
-                        if (value == null) return;
-                        widget.onSelected(value, selector.modelId);
-                      },
-                    ),
+              if (item.kind == ComposerSelectorItemKind.folder)
+                ListTile(
+                  dense: true,
+                  leading: const Icon(Icons.folder_outlined, size: 20),
+                  title: Text(
+                    item.title,
+                    style: const TextStyle(fontSize: 14),
+                  ),
+                  subtitle: item.subtitle == null
+                      ? null
+                      : Text(
+                          item.subtitle!,
+                          style: const TextStyle(fontSize: 12),
+                        ),
+                  // 文件夹行沿用「点进下一层」的既有语义；要引用整层用列表首位的
+                  // 范围行（rootValue），避免误触把文件夹当成实体引用。
+                  trailing: const Icon(Icons.chevron_right, size: 20),
+                  onTap: () => _enterFolder(item),
+                )
+              else
+                ListTile(
+                  dense: true,
+                  leading: Icon(
+                    item.value == null
+                        ? Icons.insert_link
+                        : composerReferenceIcon(
+                            item.value!.type,
+                            scope: item.value!.scope,
+                          ),
+                    size: 20,
+                  ),
+                  title: Text(
+                    item.title,
+                    style: const TextStyle(fontSize: 14),
+                  ),
+                  subtitle: item.subtitle == null
+                      ? null
+                      : Text(
+                          item.subtitle!,
+                          style: const TextStyle(fontSize: 12),
+                        ),
+                  onTap: () {
+                    final value = item.value;
+                    if (value == null) return;
+                    widget.onSelected(value, selector.modelId);
+                  },
+                ),
           ],
         );
       },
     );
   }
 
-  IconData _valueIcon(ComposerReferenceType? type) => switch (type) {
-    ComposerReferenceType.note => Icons.note,
-    ComposerReferenceType.notePage => Icons.description,
-    ComposerReferenceType.task => Icons.check_circle_outline,
-    ComposerReferenceType.taskList => Icons.checklist,
-    ComposerReferenceType.knowledgeBase => Icons.local_library_outlined,
-    ComposerReferenceType.knowledgeEntry => Icons.description_outlined,
-    ComposerReferenceType.pluginResource => Icons.extension,
-    ComposerReferenceType.pluginSkill => Icons.auto_awesome,
-    null => Icons.insert_link,
-  };
+  void _enterFolder(ComposerSelectorItem item) {
+    setState(() {
+      _path.add(item.key.split(':').last);
+    });
+  }
 }

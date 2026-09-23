@@ -4,12 +4,16 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:lynai/models/composer_reference.dart';
+import 'package:lynai/models/conversation.dart';
+import 'package:lynai/models/message.dart';
 import 'package:lynai/providers/feature_provider.dart';
 import 'package:lynai/providers/knowledge_provider.dart';
 import 'package:lynai/providers/task_provider.dart';
 import 'package:lynai/services/composer_selector_registry.dart';
 import 'package:lynai/services/storage_v2_service.dart';
 import 'package:lynai/services/storage_v2_upgrade_service.dart';
+
+import 'support/memory_repositories.dart';
 
 Future<StorageV2Service> _readyStorage(Directory root) async {
   final storage = StorageV2Service(rootDirectory: root);
@@ -110,6 +114,110 @@ void main() {
       ]);
       expect(inList.map((i) => i.title), contains('完成发布说明'));
       expect(inList.first.value!.type, ComposerReferenceType.task);
+    } finally {
+      await storage.close();
+      await root.delete(recursive: true);
+    }
+  });
+
+  test('notes selector exposes folders as referenceable scope values', () async {
+    SharedPreferences.setMockInitialValues({});
+    final root = await Directory.systemTemp.createTemp('lynai_sel_scope_');
+    final storage = await _readyStorage(root);
+    try {
+      final features = FeatureProvider(storageV2: storage);
+      await features.load();
+      final folderId = await features.addNoteFolder('工作');
+      await features.addNoteWithContent('项目规划', '正文', folderId: folderId);
+
+      final registry = buildBuiltInSelectorRegistry(
+        features: features,
+        tasks: TaskProvider(storageV2: storage),
+      );
+      final selector = registry.selector('notes')!;
+
+      // 停在文件夹层：文件夹条目本身就能产生「整个文件夹」引用，同时保留下钻。
+      final rootItems = await selector.load('', const []);
+      final folder = rootItems.firstWhere(
+        (item) => item.kind == ComposerSelectorItemKind.folder,
+      );
+      expect(folder.value, isNotNull);
+      expect(folder.value!.type, ComposerReferenceType.note);
+      expect(folder.value!.id, folderId);
+      expect(folder.value!.scope, ComposerReferenceScope.folder);
+
+      // 仍可下钻到文件夹内的具体笔记。
+      final inFolder = await selector.load('', [folderId]);
+      expect(inFolder.map((item) => item.title), contains('项目规划'));
+      expect(
+        inFolder.single.value!.scope,
+        ComposerReferenceScope.entity,
+      );
+
+      // 范围行的取值与文件夹条目一致。
+      final rootValue = selector.rootValue!(const []);
+      expect(rootValue, isNull);
+      final scopedRoot = selector.rootValue!([folderId]);
+      expect(scopedRoot!.scope, ComposerReferenceScope.folder);
+      expect(scopedRoot.title, '工作');
+    } finally {
+      await storage.close();
+      await root.delete(recursive: true);
+    }
+  });
+
+  test('conversations selector lists history and skips the current one', () async {
+    SharedPreferences.setMockInitialValues({});
+    final root = await Directory.systemTemp.createTemp('lynai_sel_conv_');
+    final storage = await _readyStorage(root);
+    try {
+      final conversations = memoryConversationProvider();
+      final first = conversations.createConversationWithMessages(
+        ConversationSettings(modelId: 'model-1'),
+        messages: [
+          (
+            role: 'user',
+            content: '讨论发布计划',
+            images: const <MessageImage>[],
+            composerSegments: const <ComposerSegment>[],
+          ),
+        ],
+      );
+      final second = conversations.createConversationWithMessages(
+        ConversationSettings(modelId: 'model-1'),
+        messages: [
+          (
+            role: 'user',
+            content: '另一段对话',
+            images: const <MessageImage>[],
+            composerSegments: const <ComposerSegment>[],
+          ),
+        ],
+      );
+
+      final registry = buildBuiltInSelectorRegistry(
+        features: FeatureProvider(storageV2: storage),
+        tasks: TaskProvider(storageV2: storage),
+        conversations: conversations,
+        currentConversationId: first,
+        include: const {BuiltInComposerSelector.conversations},
+      );
+
+      final items = await registry.selector('conversations')!.load('', const []);
+      // 当前对话不出现：引用「正在写的这段对话」没有意义。
+      expect(items, hasLength(1));
+      expect(items.single.value!.type, ComposerReferenceType.conversation);
+      expect(items.single.value!.id, second);
+
+      // 过滤词同时匹配标题与首条正文。
+      expect(
+        await registry.selector('conversations')!.load('另一段', const []),
+        hasLength(1),
+      );
+      expect(
+        await registry.selector('conversations')!.load('不存在的关键词', const []),
+        isEmpty,
+      );
     } finally {
       await storage.close();
       await root.delete(recursive: true);

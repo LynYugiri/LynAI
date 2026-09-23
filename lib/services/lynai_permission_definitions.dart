@@ -53,6 +53,7 @@ class LynAIPermissions {
   static const jottingsWrite = 'jottings:write';
   static const roleMemoryRead = 'roleMemory:read';
   static const roleMemoryWrite = 'roleMemory:write';
+  static const conversationsRead = 'conversations:read';
   static const recycleBinRead = 'recycleBin:read';
   static const recycleBinWrite = 'recycleBin:write';
   static const recycleBinRestore = 'recycleBin:restore';
@@ -93,6 +94,7 @@ class LynAIPermissions {
     jottingsWrite,
     roleMemoryRead,
     roleMemoryWrite,
+    conversationsRead,
     networkAccess,
     modelChat,
     modelOcr,
@@ -261,6 +263,11 @@ const lynaiPermissionDefinitions = <LynAIPermissionDefinition>[
     title: '修改角色记忆',
     description: '允许 Agent 在当前角色下增删改持久记忆和用户画像。',
     risk: LynAIPermissionRisk.elevated,
+  ),
+  LynAIPermissionDefinition(
+    id: LynAIPermissions.conversationsRead,
+    title: '读取历史对话',
+    description: '允许 Agent 按 id 读取历史对话的消息，用于解析「对话」类型的引用。',
   ),
   LynAIPermissionDefinition(
     id: LynAIPermissions.networkAccess,

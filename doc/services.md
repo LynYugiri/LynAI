@@ -133,7 +133,7 @@ OCR 和文件识别是发送前处理。处理结果会替换历史附件并标�
 
 文件：`lib/services/tool_call_service.dart`
 
-`ToolCallService` 把模型请求转成本地动作。生产聊天和 Agent 只接受接口原生 tool calls，不提供非原生 JSON fallback。Run 开始时捕获 immutable model schema/permission snapshot；执行由 `AgentToolExecutionService` 完成 schema 校验、授权和调度，独立注入的 `AgentToolResultProcessor` 负责终态 sanitizer。插件的自定义工具由已捕获 handler 转交给 `PluginLuaRuntimeService` 在 Lua 沙箱中执行；MCP schema 固定但执行查询实时 registry 并在不可用时 fail closed。Run 的身份在首次创建 snapshot 时按该对话的 Agent 模式固定（`runAgentEnabled`），run 中途切换对话 Agent 模式不改变已捕获 snapshot 的身份与权限；非 Agent run 调用原生工具使用 `LynAICallerType.assistantTool`，仍按对话快照域评估权限而不是一律拒绝。`web_search` 仅在 `WebSearchService.isConfigured()` 为真时注册；未配置时不会进入工具列表，系统提示词也不会把它列为可用工具，只会提示始终可用的 `web_fetch` 兜底。`knowledge_search` 仅在注入 `KnowledgeProvider` 时注册，并要求 `storage.read`。检索会先捕获 Provider 列表快照，随后分批扫描并在批次间检查取消和 deadline、让出事件循环；每条正文只扫描有界前缀。
+`ToolCallService` 把模型请求转成本地动作。生产聊天和 Agent 只接受接口原生 tool calls，不提供非原生 JSON fallback。Run 开始时捕获 immutable model schema/permission snapshot；执行由 `AgentToolExecutionService` 完成 schema 校验、授权和调度，独立注入的 `AgentToolResultProcessor` 负责终态 sanitizer。插件的自定义工具由已捕获 handler 转交给 `PluginLuaRuntimeService` 在 Lua 沙箱中执行；MCP schema 固定但执行查询实时 registry 并在不可用时 fail closed。Run 的身份在首次创建 snapshot 时按该对话的 Agent 模式固定（`runAgentEnabled`），run 中途切换对话 Agent 模式不改变已捕获 snapshot 的身份与权限；非 Agent run 调用原生工具使用 `LynAICallerType.assistantTool`，仍按对话快照域评估权限而不是一律拒绝。`web_search` 仅在 `WebSearchService.isConfigured()` 为真时注册；未配置时不会进入工具列表，系统提示词也不会把它列为可用工具，只会提示始终可用的 `web_fetch` 兜底。`knowledge_search` 仅在注入 `KnowledgeProvider` 时注册，并要求 `storage.read`。`read_conversation` 仅在注入 `ConversationProvider` 且本轮权限包含 `conversations:read` 时注册，按 id 返回有界消息（默认最近 20 条，单条正文上限 4000 字符）；`list_conversation_references` 仅要求注入 Provider、不需要额外权限，只返回会话引用池的身份与标题清单，不返回正文。检索会先捕获 Provider 列表快照，随后分批扫描并在批次间检查取消和 deadline、让出事件循环；每条正文只扫描有界前缀。
 
 模型多轮控制不再由页面或 `ToolCallService` 自己维护。主对话、悬浮聊天和 Subagent 都由 `AgentLoopRuntime` 驱动；`ToolCallService.executeSequentialCompatibility()` 是具体工具执行适配器，并通过 `AgentToolScheduler(maxConcurrency: 1)` 调用 MCP 等外部 registry 工具。统一运行时、上下文和取消边界见 [Agent Runtime](agent-runtime.md)。
 
@@ -145,6 +145,8 @@ OCR 和文件识别是发送前处理。处理结果会替换历史附件并标�
 | `get_current_screen` | 只读。仅在悬浮聊天且用户授权当前页面上下文时暴露，读取 Android 前台页面文本和节点摘要。 |
 | `web_fetch` | 发起只读 GET 请求，读取 http/https URL 的响应正文并按长度限制返回。 |
 | `knowledge_search` | 只读检索已启用的本地知识库、类别和条目；标题命中优先，最多返回 10 条，参数、正文扫描前缀及 preview/content 均有长度上限，并支持协作取消。 |
+| `read_conversation` | 按对话 id 读取历史消息；`limit`/`offset` 从最新一条往前取，单条正文有长度上限，需要 `conversations:read`。 |
+| `list_conversation_references` | 只读列出当前对话引用池的清单（`type`/`id`/`title`/`scope`），不返回正文。 |
 | `get_location` | Android 请求定位权限并返回位置。 |
 | `open_app` | Android 打开指定包名应用。 |
 | `list_tasks` | 只读，列出规范 `Task`，可按文本、完成状态和清单过滤。 |
@@ -351,7 +353,15 @@ Subagent 适合 QQ/消息应用这类流程：主 Agent 只描述目标，Subage
 
 文件：`lib/services/composer_selector_registry.dart`
 
-`ComposerSelectorRegistry` 是引用面板的选项源目录，承载内置选择器（笔记、笔记页面、待办清单、待办、知识库）与插件命令。`buildBuiltInSelectorRegistry` 可通过 `include` 按场景裁剪内置选择器（随记只保留笔记/待办事项/知识条目）。`ComposerSelector` 声明 `name`、`title`、`description`、可选的 `modelId`（选中后覆盖本次发送模型）以及异步 `load(query, path)`；`load` 返回 `ComposerSelectorItem`（`folder` 用于分层导航，`item` 携带 `ComposerSelectorValue` 稳定类型/ID，不含正文；`snippet` 携带正文首行供随记卡片快照使用）。插件命令由 `PluginLuaRuntimeService.executeCommandHandler` 在 Lua 沙箱中执行 handler，返回选项数组经 `parsePluginCommandItems` 解析（兼容 `result`/`options`/直接数组，`ok:false` 或结构非法时 fail closed 返回空列表）。
+`ComposerSelectorRegistry` 是引用面板的选项源目录，承载内置选择器（笔记、笔记页面、待办清单、待办、知识库、知识条目、对话）与插件数据源。`buildBuiltInSelectorRegistry` 可通过 `include` 按场景裁剪内置选择器（随记只保留笔记/待办事项/知识条目），并在注入 `ConversationProvider` 时注册「对话」源（排除当前对话本身）。`ComposerSelector` 声明 `name`、`title`、`description`、可选的 `icon`（插件源标注来源）、可选的 `modelId`（选中后覆盖本次发送模型）、异步 `load(query, path)` 与可选的 `rootValue(path)`（当前层的范围引用，如「引用整个文件夹」）。`load` 返回 `ComposerSelectorItem`：`folder` 承担分层导航，`item` 携带 `ComposerSelectorValue`（稳定类型/ID/`scope`，不含正文；`snippet` 携带正文首行供随记卡片快照使用）。`composerReferenceFromValue` 是该值到 `ComposerReference` 的唯一转换点，避免各处漏掉 `scope`。插件数据源由 `PluginLuaRuntimeService.executeCommandHandler` 在 Lua 沙箱中执行 handler，返回选项数组经 `parsePluginCommandItems` 解析（兼容 `result`/`options`/直接数组，`ok:false` 或结构非法时 fail closed 返回空列表）。
+
+## 输入触发检测与指令注册表
+
+文件：`lib/services/composer_trigger.dart`、`lib/services/composer_command_registry.dart`
+
+`detectComposerTrigger` 是从文本与光标位置推导 `@`/`/` 触发的**纯函数**：触发符必须位于文首、行首或空白之后（`/` 额外要求行首形式），token 内出现空白或换行立即失效，因此 `@笔记 你好` 里的 `@笔记` 只是普通文本，邮箱、URL、`和/或` 永不触发。触发态不保存任何状态，面板只在这段文本仍然成立期间存在。
+
+`ComposerCommandRegistry` 承载 `/` 指令：`ComposerCommand` 声明 `name`、`aliases`、`title`、`description`、`kind`（`run` 立即执行 / `insert` 插入文本）、`insertText` 与 `actionId`。注册表只负责匹配与排序（名称/别名前缀优先于标题/说明子串），**不持有执行逻辑**，页面按 `actionId` 分发，避免服务层依赖 `BuildContext`。内置指令的中文名与英文别名见 `builtInComposerCommands()`，内置 action id 常量在 `ComposerCommandActions`。
 
 ## AccountService
 

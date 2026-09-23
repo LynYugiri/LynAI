@@ -90,6 +90,10 @@ Provider 的更新策略是：先改内存并通知 UI，再把持久化操作�
 | `restoreWithdrawnMessages()` | 撤销撤回：把截断掉的消息尾部原样放回对话末尾。仅在对话当前消息数仍等于撤回时保留的前缀长度时生效，否则拒绝恢复。 |
 | `searchConversations()` | 搜索标题、正文和附件名，返回类型化命中结果和高亮范围。 |
 | `repairModelReferences()` | 修复已删除模型留下的对话引用。 |
+| `setContextCheckpoint()` | 设置或清除 `/压缩` 产生的对话级上下文检查点；只改检查点，不动原始消息。 |
+| `reconcileContextCheckpoint()` | 消息被编辑或撤回后收敛检查点覆盖集合，集合清空即清除检查点。 |
+| `liveContextCheckpoint()` | 取当前有效检查点；覆盖集合与现存消息 ID 不相交时按失效返回 null。 |
+| `rememberComposerReferences()` | 把用户引用过的资源并入会话引用池：按 `type:scope:id` 去重、超出上限淘汰最久未引用条目。池子不进入上下文。 |
 
 输入框草稿由 `composerDraftFor()` / `saveComposerDraft()` 读写，内存缓存是权威状态、写盘 400ms 防抖并随 `flushPendingSaves()` 落盘。草稿存在 `composer_drafts` 表（`composer_drafts.json`），跟随对话分区备份与同步；尚未创建对话的槽位（`null`，存成 `new`）没有 `conversationId`，只留在本机。附件只保存 storage_v2 Resource ID 与展示元数据，本机路径由 `ComposerDraftRepository` 按 Resource 解析。
 

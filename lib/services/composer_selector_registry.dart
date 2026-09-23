@@ -1,12 +1,18 @@
+import 'package:flutter/widgets.dart';
+
 import '../models/composer_reference.dart';
 import '../models/knowledge_entry.dart';
 import '../models/note.dart';
 import '../models/task.dart';
+import '../providers/conversation_provider.dart';
 import '../providers/feature_provider.dart';
 import '../providers/knowledge_provider.dart';
 import '../providers/task_provider.dart';
 
 /// 选择器条目类型：实体或文件夹。
+///
+/// 文件夹条目既可以进入下一级，也可以被直接引用（引用整个文件夹）；是否
+/// 携带 [ComposerSelectorItem.value] 决定它能否被引用。
 enum ComposerSelectorItemKind { item, folder }
 
 /// 内置选择器种类，供 [buildBuiltInSelectorRegistry] 按使用场景裁剪。
@@ -17,6 +23,7 @@ enum BuiltInComposerSelector {
   tasks,
   knowledgeBases,
   knowledgeEntries,
+  conversations,
 }
 
 /// 选择器返回的稳定值：含类型、稳定 ID 与展示摘要，不含正文。
@@ -28,6 +35,10 @@ class ComposerSelectorValue {
 
   /// 内容摘要（如正文首行），供随记等非对话场景生成引用卡片快照。
   final String? snippet;
+
+  /// 分级层级：在容器（文件夹）层停下就是引用整个容器。
+  final ComposerReferenceScope scope;
+
   final Map<String, String> qualifiers;
 
   const ComposerSelectorValue({
@@ -36,6 +47,7 @@ class ComposerSelectorValue {
     required this.title,
     this.subtitle,
     this.snippet,
+    this.scope = ComposerReferenceScope.entity,
     this.qualifiers = const {},
   });
 }
@@ -67,6 +79,11 @@ class ComposerSelector {
   /// 面板中显示的说明文字。
   final String description;
 
+  /// 列表前置的图标；为空时按标题首字显示。
+  ///
+  /// 插件数据源用它标注自己的来源，内置源留空。
+  final IconData? icon;
+
   /// 选择该 selector 生成的引用后，本次发送应覆盖使用的模型 ID（插件命令用）。
   final String? modelId;
 
@@ -80,12 +97,19 @@ class ComposerSelector {
   )
   load;
 
+  /// 当前层级本身对应的引用（如「引用整个文件夹」）；null 表示该层没有范围引用。
+  ///
+  /// 面板会把它渲染成列表首位的一条范围条目，用户不必继续下钻即可引用整层。
+  final ComposerSelectorValue? Function(List<String> path)? rootValue;
+
   const ComposerSelector({
     required this.name,
     required this.load,
     this.title = '',
     this.description = '',
+    this.icon,
     this.modelId,
+    this.rootValue,
   });
 }
 
@@ -104,14 +128,19 @@ class ComposerSelectorRegistry {
   Iterable<ComposerSelector> get selectors => _selectors.values;
 }
 
-/// 构建内置选择器注册表（笔记、笔记页面、待办清单、待办项、知识库）。
+/// 构建内置选择器注册表（笔记、待办清单、待办项、知识库、对话记录）。
 ///
 /// [include] 为空时注册全部内置选择器；随记等场景可只注册能映射到自身引用
 /// 类型的子集，同时保留文件夹分层导航。
+///
+/// [conversations] 非空时注册「对话记录」选择器（引用一段历史对话）；
+/// [currentConversationId] 用于在列表中排除当前对话本身。
 ComposerSelectorRegistry buildBuiltInSelectorRegistry({
   required FeatureProvider features,
   required TaskProvider tasks,
   KnowledgeProvider? knowledge,
+  ConversationProvider? conversations,
+  String? currentConversationId,
   Set<BuiltInComposerSelector>? include,
 }) {
   final wanted = include ?? BuiltInComposerSelector.values.toSet();
@@ -121,8 +150,9 @@ ComposerSelectorRegistry buildBuiltInSelectorRegistry({
       ComposerSelector(
         name: 'notes',
         title: '笔记',
-        description: '引用一篇笔记',
+        description: '引用一篇笔记，或停在文件夹层引用整个文件夹',
         load: (query, path) async => _loadNotes(features, query, path),
+        rootValue: (path) => _notesRootValue(features, path),
       ),
     );
   }
@@ -179,8 +209,60 @@ ComposerSelectorRegistry buildBuiltInSelectorRegistry({
       ),
     );
   }
+  if (conversations != null &&
+      wanted.contains(BuiltInComposerSelector.conversations)) {
+    registry.register(
+      ComposerSelector(
+        name: 'conversations',
+        title: '对话',
+        description: '引用一段历史对话',
+        load: (query, path) async => _loadConversations(
+          conversations,
+          query,
+          currentConversationId,
+        ),
+      ),
+    );
+  }
   return registry;
 }
+
+/// 笔记选择器当前层的范围引用：在文件夹层停下即引用整个文件夹。
+ComposerSelectorValue? _notesRootValue(
+  FeatureProvider features,
+  List<String> path,
+) {
+  if (path.isEmpty) return null;
+  final folderId = path.first;
+  for (final folder in features.noteFolders) {
+    if (folder.id != folderId) continue;
+    final count = features.notes
+        .where((note) => note.folderId == folderId)
+        .length;
+    return ComposerSelectorValue(
+      type: ComposerReferenceType.note,
+      id: folder.id,
+      title: folder.title,
+      subtitle: '$count 篇笔记',
+      scope: ComposerReferenceScope.folder,
+    );
+  }
+  return null;
+}
+
+/// 把选择器值转成编辑器引用；[localId] 由调用方按自增序号分配。
+ComposerReference composerReferenceFromValue(
+  ComposerSelectorValue value, {
+  required String localId,
+}) => ComposerReference(
+  localId: localId,
+  type: value.type,
+  id: value.id,
+  title: value.title,
+  subtitle: value.subtitle,
+  scope: value.scope,
+  qualifiers: value.qualifiers,
+);
 
 bool _matches(String? value, String query) {
   final q = query.trim().toLowerCase();
@@ -232,15 +314,25 @@ List<ComposerSelectorItem> _loadNotes(
   }
   final items = <ComposerSelectorItem>[];
   for (final folder in features.noteFolders) {
-    if (_matches(folder.title, query)) {
-      items.add(
-        ComposerSelectorItem(
-          key: 'folder:${folder.id}',
-          kind: ComposerSelectorItemKind.folder,
+    if (!_matches(folder.title, query)) continue;
+    final count = features.notes
+        .where((note) => note.folderId == folder.id)
+        .length;
+    items.add(
+      ComposerSelectorItem(
+        key: 'folder:${folder.id}',
+        kind: ComposerSelectorItemKind.folder,
+        title: folder.title,
+        subtitle: '$count 篇笔记',
+        value: ComposerSelectorValue(
+          type: ComposerReferenceType.note,
+          id: folder.id,
           title: folder.title,
+          subtitle: '$count 篇笔记',
+          scope: ComposerReferenceScope.folder,
         ),
-      );
-    }
+      ),
+    );
   }
   for (final note in features.notes) {
     if (note.folderId != null) continue;
@@ -329,12 +421,21 @@ List<ComposerSelectorItem> _loadTasks(
   final items = <ComposerSelectorItem>[];
   for (final list in tasks.lists) {
     if (_matches(list.title, query)) {
+      final count = tasks.tasksForList(list.id).length;
+      final subtitle = '$count 个待办';
       items.add(
         ComposerSelectorItem(
           key: 'list:${list.id}',
           kind: ComposerSelectorItemKind.folder,
           title: list.title,
-          subtitle: '${tasks.tasksForList(list.id).length} 个待办',
+          subtitle: subtitle,
+          // 停在清单层就是引用整个清单；继续下钻则引用单条待办。
+          value: ComposerSelectorValue(
+            type: ComposerReferenceType.taskList,
+            id: list.id,
+            title: list.title,
+            subtitle: subtitle,
+          ),
         ),
       );
     }
@@ -417,6 +518,45 @@ List<ComposerSelectorItem> _loadKnowledgeEntries(
         ),
       )
       .toList();
+}
+
+/// 对话选择器：列出历史对话供引用，最近更新的排在前面。
+///
+/// 排除 [currentConversationId] 本身：引用「当前这段对话」没有意义，而且
+/// 会让模型去读自己正在写的上下文。
+List<ComposerSelectorItem> _loadConversations(
+  ConversationProvider conversations,
+  String query,
+  String? currentConversationId,
+) {
+  final list = conversations.conversations
+      .where((conversation) => conversation.id != currentConversationId)
+      .where((conversation) => conversation.messages.isNotEmpty)
+      .toList()
+    ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+  final items = <ComposerSelectorItem>[];
+  for (final conversation in list) {
+    if (!_matches(conversation.title, query) &&
+        !_matches(conversation.preview, query)) {
+      continue;
+    }
+    items.add(
+      ComposerSelectorItem(
+        key: 'conversation:${conversation.id}',
+        kind: ComposerSelectorItemKind.item,
+        title: conversation.title.isEmpty ? '未命名对话' : conversation.title,
+        subtitle: '${conversation.messages.length} 条消息',
+        value: ComposerSelectorValue(
+          type: ComposerReferenceType.conversation,
+          id: conversation.id,
+          title: conversation.title.isEmpty ? '未命名对话' : conversation.title,
+          subtitle: '${conversation.messages.length} 条消息',
+          snippet: conversation.preview,
+        ),
+      ),
+    );
+  }
+  return items;
 }
 
 /// 解析插件命令 handler 的返回结果为选择器条目。

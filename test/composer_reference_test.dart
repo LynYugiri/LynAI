@@ -68,6 +68,66 @@ void main() {
     expect(decoded.qualifiers, {'note_id': 'note-123'});
   });
 
+  test('folder scope is encoded as an explicit qualifier', () {
+    const folder = ComposerReference(
+      localId: 'draft-5',
+      type: ComposerReferenceType.note,
+      id: 'folder-7',
+      title: '工作',
+      scope: ComposerReferenceScope.folder,
+    );
+    expect(
+      ComposerReferenceCodec.encode(folder),
+      '<lynai_ref type="note" id="folder-7" scope="folder"/>',
+    );
+    // 实体层级的既有 wire 完全不变。
+    expect(
+      ComposerReferenceCodec.encode(
+        const ComposerReference(
+          localId: 'draft-6',
+          type: ComposerReferenceType.note,
+          id: 'note-1',
+          title: '笔记',
+        ),
+      ),
+      '<lynai_ref type="note" id="note-1"/>',
+    );
+  });
+
+  test('conversation references round-trip through the codec', () {
+    const reference = ComposerReference(
+      localId: 'draft-7',
+      type: ComposerReferenceType.conversation,
+      id: 'conv-9',
+      title: '上周排期',
+    );
+    final encoded = ComposerReferenceCodec.encode(reference);
+    expect(encoded, '<lynai_ref type="conversation" id="conv-9"/>');
+    final decoded = ComposerReferenceCodec.decode(encoded)!;
+    expect(decoded.type, ComposerReferenceType.conversation);
+    expect(decoded.id, 'conv-9');
+    expect(decoded.scope, ComposerReferenceScope.entity);
+  });
+
+  test('scope survives codec decode and JSON round-trip', () {
+    final decoded = ComposerReferenceCodec.decode(
+      '<lynai_ref type="note" id="folder-7" scope="folder"/>',
+    )!;
+    expect(decoded.scope, ComposerReferenceScope.folder);
+    expect(decoded.qualifiers, isEmpty);
+
+    const reference = ComposerReference(
+      localId: 'draft-8',
+      type: ComposerReferenceType.task,
+      id: 'list-1',
+      title: '发布',
+      scope: ComposerReferenceScope.folder,
+    );
+    final restored = ComposerReference.fromJson(reference.toJson());
+    expect(restored.scope, ComposerReferenceScope.folder);
+    expect(restored.poolKey, reference.poolKey);
+  });
+
   test('segment serialization round-trips', () {
     final segments = <ComposerSegment>[
       const ComposerTextSegment('请总结 '),

@@ -1,6 +1,7 @@
 import 'agent_defaults.dart';
 import 'agent_plan.dart';
 import 'agent_working_memory.dart';
+import 'conversation_context.dart';
 import 'conversation_plugin_artifact.dart';
 import 'message.dart';
 import 'package:flutter/foundation.dart';
@@ -256,6 +257,14 @@ class Conversation {
   /// 当前对话创建过的插件草稿产物，用于在消息流中渲染插件卡片。
   final List<ConversationPluginArtifact> pluginArtifacts;
 
+  /// `/压缩` 指令产生的上下文检查点；null 表示没有手动压缩。
+  ///
+  /// 原始消息一条都不删除，发送时用检查点摘要顶替被覆盖的那段历史。
+  final ConversationContextCheckpoint? contextCheckpoint;
+
+  /// 会话引用池：用户在对话里引用过的资源自动沉淀，不进入上下文。
+  final ConversationReferencePool referencePool;
+
   /// 对话创建时间。
   final DateTime createdAt;
 
@@ -276,6 +285,8 @@ class Conversation {
     this.workspaceId,
     this.workspaceName,
     this.pluginArtifacts = const [],
+    this.contextCheckpoint,
+    this.referencePool = const ConversationReferencePool(),
     required this.createdAt,
     required this.updatedAt,
   }) : settings = settings ?? ConversationSettings(modelId: modelId);
@@ -388,6 +399,12 @@ class Conversation {
           ? rawUserWorkspaceName
           : null,
       pluginArtifacts: pluginArtifacts,
+      contextCheckpoint: ConversationContextCheckpoint.fromJson(
+        json['contextCheckpoint'],
+      ),
+      referencePool: ConversationReferencePool.fromJson(
+        json['referencePool'],
+      ),
       createdAt: createdAt,
       updatedAt: updatedAt,
     );
@@ -415,6 +432,9 @@ class Conversation {
         'pluginArtifacts': pluginArtifacts
             .map((item) => item.toJson())
             .toList(),
+      if (contextCheckpoint != null)
+        'contextCheckpoint': contextCheckpoint!.toJson(),
+      if (!referencePool.isEmpty) 'referencePool': referencePool.toJson(),
       'createdAt': createdAt.toIso8601String(),
       'updatedAt': updatedAt.toIso8601String(),
     };
@@ -434,6 +454,8 @@ class Conversation {
     Object? workspaceId = _sentinel,
     Object? workspaceName = _sentinel,
     Object? pluginArtifacts = _sentinel,
+    Object? contextCheckpoint = _sentinel,
+    ConversationReferencePool? referencePool,
     DateTime? createdAt,
     DateTime? updatedAt,
   }) {
@@ -462,6 +484,10 @@ class Conversation {
       pluginArtifacts: identical(pluginArtifacts, _sentinel)
           ? this.pluginArtifacts
           : pluginArtifacts as List<ConversationPluginArtifact>,
+      contextCheckpoint: identical(contextCheckpoint, _sentinel)
+          ? this.contextCheckpoint
+          : contextCheckpoint as ConversationContextCheckpoint?,
+      referencePool: referencePool ?? this.referencePool,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
     );
