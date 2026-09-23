@@ -245,7 +245,7 @@ Repository 只读写 storage_v2。启动阶段由 `StorageV2UpgradeService` 创�
 
 `tasks.json`/`calendar.json` 是 Repository、备份和同步的逻辑分区名称，不是在 `storage_v2/data/` 下维护的镜像。结构化唯一权威仍是 `app.db`。
 
-对话页输入框草稿是另一类本机状态：`ComposerDraftService` 按对话 ID 存在 SharedPreferences 里（键 `chat.composer_draft.v1.<对话 ID>`，未创建对话用 `new` 槽位），不写入 `app.db`，也不进入逻辑分区、备份、云同步或 LAN 同步；它需要跨进程存活，所以不能只放在内存里。同类本机 UI/设备状态（后端地址、悬浮窗位置、语音识别偏好）同样走 SharedPreferences，而不是 storage_v2。
+对话页输入框草稿是另一类本机状态：`ComposerDraftService` 按对话 ID 存在 SharedPreferences 里（键 `chat.composer_draft.v1.<对话 ID>`，未创建对话用 `new` 槽位），不写入 `app.db`，也不进入逻辑分区、备份、云同步或 LAN 同步；它需要跨进程存活，所以不能只放在内存里。草稿里的附件只保存应用私有存储（`message_images/`、`message_attachments/`）中的路径与元数据，文件仍是普通附件文件，不额外导入 resource/blob。同类本机 UI/设备状态（后端地址、悬浮窗位置、语音识别偏好）同样走 SharedPreferences，而不是 storage_v2。
 
 ## 笔记时间线
 

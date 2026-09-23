@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lynai/models/composer_draft.dart';
 import 'package:lynai/models/composer_reference.dart';
 import 'package:lynai/models/conversation.dart';
 import 'package:lynai/models/message.dart';
@@ -92,15 +93,82 @@ void main() {
       id: 'note-1',
       title: '笔记一',
     );
-    drafts.saveDraft(first, const [
-      ComposerTextSegment('看下 '),
-      ComposerReferenceSegment(reference),
-    ]);
+    drafts.saveDraft(
+      first,
+      const ComposerDraft(
+        segments: [
+          ComposerTextSegment('看下 '),
+          ComposerReferenceSegment(reference),
+        ],
+      ),
+    );
 
     await _selectConversation(tester, '乙会话');
     expect(_composerText(tester), '');
     await _selectConversation(tester, '甲会话');
     expect(_composerText(tester), '看下 ${String.fromCharCode(0xE000)}');
+    await _finish(tester, conversations, drafts);
+  });
+
+  testWidgets('暂存附件随对话切换一起搬运', (tester) async {
+    final drafts = ComposerDraftService();
+    final conversations = memoryConversationProvider(drafts: drafts);
+    final attachment = File('${storageRoot.path}/notes.txt')
+      ..writeAsStringSync('附件内容');
+    final first = _addConversation(
+      conversations,
+      '甲会话',
+      images: [
+        MessageImage(
+          path: attachment.path,
+          name: 'notes.txt',
+          size: attachment.lengthSync(),
+          mimeType: 'text/plain',
+        ),
+      ],
+    );
+    _addConversation(conversations, '乙会话');
+    await _pumpChat(tester, storage, conversations, drafts);
+
+    // 撤回把这条消息的正文和附件一起回填输入框。
+    await _selectConversation(tester, '甲会话');
+    await tester.tap(find.byTooltip('撤回'));
+    await tester.pumpAndSettle();
+    expect(find.text('notes.txt'), findsOneWidget);
+
+    await _selectConversation(tester, '乙会话');
+    expect(_composerText(tester), '');
+    expect(find.text('notes.txt'), findsNothing);
+
+    await _selectConversation(tester, '甲会话');
+    expect(find.text('notes.txt'), findsOneWidget);
+    expect(drafts.draftFor(first).images.single.name, 'notes.txt');
+    await _finish(tester, conversations, drafts);
+  });
+
+  testWidgets('附件文件已丢失时不再恢复该条目', (tester) async {
+    final drafts = ComposerDraftService();
+    final conversations = memoryConversationProvider(drafts: drafts);
+    final missing = _addConversation(conversations, '甲会话');
+    _addConversation(conversations, '乙会话');
+    await _pumpChat(tester, storage, conversations, drafts);
+    await drafts.ensureLoaded();
+    drafts.saveDraft(
+      missing,
+      const ComposerDraft(
+        images: [
+          MessageImage(
+            path: '/nonexistent/lynai/missing.png',
+            name: 'missing.png',
+            size: 1,
+            mimeType: 'image/png',
+          ),
+        ],
+      ),
+    );
+
+    await _selectConversation(tester, '甲会话');
+    expect(find.text('missing.png'), findsNothing);
     await _finish(tester, conversations, drafts);
   });
 
@@ -130,24 +198,31 @@ void main() {
     await drafts.ensureLoaded();
     final conversations = memoryConversationProvider(drafts: drafts);
     final cid = _addConversation(conversations, '甲会话');
-    drafts.saveDraft(cid, const [ComposerTextSegment('跟着对话一起走')]);
+    drafts.saveDraft(
+      cid,
+      const ComposerDraft(segments: [ComposerTextSegment('跟着对话一起走')]),
+    );
 
     await conversations.deleteConversation(cid);
 
-    expect(drafts.draftFor(cid), isEmpty);
+    expect(drafts.draftFor(cid).isEmpty, isTrue);
     await drafts.flush();
     await conversations.flushPendingSaves();
   });
 }
 
-String _addConversation(ConversationProvider conversations, String title) {
+String _addConversation(
+  ConversationProvider conversations,
+  String title, {
+  List<MessageImage> images = const <MessageImage>[],
+}) {
   return conversations.createConversationWithMessages(
     ConversationSettings(modelId: ''),
     messages: [
       (
         role: 'user',
         content: title,
-        images: const <MessageImage>[],
+        images: images,
         composerSegments: const <ComposerSegment>[],
       ),
     ],

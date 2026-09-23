@@ -158,23 +158,30 @@ class ComposerReferenceSegment extends ComposerSegment {
 }
 
 /// 将片段列表序列化为 JSON，用于消息持久化（Phase 9）。
-String encodeComposerSegments(List<ComposerSegment> segments) => jsonEncode(
-  segments
-      .map(
-        (segment) => switch (segment) {
-          ComposerTextSegment(:final text) => {'t': 'text', 'v': text},
-          ComposerReferenceSegment(:final reference) => {
-            't': 'ref',
-            'v': reference.toJson(),
-          },
+String encodeComposerSegments(List<ComposerSegment> segments) =>
+    jsonEncode(composerSegmentsToJson(segments));
+
+/// 片段列表的 JSON 结构，供需要嵌套编码的调用方（如输入框草稿）复用。
+List<Map<String, dynamic>> composerSegmentsToJson(
+  List<ComposerSegment> segments,
+) => segments
+    .map(
+      (segment) => switch (segment) {
+        ComposerTextSegment(:final text) => {'t': 'text', 'v': text},
+        ComposerReferenceSegment(:final reference) => {
+          't': 'ref',
+          'v': reference.toJson(),
         },
-      )
-      .toList(),
-);
+      },
+    )
+    .toList();
 
 /// 从 JSON 恢复片段列表。
-List<ComposerSegment> decodeComposerSegments(String json) {
-  final raw = jsonDecode(json);
+List<ComposerSegment> decodeComposerSegments(String json) =>
+    composerSegmentsFromJson(jsonDecode(json));
+
+/// 从已解析的 JSON 结构恢复片段列表，非列表或未知片段一律跳过。
+List<ComposerSegment> composerSegmentsFromJson(Object? raw) {
   if (raw is! List) return const [];
   final segments = <ComposerSegment>[];
   for (final item in raw) {

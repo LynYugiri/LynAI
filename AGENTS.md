@@ -27,7 +27,7 @@
 - 内置 `knowledge_search` 是 `ToolCallService` 的本地只读工具，只在注入 `KnowledgeProvider` 且 run snapshot 具有 `storage:read` 时注册。它必须只检索启用的库、类别和条目，保持查询/schema、扫描正文、结果数量及返回正文边界，并在分批扫描间检查取消和 deadline；不得改成不可取消的同步全表扫描，也不得自动把完整知识库注入每轮上下文。
 - Drift 的 `runs`、`turns`、`items`、`tool_calls`、`snapshots` 仅记录本机 durable run graph，并经 `AgentPersistenceRepository` CAS 迁移。它们不进入普通/加密备份、云同步或 LAN 同步；重启只对账为 interrupted，不自动重放。
 - `storage_v2/app.db` 是结构化数据权威源。长期附件和大工具结果使用现有私有 Resource/Blob 机制，不在模型上下文或运行记录中保存原始 base64。
-- 本机 UI 状态不进 storage_v2：对话页输入框草稿由 `ComposerDraftService` 按对话 ID 存在 SharedPreferences（键 `chat.composer_draft.v1.<对话 ID>`，未创建对话用 `new` 槽位），它要跨进程存活所以不能只放内存，但不进逻辑分区、备份、云同步或 LAN 同步。切换对话必须搬运草稿（旧对话落盘、新对话回填），发送或清空输入框时删除草稿；`ConversationProvider.deleteConversation` 一并删除草稿，从回收站恢复对话不还原草稿。暂存图片附件不属于草稿。
+- 本机 UI 状态不进 storage_v2：对话页输入框草稿由 `ComposerDraftService` 按对话 ID 存在 SharedPreferences（键 `chat.composer_draft.v1.<对话 ID>`，未创建对话用 `new` 槽位），它要跨进程存活所以不能只放内存，但不进逻辑分区、备份、云同步或 LAN 同步。草稿含正文片段、引用 Chip 和暂存附件（只存应用私有存储中的路径与元数据）；切换对话必须搬运草稿（旧对话落盘、新对话回填），发送或清空输入框与附件时删除草稿；`ConversationProvider.deleteConversation` 一并删除草稿，从回收站恢复对话不还原草稿。
 
 ## 知识库
 

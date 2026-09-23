@@ -21,6 +21,7 @@ import '../models/agent_trace.dart';
 import '../models/conversation.dart';
 import '../models/conversation_plugin_artifact.dart';
 import '../models/chat_role.dart';
+import '../models/composer_draft.dart';
 import '../models/composer_reference.dart';
 import '../models/message.dart';
 import '../models/model_config.dart';
@@ -1011,7 +1012,10 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     _retryIdx = 0;
   }
 
-  // 清空流式输出中间态：模型选择、思维链、附件等临时数据。
+  // 清空流式输出中间态：模型选择、思维链等临时数据。
+  //
+  // 暂存附件不在这里清空：它和输入框正文一样按对话归属，由草稿恢复决定（见
+  // [_updatePendingImages] 与 [_restoreComposerDraft]）。
   void _clearPendingState() {
     _pendingModelId = null;
     _draftSettings = null;
@@ -1020,7 +1024,12 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     _thinkExpanded = false;
     _expandedThinkIds.clear();
     _thinkMap.clear();
-    _pendingImages.clear();
+  }
+
+  /// 修改暂存附件并立即同步草稿：附件变化不经过输入框监听。
+  void _updatePendingImages(void Function(List<_PendingImage> images) mutate) {
+    setState(() => mutate(_pendingImages));
+    _syncComposerDraft();
   }
 
   void _syncBackAvailability() {
@@ -2808,9 +2817,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       return;
     }
     if (!mounted) return;
-    setState(() {
-      _pendingImages.addAll(images);
-    });
+    _updatePendingImages((pending) => pending.addAll(images));
   }
 
   Future<void> _pickFiles() async {
@@ -2824,7 +2831,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
         if (!mounted) return;
       }
       if (files.isEmpty) return;
-      setState(() => _pendingImages.addAll(files));
+      _updatePendingImages((pending) => pending.addAll(files));
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(
@@ -2846,7 +2853,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
             AttachmentStorageService.inferMimeType(picked.path),
       );
       if (!mounted) return;
-      setState(() => _pendingImages.add(file));
+      _updatePendingImages((pending) => pending.add(file));
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(
@@ -2968,9 +2975,9 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
         fallbackName: 'image',
       );
       if (!mounted) return;
-      setState(() {
-        _pendingImages.add(_pendingImageFromStored(stored));
-      });
+      _updatePendingImages(
+        (pending) => pending.add(_pendingImageFromStored(stored)),
+      );
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(
@@ -5208,6 +5215,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
         ..clear()
         ..addAll(msg.images.map(_pendingImageFromMessageImage));
     });
+    _syncComposerDraft();
     cp.deleteMessagesFrom(cid, msg.id);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted && !_isMobilePlatform) _focusNode.requestFocus();
@@ -5217,13 +5225,25 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
 
   /// 输入框内容变化时刷新它所属对话的草稿。
   void _onComposerChanged() {
+    // 光标移动同样会触发通知，文本没变就不必重算草稿。
+    if (_msgCtrl.text == _lastComposerDraftText) return;
+    _lastComposerDraftText = _msgCtrl.text;
+    _syncComposerDraft();
+  }
+
+  /// 把输入框当前正文与暂存附件写入当前对话的草稿。
+  void _syncComposerDraft() {
     final drafts = _composerDrafts;
     if (drafts == null || !_composerDraftReady) return;
-    final text = _msgCtrl.text;
-    // 光标移动同样会触发通知，文本没变就不必重算片段。
-    if (text == _lastComposerDraftText) return;
-    _lastComposerDraftText = text;
-    drafts.saveDraft(_composerDraftSlot, _msgCtrl.segments);
+    drafts.saveDraft(
+      _composerDraftSlot,
+      ComposerDraft(
+        segments: _msgCtrl.segments,
+        images: _pendingImages
+            .map((image) => image.toMessageImage())
+            .toList(growable: false),
+      ),
+    );
   }
 
   /// 切换对话时搬运输入框：旧对话的草稿落盘，新对话的草稿回填。
@@ -5238,7 +5258,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       // 对话已被删除（例如刚删掉正在查看的对话）时不再写回，否则删除后会被
       // 输入框里的内容重新复活一份草稿。
       if (!removed) {
-        drafts.saveDraft(slot, _msgCtrl.segments);
+        _syncComposerDraft();
         // 切换对话是明确的落点，不必等防抖。
         unawaited(drafts.flush());
       }
@@ -5271,12 +5291,23 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     final generation = ++_composerDraftGen;
     await drafts.ensureLoaded();
     if (!mounted || generation != _composerDraftGen) return;
+    final draft = drafts.draftFor(conversationId);
     if (replace || _msgCtrl.text.isEmpty) {
-      _msgCtrl.replaceSegments(drafts.draftFor(conversationId));
+      _msgCtrl.replaceSegments(draft.segments);
       _msgCtrl.selection = TextSelection.collapsed(
         offset: _msgCtrl.text.length,
       );
       _inputRevision.value++;
+      // 附件文件可能已被外部清理，恢复时丢弃失效条目。
+      final images = draft.images
+          .where((image) => _attachmentExists(image.path))
+          .map(_pendingImageFromMessageImage)
+          .toList(growable: false);
+      setState(() {
+        _pendingImages
+          ..clear()
+          ..addAll(images);
+      });
     }
     _lastComposerDraftText = _msgCtrl.text;
     _composerDraftReady = true;
@@ -5336,6 +5367,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
         ..clear()
         ..addAll(snapshot.pendingImages);
     });
+    _syncComposerDraft();
     // 恢复出来的消息接在末尾，把视图带回底部，否则新内容落在可视区之外。
     _scrollEnd();
   }
@@ -5420,6 +5452,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
           ..clear()
           ..addAll(msg.images.map(_pendingImageFromMessageImage));
       });
+      _syncComposerDraft();
     }
     setState(() => _convId = newConvId);
     _applyConversationSettings(newConvId);
@@ -6263,7 +6296,9 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
                 right: 2,
                 top: 2,
                 child: InkWell(
-                  onTap: () => setState(() => _pendingImages.removeAt(index)),
+                  onTap: () => _updatePendingImages(
+                    (pending) => pending.removeAt(index),
+                  ),
                   child: Container(
                     decoration: BoxDecoration(
                       color: Colors.black.withValues(alpha: 0.55),

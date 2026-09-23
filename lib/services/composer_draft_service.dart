@@ -1,14 +1,17 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:shared_preferences/shared_preferences.dart';
 
-import '../models/composer_reference.dart';
+import '../models/composer_draft.dart';
 
-/// 按对话暂存输入框草稿。
+/// 按对话暂存输入框草稿（正文片段、引用 Chip 与暂存附件）。
 ///
 /// 草稿是纯本地 UI 状态：它不属于 storage_v2 的会话数据，不进入普通/加密备份、
 /// 云同步或 LAN 同步，也不随对话进入回收站。存储用 SharedPreferences，键按对话
 /// ID 隔离，因此切换对话时各对话的草稿互不覆盖，进程结束再打开也能恢复。
+///
+/// 附件只记录应用私有存储中的路径与元数据，文件本身仍由附件存储管理。
 ///
 /// 内存缓存是权威状态，写盘做防抖：连续输入只在停顿后落盘一次。切换对话、应用
 /// 进入后台或退出前调用 [flush] 立即落盘。
@@ -48,25 +51,25 @@ class ComposerDraftService {
     }
   }
 
-  /// 读取某个对话的草稿；没有草稿或内容已损坏时返回空列表。
-  List<ComposerSegment> draftFor(String? conversationId) {
+  /// 读取某个对话的草稿；没有草稿或内容已损坏时返回空草稿。
+  ComposerDraft draftFor(String? conversationId) {
     final json = _drafts[_slotOf(conversationId)];
-    if (json == null) return const [];
+    if (json == null) return const ComposerDraft();
     try {
-      return decodeComposerSegments(json);
+      return ComposerDraft.fromJson(jsonDecode(json));
     } catch (_) {
-      return const [];
+      return const ComposerDraft();
     }
   }
 
-  /// 暂存一个对话的草稿；片段为空时删除该对话的草稿。
-  void saveDraft(String? conversationId, List<ComposerSegment> segments) {
-    if (segments.isEmpty) {
+  /// 暂存一个对话的草稿；正文与附件都为空时删除该对话的草稿。
+  void saveDraft(String? conversationId, ComposerDraft draft) {
+    if (draft.isEmpty) {
       removeDraft(conversationId);
       return;
     }
     final slot = _slotOf(conversationId);
-    final json = encodeComposerSegments(segments);
+    final json = jsonEncode(draft.toJson());
     if (_drafts[slot] == json) return;
     _drafts[slot] = json;
     _scheduleFlush(slot);
