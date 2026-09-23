@@ -47,8 +47,22 @@ class ComposerDraftRepository {
   final DateTime Function() _now;
 
   Future<List<ComposerDraftEntry>> load() async {
+    final entries = await _readRows();
+    final resourcePaths = await _resourcePathsFor(entries);
+    if (resourcePaths.isEmpty) return entries;
+    return [
+      for (final entry in entries)
+        ComposerDraftEntry(
+          slot: entry.slot,
+          draft: _resolveAttachmentPaths(entry.draft, resourcePaths),
+          updatedAt: entry.updatedAt,
+        ),
+    ];
+  }
+
+  /// 读取原始行：附件路径保持存储时的样子，供保存时判断内容是否变化。
+  Future<List<ComposerDraftEntry>> _readRows() async {
     final json = await _storageV2.loadDataFile(fileName);
-    final resourcePaths = await _localResourcePaths();
     final entries = <ComposerDraftEntry>[];
     for (final item in json['drafts'] as List<dynamic>? ?? const []) {
       if (item is! Map) continue;
@@ -56,11 +70,10 @@ class ComposerDraftRepository {
       final slot = row['id'] as String?;
       final raw = row['draft'];
       if (slot == null || slot.isEmpty || raw is! Map) continue;
-      final draft = ComposerDraft.fromJson(Map<String, dynamic>.from(raw));
       entries.add(
         ComposerDraftEntry(
           slot: slot,
-          draft: _resolveAttachmentPaths(draft, resourcePaths),
+          draft: ComposerDraft.fromJson(Map<String, dynamic>.from(raw)),
           updatedAt:
               DateTime.tryParse(row['updatedAt'] as String? ?? '') ??
               _now().toUtc(),
@@ -75,15 +88,13 @@ class ComposerDraftRepository {
   /// 内容没变的槽位保留原来的 `updatedAt`，否则整表覆盖会让每条草稿都产生一次
   /// 无意义的同步变更。
   Future<void> save(Map<String, ComposerDraft> drafts) async {
-    final existing = {for (final entry in await load()) entry.slot: entry};
+    final existing = {for (final entry in await _readRows()) entry.slot: entry};
     final now = _now().toUtc().toIso8601String();
     final rows = <Map<String, dynamic>>[];
     for (final entry in drafts.entries) {
       final draft = await _ensureResourceIds(entry.value);
       final previous = existing[entry.key];
-      final unchanged =
-          previous != null &&
-          jsonEncode(previous.draft.toJson()) == jsonEncode(draft.toJson());
+      final unchanged = previous != null && _sameContent(previous.draft, draft);
       rows.add({
         'id': entry.key,
         if (entry.key != newConversationSlot) 'conversationId': entry.key,
@@ -94,11 +105,21 @@ class ComposerDraftRepository {
     await _storageV2.writeDataFile(fileName, {'drafts': rows});
   }
 
-  /// 本机已有内容的 Resource 路径，用于把草稿附件指向本机文件。
-  Future<Map<String, String>> _localResourcePaths() async {
+  /// 只解析草稿实际引用的 Resource 路径，避免每次加载都遍历整张资源表。
+  Future<Map<String, String>> _resourcePathsFor(
+    List<ComposerDraftEntry> entries,
+  ) async {
+    final ids = <String>{};
+    for (final entry in entries) {
+      for (final attachment in entry.draft.attachments) {
+        final id = attachment.resourceId;
+        if (id != null) ids.add(id);
+      }
+    }
+    if (ids.isEmpty) return const {};
     final paths = <String, String>{};
     try {
-      for (final resource in await _storageV2.loadResources()) {
+      for (final resource in await _storageV2.findResourcesByIds(ids)) {
         final path = await _storageV2.resourcePath(resource);
         if (path != null && path.isNotEmpty) paths[resource.id] = path;
       }
@@ -107,6 +128,29 @@ class ComposerDraftRepository {
     }
     return paths;
   }
+
+  /// 判断草稿内容是否变化。
+  ///
+  /// 附件只比较路径与展示元数据：`resourceId` 是补齐出来的派生信息（撤回消息、
+  /// 从备份恢复的附件本来没有），把它算进去会让每次保存都刷新 `updatedAt`，产生
+  /// 无意义的同步变更。
+  static bool _sameContent(ComposerDraft a, ComposerDraft b) {
+    final left = a.toJson()..['attachments'] = _attachmentsForCompare(a);
+    final right = b.toJson()..['attachments'] = _attachmentsForCompare(b);
+    return jsonEncode(left) == jsonEncode(right);
+  }
+
+  static List<Map<String, dynamic>> _attachmentsForCompare(
+    ComposerDraft draft,
+  ) => [
+    for (final attachment in draft.attachments)
+      {
+        'path': attachment.path,
+        'name': attachment.name,
+        'size': attachment.size,
+        'mimeType': attachment.mimeType,
+      },
+  ];
 
   ComposerDraft _resolveAttachmentPaths(
     ComposerDraft draft,

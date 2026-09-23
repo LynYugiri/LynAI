@@ -1865,6 +1865,8 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       _beginStreaming(cid);
       _thinkingTxt = null;
     });
+    // 正文与附件都已发出：显式清掉这个对话的草稿，避免已发送的附件随草稿回到输入框。
+    cp.saveComposerDraft(cid, const ComposerDraft());
     _scrollEnd(force: true);
     await WidgetsBinding.instance.endOfFrame;
     if (!mounted) return;
@@ -6292,7 +6294,8 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
           return Stack(
             children: [
               InkWell(
-                onTap: image.isImage
+                // 远端草稿的附件可能还没落到本机，此时只显示占位、不打开预览。
+                onTap: image.isImage && _attachmentExists(image.path)
                     ? () => _showAttachmentImagePreview(
                         _pendingImages
                             .map((item) => item.toMessageImage())

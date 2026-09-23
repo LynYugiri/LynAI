@@ -144,6 +144,44 @@ void main() {
     expect(second['b']!.isAfter(first['b']!), isTrue);
   });
 
+  test('带附件的草稿重复保存不会刷新 updatedAt', () async {
+    final storage = StorageV2Service(rootDirectory: root);
+    addTearDown(storage.close);
+    final repository = ComposerDraftRepository(storageV2: storage);
+    final file = File('${root.path}/cat.png')..writeAsBytesSync([1, 2, 3, 4]);
+    final draft = ComposerDraft(
+      segments: const [ComposerTextSegment('看下 ')],
+      attachments: [
+        ComposerDraftAttachment(
+          path: file.path,
+          name: 'cat.png',
+          size: 4,
+          mimeType: 'image/png',
+        ),
+      ],
+    );
+
+    await repository.save({'a': draft});
+    final first = (await repository.load()).single.updatedAt;
+
+    await Future<void>.delayed(const Duration(milliseconds: 5));
+    // 撤回消息、备份恢复拿到的附件只有路径，每次保存都会补 Resource；
+    // 补齐本身不算内容变化，否则每次输入都会推一条同步变更。
+    await repository.save({'a': draft});
+    final second = (await repository.load()).single.updatedAt;
+    expect(second, first);
+
+    await Future<void>.delayed(const Duration(milliseconds: 5));
+    await repository.save({
+      'a': ComposerDraft(
+        segments: const [ComposerTextSegment('看下这两个 ')],
+        attachments: draft.attachments,
+      ),
+    });
+    final third = (await repository.load()).single.updatedAt;
+    expect(third.isAfter(first), isTrue);
+  });
+
   test('重新打开数据库后草稿仍在', () async {
     final first = StorageV2Service(rootDirectory: root);
     await ComposerDraftRepository(

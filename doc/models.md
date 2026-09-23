@@ -55,7 +55,13 @@
 
 文件：`lib/models/composer_reference.dart`
 
-`ComposerReference` 是引用面板选中的类型化引用，仅携带 `type`（`note`/`note_page`/`task`/`task_list`/`plugin_resource`/`plugin_skill`）、稳定 `id`、本地显示标题与 `qualifiers`。`ComposerReferenceCodec` 唯一负责生成/解析 `<lynai_ref type="..." id="..." .../>`：发送给模型的正文只包含 type/id 与稳定限定字段，不含标题或正文。`ComposerSegment` 区分 `ComposerTextSegment` 与 `ComposerReferenceSegment`，`encodeComposerSegments`/`decodeComposerSegments` 负责消息持久化的序列化。
+`ComposerReference` 是引用面板选中的类型化引用，仅携带 `type`（`note`/`note_page`/`task`/`task_list`/`plugin_resource`/`plugin_skill`）、稳定 `id`、本地显示标题与 `qualifiers`。`ComposerReferenceCodec` 唯一负责生成/解析 `<lynai_ref type="..." id="..." .../>`：发送给模型的正文只包含 type/id 与稳定限定字段，不含标题或正文。`ComposerSegment` 区分 `ComposerTextSegment` 与 `ComposerReferenceSegment`，`encodeComposerSegments`/`decodeComposerSegments` 负责消息持久化的序列化；`composerSegmentsToJson`/`composerSegmentsFromJson` 供需要嵌套编码的调用方复用。
+
+## 输入框草稿
+
+文件：`lib/models/composer_draft.dart`
+
+`ComposerDraft` 是对话页输入框草稿载荷：`segments` 片段列表与 `attachments` 暂存附件，正文与附件都为空时 `isEmpty` 为真（对应行会被删除）。同一份 JSON 用于 `composer_drafts` 行的 `draft_json`、同步记录的 `draft` 字段和备份里的草稿列表。`ComposerDraftAttachment` 与消息附件不同：它以 storage_v2 Resource 为准，`resourceId` 是另一台设备认回内容的依据，`path` 只是本机缓存（远端恢复或资源尚未下载时可能为空，页面显示占位而不是丢弃条目）。
 
 ## Conversation 与设置快照
 
