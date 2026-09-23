@@ -112,4 +112,52 @@ void main() {
       ['第一问', '第一答', '第二问'],
     );
   });
+
+  group('coveredMessageIdsForCompaction', () {
+    test('只覆盖最新用户消息之前的部分，不吃掉当前提问', () {
+      final conversation = _conversation();
+      // m2 是当前用户提问，m3 是它尚未产生的空回复占位。
+      expect(coveredMessageIdsForCompaction(conversation), ['m0', 'm1']);
+    });
+
+    test('空 assistant 占位不参与前缀计算', () {
+      final now = DateTime(2026, 3, 1);
+      final conversation = _conversation(
+        messages: [
+          Message(id: 'm0', role: 'user', content: '第一问', timestamp: now),
+          Message(id: 'm1', role: 'assistant', content: '', timestamp: now),
+          Message(id: 'm2', role: 'user', content: '第二问', timestamp: now),
+          Message(id: 'm3', role: 'assistant', content: '第二答', timestamp: now),
+        ],
+      );
+      // 按「API 消息条数」做算术会得到覆盖 m0..m3 的四条，把当前提问一起盖掉。
+      expect(coveredMessageIdsForCompaction(conversation), ['m0']);
+    });
+
+    test('连续压缩会把旧检查点覆盖的消息一并纳入', () {
+      final conversation = _conversation(
+        checkpoint: ConversationContextCheckpoint(
+          summary: '之前聊了发布计划',
+          coveredMessageIds: const ['m0', 'm1'],
+          createdAt: DateTime(2026, 3, 1),
+        ),
+      );
+      // 已覆盖的 m0/m1 不能因为新检查点又回到上下文里。
+      expect(coveredMessageIdsForCompaction(conversation), ['m0', 'm1']);
+    });
+
+    test('没有存活消息时不产生覆盖面', () {
+      final conversation = _conversation(
+        messages: [
+          Message(
+            id: 'm0',
+            role: 'assistant',
+            content: '',
+            timestamp: DateTime(2026, 3, 1),
+          ),
+        ],
+      );
+      expect(coveredMessageIdsForCompaction(conversation), isEmpty);
+    });
+  });
 }

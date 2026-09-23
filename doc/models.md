@@ -57,7 +57,7 @@
 
 `ComposerReference` 是引用面板选中的类型化引用，仅携带 `type`（`note`/`note_page`/`task`/`task_list`/`knowledge_base`/`knowledge_entry`/`plugin_resource`/`plugin_skill`/`conversation`）、稳定 `id`、本地显示标题、`scope` 与 `qualifiers`。`ComposerReferenceCodec` 唯一负责生成/解析 `<lynai_ref type="..." id="..." .../>`：发送给模型的正文只包含 type/id、`scope` 与稳定限定字段，不含标题或正文。
 
-**资源类型不等于分级层级**：引用面板每一级都能直接引用，在文件夹层停下就是「引用整个文件夹」，层级由 `ComposerReferenceScope`（`entity`/`folder`）表达，不为每种分级再造类型。`folder` 编码为 `scope="folder"` 限定字段，`entity` 省略不写，因此既有的 `<lynai_ref/>` wire 完全不变。`displayTitle` 为文件夹引用追加「（整个文件夹）」后缀，避免与同名实体混淆；`poolKey` 是引用池去重键（`type:scope:id`），必须与 `ConversationReferenceEntry.key` 保持一致。
+**资源类型不等于分级层级**：引用面板每一级都能直接引用，进入文件夹层后停在这一层就是「引用整个文件夹」，层级由 `ComposerReferenceScope`（`entity`/`folder`）表达，不为每种分级再造类型。`folder` 编码为 `scope="folder"` 限定字段，`entity` 省略不写，因此既有的 `<lynai_ref/>` wire 完全不变。`displayTitle` 为文件夹引用追加「（整个文件夹）」后缀，避免与同名实体混淆；`poolKey` 是引用池去重键（`type:scope:id`），必须与 `ConversationReferenceEntry.key` 保持一致。
 
 `ComposerSegment` 区分 `ComposerTextSegment` 与 `ComposerReferenceSegment`，`encodeComposerSegments`/`decodeComposerSegments` 负责消息持久化的序列化；`composerSegmentsToJson`/`composerSegmentsFromJson` 供需要嵌套编码的调用方复用。
 

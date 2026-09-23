@@ -65,6 +65,39 @@ void main() {
     }
   });
 
+  test('note-pages selector lists notes first so pages stay reachable', () async {
+    SharedPreferences.setMockInitialValues({});
+    final root = await Directory.systemTemp.createTemp('lynai_sel_pages_');
+    final storage = await _readyStorage(root);
+    try {
+      final features = FeatureProvider(storageV2: storage);
+      await features.load();
+      final noteId = await features.addNoteWithContent('项目规划', '正文');
+      await features.addNotePage(noteId, '第一页');
+
+      final registry = buildBuiltInSelectorRegistry(
+        features: features,
+        tasks: TaskProvider(storageV2: storage),
+      );
+      // 页面挂在笔记下：源的第一层必须给出可下钻的笔记，否则笔记页永远不可达。
+      final notes = await registry.selector('note-pages')!.load('', const []);
+      final folder = notes.firstWhere(
+        (item) => item.kind == ComposerSelectorItemKind.folder,
+      );
+      expect(folder.title, '项目规划');
+
+      final pages = await registry.selector('note-pages')!.load('', [
+        folder.key.split(':').last,
+      ]);
+      expect(pages.map((item) => item.title), contains('第一页'));
+      expect(pages.first.value!.type, ComposerReferenceType.notePage);
+      expect(pages.first.value!.qualifiers['noteId'], isNotEmpty);
+    } finally {
+      await storage.close();
+      await root.delete(recursive: true);
+    }
+  });
+
   test('task-lists selector returns task list references', () async {
     SharedPreferences.setMockInitialValues({});
     final root = await Directory.systemTemp.createTemp('lynai_sel_lists_');

@@ -8,6 +8,7 @@ import 'package:lynai/models/message.dart';
 import 'package:lynai/providers/conversation_provider.dart';
 import 'package:lynai/providers/feature_provider.dart';
 import 'package:lynai/services/agent_cancellation.dart';
+import 'package:lynai/services/api_message_builder.dart';
 import 'package:lynai/services/lynai_permission_definitions.dart';
 import 'package:lynai/services/tool_call_service.dart';
 
@@ -234,5 +235,51 @@ void main() {
     final payload = result.value as Map<String, dynamic>;
     expect(payload['count'], 0);
     expect(payload['references'], isEmpty);
+  });
+
+  test('系统提示词只在 read_conversation 可用时才提它', () {
+    // 提示词与工具快照必须同源：没授权就不能指向一个不存在的工具。
+    expect(
+      ToolCallService.nativeSystemPromptFor(webSearchConfigured: false),
+      isNot(contains('read_conversation')),
+    );
+    expect(
+      ToolCallService.nativeSystemPromptFor(
+        webSearchConfigured: false,
+        conversationsReadAvailable: true,
+      ),
+      contains('read_conversation'),
+    );
+  });
+
+  test('buildApiMessages 按可用性决定是否提 read_conversation', () {
+    final conversation = Conversation(
+      id: 'conv-1',
+      title: '标题',
+      messages: [
+        Message(
+          id: 'm0',
+          role: 'user',
+          content: '看看之前聊了什么',
+          timestamp: DateTime(2026, 3, 1),
+        ),
+      ],
+      modelId: 'model-1',
+      createdAt: DateTime(2026, 3, 1),
+      updatedAt: DateTime(2026, 3, 1),
+    );
+
+    String systemText({required bool conversationsReadAvailable}) => buildApiMessages(
+      conversation,
+      const [],
+      enableTools: true,
+      conversationsReadAvailable: conversationsReadAvailable,
+    )
+        .where((message) => message['role'] == 'system')
+        .map((message) => message['content'].toString())
+        .join('\n');
+
+    expect(systemText(conversationsReadAvailable: false), isNot(contains('read_conversation')));
+    expect(systemText(conversationsReadAvailable: true), contains('read_conversation'));
   });
 }

@@ -154,6 +154,14 @@ class SyncDataRegistry {
     if (table == 'resources' && data == null) {
       return selection.contains(SyncDataCategory.staticResources);
     }
+    // 草稿的分类依赖 data 里的 conversationId，但云 reseed 需要一份不依赖
+    // data 的权威表集合（SyncProvider._tablesForSelection 传 data = null）。
+    // 没有这一支，投影里的草稿会因为不在权威表集合内而让整次 reseed 抛
+    // FormatException。未创建对话的草稿没有 conversationId，但仍会写出一条
+    // 永不上传、永不 ACK 的 outbox 行，reseed 的删除阶段据此跳过它。
+    if (table == 'composer_drafts' && data == null) {
+      return selection.contains(SyncDataCategory.conversations);
+    }
     final category = categoryForChange(table, data);
     if (category == null || !selection.contains(category)) return false;
     return table != 'resources' ||

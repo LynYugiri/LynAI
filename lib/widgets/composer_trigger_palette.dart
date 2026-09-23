@@ -46,6 +46,35 @@ class ComposerReferenceRow extends ComposerPaletteRow {
       : composerReferenceIcon(value.type, scope: value.scope);
 }
 
+/// 一条可下钻的层级行（文件夹、待办清单、知识库等）。
+///
+/// 层级行不直接插入引用，而是进入下一层；[scopeValue] 是该层级「引用整个 X」
+/// 的范围引用，进入后作为该层的范围行展示，因此下钻不会丢掉整体引用能力。
+/// 没有 [scopeValue] 的层级只能浏览（例如知识库条目源里的知识库）。
+class ComposerFolderRow extends ComposerPaletteRow {
+  const ComposerFolderRow({
+    required super.key,
+    required super.title,
+    required this.folderId,
+    this.scopeValue,
+    this.subtitleText,
+  });
+
+  /// 压入导航路径的父 ID（文件夹 / 清单 / 笔记等）。
+  final String folderId;
+
+  /// 该层级的整体引用；为空表示这一层不能整体引用。
+  final ComposerSelectorValue? scopeValue;
+
+  final String? subtitleText;
+
+  @override
+  String? get subtitle => subtitleText;
+
+  @override
+  IconData get icon => Icons.folder_outlined;
+}
+
 /// 一条 `/` 指令候选。
 class ComposerCommandRow extends ComposerPaletteRow {
   ComposerCommandRow({required this.command})

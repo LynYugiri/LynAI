@@ -348,8 +348,21 @@ List<ComposerSelectorItem> _loadNotePages(
   String query,
   List<String> path,
 ) {
-  final noteId = path.isEmpty ? '' : path.first;
-  if (noteId.isEmpty) return const [];
+  if (path.isEmpty) {
+    // 页面挂在笔记下：先列出笔记，进入某篇后再列它的页面。
+    return features.notes
+        .where((note) => _matches(note.title, query))
+        .map(
+          (note) => ComposerSelectorItem(
+            key: 'note-folder:${note.id}',
+            kind: ComposerSelectorItemKind.folder,
+            title: note.title,
+            subtitle: _noteSubtitle(note),
+          ),
+        )
+        .toList();
+  }
+  final noteId = path.first;
   return features
       .notePages(noteId)
       .where((page) => _matches(page.title, query))

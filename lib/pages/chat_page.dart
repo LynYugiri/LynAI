@@ -460,6 +460,9 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
   /// 次层候选项；随 [ComposerQueryRevision] 异步刷新。
   List<ComposerPaletteRow> _composerItemRows = const [];
 
+  /// 已下钻的层级路径：每项是父 ID（文件夹 / 清单 / 笔记）与该层的整体引用。
+  List<({String id, ComposerSelectorValue? scope})> _composerTrail = const [];
+
   /// 次层候选项对应的 (源, 路径, 过滤词) 快照，防止晚到结果覆盖新状态。
   String _composerItemsToken = '';
 
@@ -1841,6 +1844,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     _composerPendingSelector = null;
     _composerItemRows = const [];
     _composerSourceRows = const [];
+    _composerTrail = const [];
     _composerSelectedIndex = 0;
     _composerItemsToken = '';
   }
@@ -1911,6 +1915,47 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     if (trigger == null) return;
     setState(() {
       _composerPendingSelector = selector;
+      _composerTrail = const [];
+      _composerSelectedIndex = 0;
+    });
+    unawaited(_loadComposerSelectorItems(selector, trigger));
+  }
+
+  /// 进入某个层级：压入路径，并把该层携带的整体引用留给下一层的范围行。
+  ///
+  /// 引用源的数据源在 [ComposerSelectorItemKind.folder] 行上同时给出「进入下一层」
+  /// 与「这一层整体引用什么」，所以下钻和整体引用可以并存。
+  void _enterComposerFolder(
+    ComposerFolderRow row,
+    ComposerTriggerMatch trigger,
+  ) {
+    final selector = _composerPendingSelector;
+    if (selector == null) return;
+    setState(() {
+      _composerTrail = [
+        ..._composerTrail,
+        (id: row.folderId, scope: row.scopeValue),
+      ];
+      _composerItemRows = const [];
+      _composerSelectedIndex = 0;
+    });
+    unawaited(_loadComposerSelectorItems(selector, trigger));
+  }
+
+  /// 返回上一级；已经在引用源第一层时退回引用源列表。
+  void _leaveComposerLevel(ComposerTriggerMatch trigger) {
+    final selector = _composerPendingSelector;
+    if (selector == null || _composerTrail.isEmpty) {
+      setState(() {
+        _composerPendingSelector = null;
+        _composerItemRows = const [];
+        _composerSelectedIndex = 0;
+      });
+      return;
+    }
+    setState(() {
+      _composerTrail = _composerTrail.sublist(0, _composerTrail.length - 1);
+      _composerItemRows = const [];
       _composerSelectedIndex = 0;
     });
     unawaited(_loadComposerSelectorItems(selector, trigger));
@@ -1959,11 +2004,12 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     ComposerSelector selector,
     ComposerTriggerMatch trigger,
   ) async {
-    final token = '${selector.name}|${trigger.query}';
+    final path = [for (final level in _composerTrail) level.id];
+    final token = '${selector.name}|${path.join('/')}|${trigger.query}';
     _composerItemsToken = token;
     List<ComposerSelectorItem> items;
     try {
-      items = await selector.load(trigger.query, const []);
+      items = await selector.load(trigger.query, path);
     } catch (error) {
       debugPrint('引用源 ${selector.name} 加载失败: $error');
       items = const [];
@@ -1974,7 +2020,11 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
         _composerPendingSelector?.name != selector.name) {
       return;
     }
-    final root = selector.rootValue?.call(const []);
+    // 声明了 rootValue 的源（笔记）按路径给出当前层范围；其余源（待办清单、
+    // 知识库）用进入该层时文件夹行携带的整体引用，保证下钻不丢整体引用。
+    final root =
+        selector.rootValue?.call(path) ??
+        (_composerTrail.isEmpty ? null : _composerTrail.last.scope);
     setState(() {
       _composerItemRows = [
         if (root != null)
@@ -1986,7 +2036,15 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
             isScope: true,
           ),
         for (final item in items)
-          if (item.value != null)
+          if (item.kind == ComposerSelectorItemKind.folder)
+            ComposerFolderRow(
+              key: '${selector.name}:${item.key}',
+              title: item.title,
+              subtitleText: item.subtitle,
+              folderId: item.key.split(':').last,
+              scopeValue: item.value,
+            )
+          else if (item.value != null)
             ComposerReferenceRow(
               key: '${selector.name}:${item.key}',
               title: item.title,
@@ -2059,6 +2117,8 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     switch (row) {
       case ComposerSourceRow(:final selector):
         _enterComposerSelector(selector);
+      case ComposerFolderRow():
+        _enterComposerFolder(row, trigger);
       case ComposerReferenceRow(:final value, :final modelId):
         _insertComposerReference(value, modelId, trigger: trigger);
       case ComposerCommandRow(:final command):
@@ -2110,6 +2170,17 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     );
   }
 
+  /// `read_conversation` 是否在本轮工具快照里。
+  ///
+  /// 与 `ToolCallService` 的注册判断保持一致：未授予 `conversations:read` 时
+  /// 工具不会注册，系统提示词也不能提到它，否则模型会去调用一个不存在的工具。
+  bool _conversationsReadAvailable() => context
+      .read<SettingsProvider>()
+      .settings
+      .agentPermissionSnapshot
+      .permissions
+      .contains(LynAIPermissions.conversationsRead);
+
   /// `/压缩`：把当前发送上下文里较早的历史压成摘要并持久化为检查点。
   ///
   /// 压缩的是**当前实际上下文**——如果已经有检查点，旧检查点覆盖的历史本来
@@ -2134,12 +2205,14 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       return;
     }
     setState(() => _composerCommandBusy = '正在压缩较早的对话历史…');
+    final conversationsReadAvailable = _conversationsReadAvailable();
     try {
       final messages = buildApiMessages(
         conv,
         _visiblePluginsFor(conv),
         enableTools: _supportsNativeTools(model),
         referencePoolAvailable: true,
+        conversationsReadAvailable: conversationsReadAvailable,
       );
       // 最新一条用户消息起的内容留在上下文里，压缩它之前的全部历史。
       final lastUserIndex = messages.lastIndexWhere(
@@ -2172,10 +2245,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
         cid,
         ConversationContextCheckpoint(
           summary: summary,
-          coveredMessageIds: [
-            for (final message in conv.messages.take(_coveredMessageCount(conv)))
-              message.id,
-          ],
+          coveredMessageIds: coveredMessageIdsForCompaction(conv),
           createdAt: DateTime.now(),
           modelId: model.id,
         ),
@@ -2187,28 +2257,6 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     } finally {
       if (mounted) setState(() => _composerCommandBusy = null);
     }
-  }
-
-  /// 检查点覆盖的消息条数。
-  ///
-  /// 压缩范围是「当前上下文里最新用户消息之前的部分」，而检查点覆盖的是原始
-  /// 消息：两者的差值就是被已有检查点顶替掉的那段（已经不在上下文里，不重复
-  /// 计入）。这样连续 `/压缩` 不会把同一段历史重复摘要。
-  int _coveredMessageCount(Conversation conv) {
-    final live = context.read<ConversationProvider>().liveContextCheckpoint(
-      conv.id,
-    );
-    final already = live?.coveredMessageIds.length ?? 0;
-    final messages = buildApiMessages(
-      conv,
-      _visiblePluginsFor(conv),
-      enableTools: true,
-      referencePoolAvailable: true,
-    );
-    final withoutPoolHint = messages
-        .where((message) => message['role'] != 'system')
-        .length;
-    return (already + withoutPoolHint).clamp(0, conv.messages.length);
   }
 
   /// `/总结`：用当前模型总结**压缩后的上下文**，结果只展示、不进上下文。
@@ -2232,12 +2280,14 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       return;
     }
     setState(() => _composerCommandBusy = '正在总结这段对话…');
+    final conversationsReadAvailable = _conversationsReadAvailable();
     try {
       final messages = buildApiMessages(
         conv,
         _visiblePluginsFor(conv),
         enableTools: _supportsNativeTools(model),
         referencePoolAvailable: true,
+        conversationsReadAvailable: conversationsReadAvailable,
       );
       if (!messages.any((message) => message['role'] != 'system')) {
         _showComposerCommandTip('当前还没有对话内容，无法总结');
@@ -2671,6 +2721,9 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       roleMemoryAvailable:
           appSettings.roleMemoryEnabled || appSettings.roleUserProfileEnabled,
       referencePoolAvailable: true,
+      conversationsReadAvailable: grantedPermissions.contains(
+        LynAIPermissions.conversationsRead,
+      ),
     );
     unawaited(
       _doStream(
@@ -6343,11 +6396,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
             selectedIndex: _composerSelectedIndex,
             onSelect: (row) => _activateComposerPaletteRow(row, trigger),
             onEnterSource: _enterComposerSelector,
-            onBack: () => setState(() {
-              _composerPendingSelector = null;
-              _composerItemRows = const [];
-              _composerSelectedIndex = 0;
-            }),
+            onBack: () => _leaveComposerLevel(trigger),
             emptyHint: trigger.isReference
                 ? '没有匹配的引用，继续输入会按普通文本处理'
                 : '没有匹配的指令，继续输入会按普通文本处理',

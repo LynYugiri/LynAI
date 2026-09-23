@@ -4599,6 +4599,15 @@ END, h.client_created_at, h.updated_at, h.table_name, h.record_id
                 transactionDb: db,
               );
             }
+          case 'composer_drafts':
+            if (op.op == 'upsert' && op.data != null) {
+              await upsertComposerDraftRow(op.data!, transactionDb: db);
+            } else if (op.op == 'delete') {
+              await deleteComposerDraftRow(
+                op.data!['id'] as String,
+                transactionDb: db,
+              );
+            }
           case 'tasks':
             if (op.op == 'upsert' && op.data != null) {
               await upsertTaskRow(op.data!, transactionDb: db);
@@ -7553,6 +7562,7 @@ CREATE TABLE IF NOT EXISTS cloud_reseed_tasks (
     'conversations',
     'messages',
     'message_attachments',
+    'composer_drafts',
     'tasks',
     'task_lists',
     'task_list_entries',

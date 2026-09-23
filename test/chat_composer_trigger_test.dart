@@ -36,7 +36,11 @@ void main() {
     await storageRoot.delete(recursive: true);
   });
 
-  Future<void> pumpChat(WidgetTester tester) async {
+  Future<void> pumpChat(
+    WidgetTester tester, {
+    FeatureProvider? features,
+    TaskProvider? tasks,
+  }) async {
     await tester.binding.setSurfaceSize(const Size(500, 800));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     await tester.pumpWidget(
@@ -46,8 +50,8 @@ void main() {
           ChangeNotifierProvider.value(value: memorySettingsProvider()),
           ChangeNotifierProvider.value(value: memoryWorkspaceProvider()),
           ChangeNotifierProvider.value(value: memoryModelConfigProvider()),
-          ChangeNotifierProvider(create: (_) => FeatureProvider()),
-          ChangeNotifierProvider(create: (_) => TaskProvider()),
+          ChangeNotifierProvider(create: (_) => features ?? FeatureProvider()),
+          ChangeNotifierProvider(create: (_) => tasks ?? TaskProvider()),
           ChangeNotifierProvider(create: (_) => CalendarProvider()),
           ChangeNotifierProvider(create: (_) => PluginProvider()),
           ChangeNotifierProvider(create: (_) => KnowledgeProvider()),
@@ -211,5 +215,72 @@ void main() {
     expect(controller.text, isEmpty);
     expect(find.byType(ComposerTriggerPalette), findsNothing);
     await settleDrafts(tester);
+  });
+
+  group('引用源下钻', () {
+    late FeatureProvider features;
+
+    // 夹具里要读真实 storage，放在 setUp（不在 widget 测试的假异步时钟里）。
+    setUp(() async {
+      features = FeatureProvider(storageV2: storage);
+      await features.load();
+      final folderId = await features.addNoteFolder('工作');
+      await features.addNoteWithContent(
+        '项目规划',
+        '本周需要完成版本发布准备。',
+        folderId: folderId,
+      );
+    });
+
+    testWidgets('引用源支持进入文件夹并在层级间返回', (tester) async {
+      await pumpChat(tester, features: features);
+
+      // 面板会盖住输入框，键盘导航比点击可靠：首层第 0 行是「笔记」源。
+      await typeInComposer(tester, '@');
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.pump();
+      await tester.pump();
+
+      // 第一层：文件夹行可下钻，不再是「引用整个文件夹」的终点。
+      expect(
+        find.descendant(
+          of: find.byType(ComposerTriggerPalette),
+          matching: find.byIcon(Icons.folder_outlined),
+        ),
+        findsWidgets,
+      );
+
+      // 第 0 行是第一个文件夹「工作」，回车进入下一层。
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.pump();
+      await tester.pump();
+
+      // 进入文件夹后列出其中笔记，并给出该层的整体引用行。
+      expect(
+        find.descendant(
+          of: find.byType(ComposerTriggerPalette),
+          matching: find.text('项目规划'),
+        ),
+        findsOneWidget,
+      );
+      expect(find.text('引用整个「工作」'), findsOneWidget);
+
+      // 返回上一级回到文件夹列表。合成点击会被输入区手势层吞掉，这里直接
+      // 调用面板暴露的 onBack（即页面接上的 _leaveComposerLevel）。
+      tester
+          .widget<ComposerTriggerPalette>(find.byType(ComposerTriggerPalette))
+          .onBack();
+      await tester.pump();
+      await tester.pump();
+      expect(
+        find.descendant(
+          of: find.byType(ComposerTriggerPalette),
+          matching: find.text('工作'),
+        ),
+        findsOneWidget,
+      );
+
+      await settleDrafts(tester);
+    });
   });
 }

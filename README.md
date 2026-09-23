@@ -27,7 +27,7 @@ LynAI 是一个本地优先的跨平台 AI 客户端。它把多模型聊天、�
 
 | 模块 | 说明 |
 |------|------|
-| 对话 | 流式回复、停止生成、重试、编辑重发、回复版本切换、历史继续、撤回撤销与分支、长图分享。 |
+| 对话 | 流式回复、停止生成、重试、编辑重发、回复版本切换、历史继续、撤回撤销与分支、长图分享；输入框内容按对话暂存，`@` 引用对话与本地数据源，`/` 执行压缩与总结指令。 |
 | 模型管理 | 按 Chat、OCR、Speech、Image Generation 分类；Provider 下可配置多个子模型。 |
 | 本地模型 | Android 可加载内置 BlueLM 3B（MediaTek DX5/MT6993，arm64），模型放在设备目录，无需联网即可推理。 |
 | 附件 | 用户选择的长期附件会复制到应用私有目录，避免系统临时文件被清理。 |
@@ -50,7 +50,7 @@ LynAI 是一个本地优先的跨平台 AI 客户端。它把多模型聊天、�
 | 角色与提示词 | 聊天角色、角色分组、系统提示词模板、角色默认模型和主题色。 |
 | 外观 | Material 3、主题色、浅色/深色/跟随系统、背景图和毛玻璃。 |
 | 数据管理 | 备份导出、备份预览、分区导入、storage_v2 升级和私有资源恢复。 |
-| 数据同步 | 选择性云同步与 LAN 同步；云同步按后端 origin + 用户 ID 隔离，LAN 同步面向安装级本地数据。 |
+| 数据同步 | 选择性云同步与 LAN 同步；云同步按后端 origin + 用户 ID 隔离，LAN 同步面向安装级本地数据；对话页输入框草稿跟随所属对话分区。 |
 | 新手向导 | 首次启动选择用途与身份，AI 生成角色、角色记忆、Agent 默认值、知识库、牌组、任务清单、笔记与 SKILL。 |
 
 ## 平台
@@ -126,6 +126,7 @@ LynAI 本地业务数据统一写入 storage_v2：结构化数据写入 Drift �
 | 数据 | 主要负责人 |
 |------|------------|
 | 对话与附件 | `ConversationProvider`、`ConversationRepository`、`StorageV2Service` |
+| 对话输入框草稿 | `ConversationProvider`、`ComposerDraftRepository` |
 | 模型配置 | `ModelConfigProvider`、`ModelConfigRepository` |
 | 应用设置、角色、提示词 | `SettingsProvider`、`SettingsRepository` |
 | 任务与任务清单 | `TaskProvider`、`TaskRepository` |

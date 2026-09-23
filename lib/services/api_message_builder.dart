@@ -1,4 +1,5 @@
 import '../models/conversation.dart';
+import '../models/message.dart';
 import '../models/plugin.dart';
 import '../models/workspace.dart';
 import 'tool_call_service.dart';
@@ -30,11 +31,13 @@ List<Map<String, dynamic>> buildApiMessages(
   String memoryNudge = '',
   bool roleMemoryAvailable = false,
   bool referencePoolAvailable = false,
+  bool conversationsReadAvailable = false,
 }) {
   final msgs = <Map<String, dynamic>>[];
   final promptContent = conv.settings.systemPrompt;
   final nativePrompt = ToolCallService.nativeSystemPromptFor(
     webSearchConfigured: webSearchConfigured,
+    conversationsReadAvailable: conversationsReadAvailable,
   );
   final toolPrompt = conv.settings.agentEnabled
       ? '$nativePrompt\n\n${ToolCallService.agentSystemPromptWithSkills(plugins, webSearchConfigured: webSearchConfigured)}'
@@ -116,4 +119,46 @@ List<Map<String, dynamic>> buildApiMessages(
     });
   }
   return msgs;
+}
+
+/// `/压缩` 之后应标记为「已被上下文检查点覆盖」的消息 ID，按原始顺序返回。
+///
+/// 摘要只包含上下文里最新用户消息**之前**的部分，所以这里必须用与
+/// [buildApiMessages] 相同的过滤规则把那段上下文映射回原始消息：已被现有
+/// 检查点顶替的消息不会再进入上下文，空 assistant 占位也不发送。
+///
+/// 不能用「API 消息条数」做算术：条数里既少了空 assistant 占位、又多了那条摘要，
+/// 得到的前缀会把摘要从未包含过的消息（最新用户消息及其后的回复）也标记成已覆盖，
+/// 下一次请求就只剩摘要、丢掉用户刚问的问题。
+List<String> coveredMessageIdsForCompaction(Conversation conv) {
+  final alive = {for (final message in conv.messages) message.id};
+  final stored = conv.contextCheckpoint;
+  final alreadyCovered = <String>{
+    if (stored != null)
+      for (final id in stored.coveredMessageIds)
+        if (alive.contains(id)) id,
+  };
+  // 仍然会进入上下文的消息：已覆盖的不再出现，空 assistant 占位也不发送。
+  final surviving = <Message>[
+    for (final message in conv.messages)
+      if (!alreadyCovered.contains(message.id) &&
+          !(message.role == 'assistant' && message.content.isEmpty))
+        message,
+  ];
+  final lastUserIndex = surviving.lastIndexWhere(
+    (message) => message.role == 'user',
+  );
+  final newlyCovered = <String>{
+    for (final message in surviving.take(
+      lastUserIndex < 0 ? surviving.length : lastUserIndex,
+    ))
+      message.id,
+  };
+  if (alreadyCovered.isEmpty && newlyCovered.isEmpty) return const [];
+  return [
+    for (final message in conv.messages)
+      if (alreadyCovered.contains(message.id) ||
+          newlyCovered.contains(message.id))
+        message.id,
+  ];
 }
