@@ -42,6 +42,7 @@ import '../services/attachment_storage_service.dart';
 import '../services/api_message_builder.dart';
 import '../services/api_service.dart';
 import '../services/on_device_llm_service.dart';
+import '../services/composer_draft_service.dart';
 import '../services/composer_selector_registry.dart';
 import '../services/agent_context_builder.dart';
 import '../services/agent_loop_runtime.dart';
@@ -378,6 +379,18 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
   final _streamDraft = ValueNotifier<_StreamDraft>(const _StreamDraft());
   final _inputRevision = ValueNotifier<int>(0);
 
+  ComposerDraftService? _composerDrafts;
+
+  /// 输入框内容当前归属的对话；null 表示还没创建对话（新对话草稿）。
+  String? _composerDraftSlot;
+
+  /// 输入框内容是否已经和草稿存储对齐。
+  ///
+  /// 未对齐时输入框是空的只是「还没恢复」，不能当成用户清空了草稿。
+  bool _composerDraftReady = false;
+  int _composerDraftGen = 0;
+  String? _lastComposerDraftText;
+
   String? _convId;
   String? _pendingModelId;
   bool _thinking = true;
@@ -491,6 +504,11 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     } on ProviderNotFoundException {
       // Focused widget tests may omit optional web search composition.
     }
+    try {
+      _composerDrafts = context.read<ComposerDraftService>();
+    } on ProviderNotFoundException {
+      // Focused widget tests may omit composer draft persistence.
+    }
     _ownsApi = widget.api == null;
     _api = widget.api ?? ApiService(backend: backend);
     _recognition = ModelRecognitionService(api: _api);
@@ -513,6 +531,9 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       });
     }
     _maybeScheduleInitialPrompt();
+    _msgCtrl.addListener(_onComposerChanged);
+    // 初始提示词优先于草稿，因此这里只在输入框仍为空时填入。
+    unawaited(_restoreComposerDraft(_convId, replace: false));
   }
 
   /// 预填并可选自动发送由调用方（如插件工坊）传入的初始指令。
@@ -819,6 +840,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
         _stopStreaming();
       }
       _sendGen++;
+      _switchComposerDraft(widget.conversationId);
       setState(() {
         _preparingSend = false;
         _convId = widget.conversationId;
@@ -893,6 +915,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     _inputRevision.dispose();
     _searchCtrl.removeListener(_refreshSearchMatches);
     _searchCtrl.dispose();
+    _msgCtrl.removeListener(_onComposerChanged);
     _msgCtrl.dispose();
     _scrollCtrl.dispose();
     _historyScrollRestoreGeneration++;
@@ -1788,6 +1811,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
         ],
         modelContextByIndex: {0: preparedUserContent.textContext},
       );
+      _rebindComposerDraft(_convId!);
     } else {
       cp.addMessage(
         _convId!,
@@ -3337,9 +3361,11 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     _pendingModelId = null;
     _expandedThinkIds.clear();
     _thinkMap.clear();
+    final nextConvId = cid.isEmpty ? null : cid;
+    _switchComposerDraft(nextConvId);
     setState(() {
       _preparingSend = false;
-      _convId = cid.isEmpty ? null : cid;
+      _convId = nextConvId;
       _thinkingTxt = null;
       _thinkExpanded = false;
     });
@@ -3406,6 +3432,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     _sendGen++;
     _clearRetryState();
     _clearPendingState();
+    _switchComposerDraft(null);
     final defaults = context.read<SettingsProvider>().settings;
     setState(() {
       _preparingSend = false;
@@ -5188,6 +5215,73 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     _showWithdrawUndo(snapshot);
   }
 
+  /// 输入框内容变化时刷新它所属对话的草稿。
+  void _onComposerChanged() {
+    final drafts = _composerDrafts;
+    if (drafts == null || !_composerDraftReady) return;
+    final text = _msgCtrl.text;
+    // 光标移动同样会触发通知，文本没变就不必重算片段。
+    if (text == _lastComposerDraftText) return;
+    _lastComposerDraftText = text;
+    drafts.saveDraft(_composerDraftSlot, _msgCtrl.segments);
+  }
+
+  /// 切换对话时搬运输入框：旧对话的草稿落盘，新对话的草稿回填。
+  void _switchComposerDraft(String? conversationId) {
+    if (conversationId == _composerDraftSlot) return;
+    final drafts = _composerDrafts;
+    if (drafts != null && _composerDraftReady) {
+      final slot = _composerDraftSlot;
+      final removed =
+          slot != null &&
+          context.read<ConversationProvider>().getConversation(slot) == null;
+      // 对话已被删除（例如刚删掉正在查看的对话）时不再写回，否则删除后会被
+      // 输入框里的内容重新复活一份草稿。
+      if (!removed) {
+        drafts.saveDraft(slot, _msgCtrl.segments);
+        // 切换对话是明确的落点，不必等防抖。
+        unawaited(drafts.flush());
+      }
+    }
+    unawaited(_restoreComposerDraft(conversationId, replace: true));
+  }
+
+  /// 发送时新建了对话：输入框内容原地转交给新对话，不读草稿也不改输入框。
+  void _rebindComposerDraft(String conversationId) {
+    if (conversationId == _composerDraftSlot) return;
+    // 正在发送的内容不再算草稿；随后的清空会顺手删掉新对话的空草稿。
+    _composerDrafts?.removeDraft(_composerDraftSlot);
+    _composerDraftSlot = conversationId;
+    _lastComposerDraftText = _msgCtrl.text;
+    _composerDraftReady = true;
+  }
+
+  /// 把 [conversationId] 的草稿恢复到输入框。
+  ///
+  /// [replace] 为真时无条件替换输入框内容（切换对话）；为假时只在输入框为空时
+  /// 填入，让调用方传入的 `initialPrompt` 优先。
+  Future<void> _restoreComposerDraft(
+    String? conversationId, {
+    required bool replace,
+  }) async {
+    final drafts = _composerDrafts;
+    _composerDraftSlot = conversationId;
+    _composerDraftReady = false;
+    if (drafts == null) return;
+    final generation = ++_composerDraftGen;
+    await drafts.ensureLoaded();
+    if (!mounted || generation != _composerDraftGen) return;
+    if (replace || _msgCtrl.text.isEmpty) {
+      _msgCtrl.replaceSegments(drafts.draftFor(conversationId));
+      _msgCtrl.selection = TextSelection.collapsed(
+        offset: _msgCtrl.text.length,
+      );
+      _inputRevision.value++;
+    }
+    _lastComposerDraftText = _msgCtrl.text;
+    _composerDraftReady = true;
+  }
+
   /// 把一条用户消息的正文（含引用 Chip）和附件回填到输入框。
   void _prefillComposer(Message msg, {String? replaceWithText}) {
     // 有引用 Chip 的消息以持久化片段为准；文本被改写后片段已不再对应，退回纯文本。
@@ -5316,6 +5410,8 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       newConvId,
       branchConversationTitle(sourceConv.title),
     );
+    // 先切草稿槽位再回填：分支内容属于新对话，不能写回源对话的草稿。
+    _switchComposerDraft(newConvId);
     if (!includeMessage) {
       _prefillComposer(msg, replaceWithText: replaceWithText);
       setState(() {

@@ -100,6 +100,8 @@ Agent 工具轮数上限保存为 `ConversationSettings.maxToolRounds`（新建�
 | 附件按钮 | 选择文件、多图、拍照或桌面剪贴板图片。 |
 | 语音按钮 | 使用系统语音识别或配置的语音模型。 |
 
+输入框正文与引用 Chip 按对话暂存（`ComposerDraftService`）：切换对话时旧对话的内容留在原对话、新对话回填自己的草稿，「新建对话」回到独立的未创建对话槽位；草稿是本地 UI 状态，不进入备份、云同步或 LAN 同步，进程结束后重新打开仍能恢复，对话被删除时一并删除。发送成功、清空输入框都会删除对应草稿；暂存的图片附件不参与草稿，仍随页面状态清空。
+
 主聊天和情景演绎共用 composer 键盘策略：桌面端裸 `Enter` 发送、`Shift + Enter` 换行；Android/iOS 裸 `Enter` 换行；所有平台 `Ctrl + Enter` 或 `Meta + Enter` 发送。`Alt + Enter` 和输入法 composing 期间的回车不发送。移动端只有用户主动点输入框才弹出输入法；从历史打开对话和模型输出结束不会自动唤起键盘。桌面端 `Escape` 在焦点不处于输入框时复用 Home/Feature 现有返回处理。
 
 引用面板复用模型选择按钮的浮层样式，首层列出内置选择器（笔记/笔记页面/待办清单/待办）与插件命令，进入后按文件夹分层导航并支持搜索。选中实体产生 `ComposerReference`，通过 `ReferenceComposerController`（`lib/widgets/reference_composer.dart`）渲染为行内不可拆分 Chip：每个 Chip 在文本模型中只占一个私用区码点，退格/删除整体移除，用户无法把光标切入 Chip 内部。发送时气泡显示 `@标题` 占位，模型侧只接收 `<lynai_ref .../>`（type/id 与稳定限定字段，不含标题与正文）。引用随用户消息以 `composerSegments` 持久化，撤回/编辑时还原 Chip；失效引用在编辑时标记为“已失效”。插件命令若声明 `model`，选中后写入 `_pendingModelId` 覆盖本次发送模型。

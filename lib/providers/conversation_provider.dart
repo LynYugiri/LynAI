@@ -13,6 +13,7 @@ import '../models/model_config.dart';
 import '../models/recycle_bin_item.dart';
 import '../repositories/conversation_repository.dart';
 import '../repositories/recycle_bin_repository.dart';
+import '../services/composer_draft_service.dart';
 import '../services/storage_v2_service.dart';
 import '../utils/chat_search_matcher.dart';
 import 'serialized_save_queue.dart';
@@ -49,15 +50,18 @@ class ConversationProvider extends ChangeNotifier with SerializedSaveQueue {
   static const _saveDebounceDuration = Duration(milliseconds: 500);
   final ConversationRepository _repository;
   final RecycleBinRepository _recycleBinRepository;
+  final ComposerDraftService? _composerDrafts;
   bool _usingStorageV2 = false;
 
   ConversationProvider({
     StorageV2Service? storageV2,
     ConversationRepository? repository,
     RecycleBinRepository? recycleBinRepository,
+    ComposerDraftService? composerDrafts,
   }) : _repository = repository ?? ConversationRepository(storageV2: storageV2),
        _recycleBinRepository =
-           recycleBinRepository ?? RecycleBinRepository(storageV2: storageV2);
+           recycleBinRepository ?? RecycleBinRepository(storageV2: storageV2),
+       _composerDrafts = composerDrafts;
 
   void _touchConversation(int index) {
     final updated = _conversations.removeAt(index);
@@ -599,9 +603,13 @@ class ConversationProvider extends ChangeNotifier with SerializedSaveQueue {
   }
 
   /// 删除对话
+  ///
+  /// 输入框草稿是对话的本地附属状态，随对话一起删除；对话从回收站恢复时不还原
+  /// 草稿。
   Future<void> deleteConversation(String conversationId) async {
     final conversation = getConversation(conversationId);
     if (conversation == null) return;
+    _composerDrafts?.removeDraft(conversationId);
     await _recycleBinRepository.add(
       RecycleBinItem(
         owner: RecycleBinOwners.core,

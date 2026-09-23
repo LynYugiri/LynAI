@@ -17,6 +17,7 @@ import 'package:lynai/repositories/role_memory_repository.dart';
 import 'package:lynai/repositories/roleplay_repository.dart';
 import 'package:lynai/repositories/settings_repository.dart';
 import 'package:lynai/repositories/workspace_repository.dart';
+import 'package:lynai/services/composer_draft_service.dart';
 
 class MemoryConversationRepository implements ConversationRepository {
   List<Conversation> _conversations = const [];
@@ -159,8 +160,14 @@ class MemoryWorkspaceRepository implements WorkspaceRepository {
   }
 }
 
-ConversationProvider memoryConversationProvider() {
-  return ConversationProvider(repository: MemoryConversationRepository());
+ConversationProvider memoryConversationProvider({
+  ComposerDraftService? drafts,
+}) {
+  return ConversationProvider(
+    repository: MemoryConversationRepository(),
+    recycleBinRepository: MemoryRecycleBinRepository(),
+    composerDrafts: drafts,
+  );
 }
 
 WorkspaceProvider memoryWorkspaceProvider() {
