@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
 import '../providers/settings_provider.dart';
+import '../utils/platform_info.dart';
 import 'changelog_page.dart';
 
 /// 关于页面
@@ -148,6 +149,11 @@ class _AboutPageState extends State<AboutPage> {
   }
 
   String _currentPlatform() {
+    // 不穷尽列举 TargetPlatform：鸿蒙 Flutter SDK 给该枚举增加了
+    // TargetPlatform.ohos，穷尽匹配会在该 SDK 上编译失败；而上游 Flutter
+    // stable 没有 TargetPlatform.ohos，直接引用又会让本工程在 Android/iOS/
+    // 桌面上编译失败。default 分支在上游覆盖 Fuchsia，在鸿蒙 SDK 上覆盖
+    // HarmonyOS，标签统一由 platformDisplayName 提供。
     switch (defaultTargetPlatform) {
       case TargetPlatform.android:
         return 'Android';
@@ -159,8 +165,8 @@ class _AboutPageState extends State<AboutPage> {
         return 'Linux';
       case TargetPlatform.windows:
         return 'Windows';
-      case TargetPlatform.fuchsia:
-        return 'Fuchsia';
+      default:
+        return platformDisplayName;
     }
   }
 }

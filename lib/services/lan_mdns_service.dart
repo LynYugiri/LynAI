@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:bonsoir/bonsoir.dart';
 
 import '../models/lan_peer.dart';
+import '../utils/platform_info.dart';
 import 'lan_pairing_payload_codec.dart';
 
 class LanMdnsService {
@@ -24,6 +25,9 @@ class LanMdnsService {
     required int port,
     required int protocolVersion,
   }) async {
+    // 鸿蒙上没有 bonsoir 的 mDNS 实现，调用会抛 MissingPluginException。
+    // 这里直接跳过广播，配对仍可通过手动导入配对码完成。
+    if (!supportsMdnsDiscovery) return;
     if (!_validDeviceId(deviceId) ||
         !_validDisplayName(displayName) ||
         port < 1 ||
@@ -47,6 +51,8 @@ class LanMdnsService {
   }
 
   Future<void> discover({String? localDeviceId}) async {
+    // 同 advertise：鸿蒙上跳过 mDNS 发现，返回空设备列表而不是抛异常。
+    if (!supportsMdnsDiscovery) return;
     await stopDiscovery();
     final discovery = BonsoirDiscovery(type: serviceType, printLogs: false);
     await discovery.initialize();

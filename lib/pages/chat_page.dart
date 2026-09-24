@@ -72,7 +72,9 @@ import '../services/stream_chunk_agent_adapter.dart';
 import '../services/web_search_service.dart';
 import '../utils/file_picker_io_utils.dart';
 import '../utils/chat_search_matcher.dart';
-import '../utils/share_image_utils.dart';
+import '../utils/ohos_clipboard.dart';
+import '../utils/ohos_speech.dart';
+import '../utils/platform_info.dart';
 import '../utils/snackbar_utils.dart';
 import '../widgets/latex_renderer.dart';
 import '../widgets/ai_explain_selection_area.dart';
@@ -441,6 +443,11 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
   final _focusNode = FocusNode();
   final _searchFocusNode = FocusNode();
   final _audioRecorder = AudioRecorder();
+  final _ohosClipboard = OhosClipboardBridge();
+  final _ohosSpeech = OhosSpeechBridge();
+  /// 鸿蒙语音识别的会话序号：只在开始新会话或离开页面时递增，
+  /// 这样松手后的最终识别结果仍能落回输入框（与其它平台的长按语义一致）。
+  int _ohosSpeechSession = 0;
   final _generationBackgroundService = const GenerationBackgroundService();
   late final AttachmentStorageService _attachmentStorage;
   late final ApiService _api;
@@ -1002,6 +1009,9 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     _recordingStartCancelled = true;
     _recordingRequestGen++;
     unawaited(_speech.stop());
+    _ohosSpeechSession++;
+    unawaited(_ohosSpeech.cancel());
+    _ohosSpeech.dispose();
     unawaited(_audioRecorder.stop());
     _audioRecorder.dispose();
     _streamDraft.dispose();
@@ -1134,7 +1144,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     return pos.maxScrollExtent - pos.pixels <= 48;
   }
 
-  bool get _isMobilePlatform => Platform.isAndroid || Platform.isIOS;
+  bool get _isMobilePlatform => isMobilePlatform;
 
   double _currentBottomInset() {
     final view = View.maybeOf(context);
@@ -3550,7 +3560,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       }
       final bytes = await file.readAsBytes();
       final fileName = _previewImageFileName(name);
-      if (Platform.isAndroid || Platform.isIOS) {
+      if (isMobilePlatform) {
         final result = await _nativeToolsChannel
             .invokeMapMethod<String, dynamic>('saveImageToGallery', {
               'bytes': bytes,
@@ -3720,6 +3730,8 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
   }
 
   Future<bool> _pasteClipboardImage() async {
+    // 鸿蒙上 super_clipboard 没有实现且会抛 UnimplementedError，直接跳过图片粘贴。
+    if (!supportsRichClipboard) return false;
     final clipboard = SystemClipboard.instance;
     if (clipboard == null) return false;
     try {
@@ -4032,6 +4044,10 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
   ///
   /// 这样用户可以在发送前修正识别错误，也和自定义语音转文字接口保持一致。
   Future<void> _startSystemSpeechRecognition() async {
+    if (OhosSpeechBridge.isSupported) {
+      await _startOhosSpeechRecognition();
+      return;
+    }
     final requestGen = ++_recordingRequestGen;
     _recordingStartCancelled = false;
     final ok = await _speech.initialize(
@@ -4105,6 +4121,58 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     _inputRevision.value++;
   }
 
+  /// 鸿蒙上的系统语音识别：Core Speech Kit 离线识别，结果实时回填输入框。
+  ///
+  /// 与其它平台的 `speech_to_text` 分支保持同样的用户可见行为：识别文本只填入
+  /// 输入框、不直接发送；识别失败或设备不支持时给出与 `initialize()` 失败一致的提示。
+  Future<void> _startOhosSpeechRecognition() async {
+    final session = ++_ohosSpeechSession;
+    final requestGen = ++_recordingRequestGen;
+    _recordingStartCancelled = false;
+    final locale = Localizations.localeOf(context);
+    final ok = await _ohosSpeech.start(
+      language: '${locale.languageCode}_${locale.countryCode ?? ''}',
+      onText: (text) {
+        if (!mounted || session != _ohosSpeechSession) return;
+        _msgCtrl.text = text;
+        _msgCtrl.selection = TextSelection.collapsed(
+          offset: _msgCtrl.text.length,
+        );
+        _inputRevision.value++;
+        setState(() {});
+      },
+      onError: (message) {
+        if (!mounted || session != _ohosSpeechSession) return;
+        setState(() => _recording = false);
+        if (message.isNotEmpty) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text(message)));
+        }
+      },
+      onDone: () {
+        if (!mounted || session != _ohosSpeechSession) return;
+        setState(() => _recording = false);
+      },
+    );
+    if (!mounted || requestGen != _recordingRequestGen) {
+      if (ok) await _ohosSpeech.cancel();
+      return;
+    }
+    if (!ok) {
+      setState(() => _recording = false);
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('语音功能初始化失败，请检查麦克风权限')));
+      return;
+    }
+    if (_recordingStartCancelled) {
+      await _ohosSpeech.cancel();
+      return;
+    }
+    setState(() => _recording = true);
+  }
+
   // 将录制文件通过服务端语音模型转为文字，并填入输入框。
   Future<void> _processRecordedSpeech(String path) async {
     final mp = context.read<ModelConfigProvider>();
@@ -4171,6 +4239,11 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
         _recordPath = null;
       });
       if (recordPath != null) await _processRecordedSpeech(recordPath);
+      return;
+    }
+    if (OhosSpeechBridge.isSupported) {
+      await _ohosSpeech.stop();
+      if (mounted) setState(() => _recording = false);
       return;
     }
     await _speech.stop();
@@ -5270,15 +5343,22 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
 
   Future<void> _copyPreviewImageToClipboard(MessageImage image) async {
     try {
-      final clipboard = SystemClipboard.instance;
-      if (clipboard == null) throw Exception('当前平台不支持写入剪贴板');
       final file = File(image.path);
       if (!await file.exists()) {
         if (mounted) _showShareImageSnack('图片文件已不存在');
         return;
       }
-      final item = DataWriterItem(suggestedName: image.name);
       final bytes = await file.readAsBytes();
+      // 鸿蒙没有 super_clipboard 实现，改走 lynai/clipboard 写入系统剪贴板
+      // （鸿蒙写入剪贴板不需要权限）。
+      if (OhosClipboardBridge.isSupported) {
+        await _ohosClipboard.copyImage(bytes, mimeType: image.mimeType);
+        if (mounted) _showShareImageSnack('图片已复制到剪贴板');
+        return;
+      }
+      final clipboard = SystemClipboard.instance;
+      if (clipboard == null) throw Exception('当前平台不支持写入剪贴板');
+      final item = DataWriterItem(suggestedName: image.name);
       switch (image.mimeType) {
         case 'image/jpeg':
           item.add(Formats.jpeg(bytes));
@@ -5428,8 +5508,8 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
                               Navigator.pop(ctx);
                           }
                         },
-                        itemBuilder: (context) => const [
-                          PopupMenuItem(
+                        itemBuilder: (context) => [
+                          const PopupMenuItem(
                             value: _PreviewImageAction.save,
                             child: ListTile(
                               dense: true,
@@ -5437,15 +5517,19 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
                               title: Text('保存到相册'),
                             ),
                           ),
-                          PopupMenuItem(
-                            value: _PreviewImageAction.copyImage,
-                            child: ListTile(
-                              dense: true,
-                              leading: Icon(Icons.copy_outlined),
-                              title: Text('复制图片'),
+                          // 复制图片在鸿蒙上走 lynai/clipboard（写入剪贴板不需要
+                          // 权限），因此所有平台都可用；从剪贴板“读取”图片才受
+                          // supportsRichClipboard 限制。
+                          if (supportsImageClipboardWrite)
+                            const PopupMenuItem(
+                              value: _PreviewImageAction.copyImage,
+                              child: ListTile(
+                                dense: true,
+                                leading: Icon(Icons.copy_outlined),
+                                title: Text('复制图片'),
+                              ),
                             ),
-                          ),
-                          PopupMenuItem(
+                          const PopupMenuItem(
                             value: _PreviewImageAction.share,
                             child: ListTile(
                               dense: true,
@@ -5453,8 +5537,8 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
                               title: Text('分享图片'),
                             ),
                           ),
-                          PopupMenuDivider(),
-                          PopupMenuItem(
+                          const PopupMenuDivider(),
+                          const PopupMenuItem(
                             value: _PreviewImageAction.close,
                             child: ListTile(
                               dense: true,
@@ -7339,6 +7423,11 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
         padding: EdgeInsets.zero,
         constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
       );
+    }
+    if (!supportsVoiceInput) {
+      // 鸿蒙上 record/speech_to_text 暂无可用适配，不展示语音输入入口，
+      // 避免长按后抛 MissingPluginException。
+      return const SizedBox.shrink();
     }
     return Tooltip(
       message: hasSpeech ? '长按语音输入' : '长按使用系统语音',

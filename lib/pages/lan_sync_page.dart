@@ -14,6 +14,9 @@ import '../models/lan_peer.dart';
 import '../models/sync_data_selection.dart';
 import '../services/lan_sync_coordinator.dart';
 import '../services/storage_v2_database.dart';
+import '../utils/file_picker_io_utils.dart';
+import '../utils/ohos_barcode.dart';
+import '../utils/platform_info.dart';
 import '../widgets/merge_conflict_card.dart';
 
 class LanSyncPage extends StatefulWidget {
@@ -24,6 +27,8 @@ class LanSyncPage extends StatefulWidget {
 }
 
 class _LanSyncPageState extends State<LanSyncPage> {
+  final _ohosBarcode = OhosBarcodeBridge();
+
   @override
   void initState() {
     super.initState();
@@ -117,14 +122,12 @@ class _LanSyncPageState extends State<LanSyncPage> {
                       OutlinedButton.icon(
                         onPressed: provider.busy ? null : _scanOrImport,
                         icon: Icon(
-                          Platform.isAndroid || Platform.isIOS
+                          canScanPairingCode
                               ? Icons.qr_code_scanner
                               : Icons.image_search,
                         ),
                         label: Text(
-                          Platform.isAndroid || Platform.isIOS
-                              ? '扫描配对码'
-                              : '导入配对码图片',
+                          canScanPairingCode ? '扫描配对码' : '导入配对码图片',
                         ),
                       ),
                       OutlinedButton.icon(
@@ -408,13 +411,30 @@ class _LanSyncPageState extends State<LanSyncPage> {
     }
   }
 
+  /// 取得配对码文本：鸿蒙优先调系统扫码 UI，其次应用内扫码页，最后退回图片导入。
+  Future<String?> _scanPayload() async {
+    if (OhosBarcodeBridge.isSupported) {
+      try {
+        final scanned = await _ohosBarcode.scan();
+        if (scanned != null) return scanned;
+        // 用户取消系统扫码：不再自动弹图片选择，避免连续两次弹窗。
+        return null;
+      } catch (_) {
+        // 系统扫码不可用（例如上下文约束）时退回图片导入。
+      }
+    }
+    if (supportsQrScanner) {
+      if (!mounted) return null;
+      return Navigator.push<String>(
+        context,
+        MaterialPageRoute(builder: (_) => const _QrScannerPage()),
+      );
+    }
+    return _decodeQrImage();
+  }
+
   Future<void> _scanOrImport() async {
-    final payload = Platform.isAndroid || Platform.isIOS
-        ? await Navigator.push<String>(
-            context,
-            MaterialPageRoute(builder: (_) => const _QrScannerPage()),
-          )
-        : await _decodeQrImage();
+    final payload = await _scanPayload();
     if (!mounted || payload == null) return;
     final proposedSelection = await _showSelectionDialog(
       title: '选择同步内容',
@@ -550,11 +570,13 @@ class _LanSyncPageState extends State<LanSyncPage> {
   };
 
   Future<String?> _decodeQrImage() async {
-    final result = await file_picker.FilePicker.pickFiles(
+    // 统一走 utils/file_picker_io_utils：鸿蒙上由 lynai/file_picker 通道
+    // 提供等价的图片选择，不加载整份字节（withData: false）以保持既有行为。
+    final picked = await pickSingleFilePayload(
       type: file_picker.FileType.image,
-      allowMultiple: false,
+      withData: false,
     );
-    final path = result?.files.single.path;
+    final path = picked?.path;
     if (path == null) return null;
     final file = File(path);
     if (await file.length() > 16 * 1024 * 1024) {

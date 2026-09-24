@@ -7,9 +7,7 @@ import 'package:screenshot/screenshot.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:super_clipboard/super_clipboard.dart';
 
-bool get isDesktopPlatform {
-  return Platform.isLinux || Platform.isMacOS || Platform.isWindows;
-}
+import 'platform_info.dart';
 
 /// 生成带序号后缀的导出图片文件名（单张无后缀）。
 String numberedImageFileName(
@@ -85,7 +83,7 @@ Future<String?> shareOrSavePngImages({
     return pluralImageDoneText(clipboardMessage, images.length);
   }
 
-  if (Platform.isAndroid || Platform.isIOS) {
+  if (isMobilePlatform) {
     await saveImagesToGallery(
       images: images,
       filePrefix: filePrefix,
@@ -107,7 +105,7 @@ Future<String?> shareOrSavePngImages({
   return null;
 }
 
-/// 把 PNG 图片逐张写入系统图库（仅 Android/iOS）。
+/// 把 PNG 图片逐张写入系统图库（移动端：Android/iOS/鸿蒙）。
 Future<void> saveImagesToGallery({
   required List<Uint8List> images,
   required String filePrefix,

@@ -289,21 +289,26 @@ backup.zip
 
 导入时先读取 ZIP，生成预览和冲突列表。用户确认导入计划后，服务先对全部所选业务对象和插件包完成无持久写的校验/staging，再恢复 blob、重映射资源引用、处理 ID 冲突并调用 Provider 替换或合并数据；这降低后段格式错误导致部分提交的风险，但尚不是覆盖 Provider、数据库和文件系统的跨介质原子事务。`replaceSection` 对单项 selection 只替换选中 ID，不删除同分区未选中的任务、清单、事件或纪念日。`BackupService.currentSchemaVersion` 写入规范 `tasks.json`/`calendar.json`；兼容读取 schema 5-8 的 `schedules.json`/`todo_lists.json` 时，会按与数据库迁移相同的顺序转换和处理任务 ID 碰撞。ZIP 内附件使用和 storage_v2 一致的 SHA blob 路径，备份不再兼容旧数字前缀格式。加密备份先验证 Argon2id/XChaCha20-Poly1305 信封，再解析内层 ZIP；只有该路径可以恢复模型 API-key 分区。
 
-## Android 任务与日历投影
+## 任务与日历平台投影（Android / 鸿蒙）
 
-Android 原生层不读取 Dart Provider、数据库表或旧 JSON。`CalendarPlatformProjectionService` 从 canonical source models 生成未来窗口内的 widget occurrences 和每个 `ItemReminder` 的 trigger；`CalendarPlatformBridge` 通过 `lynai/calendar_platform` 一次性提交完整版本化投影到原生 SharedPreferences。
+原生层不读取 Dart Provider、数据库表或旧 JSON。`CalendarPlatformProjectionService` 从 canonical source models 生成未来窗口内的 widget occurrences 和每个 `ItemReminder` 的 trigger；`CalendarPlatformBridge` 通过 `lynai/calendar_platform` 一次性提交完整版本化投影到原生侧（Android 写 SharedPreferences，鸿蒙写应用沙箱文件）。
 
 ```text
 TaskProvider + CalendarProvider
   -> 等待两个保存队列
   -> CalendarPlatformProjectionService
   -> MethodChannel syncProjection
-  -> CalendarProjectionStore
-  -> ScheduleWidgetProvider.refresh()
-  -> ScheduleNotificationReceiver.reschedule()
+  -> Android: CalendarProjectionStore
+       -> ScheduleWidgetProvider.refresh()
+       -> ScheduleNotificationReceiver.reschedule()
+     HarmonyOS: LynaiCalendarPlatform
+       -> reminderAgentManager 重建代理提醒
+       -> WidgetStore 落盘 + formProvider.updateForm 刷新服务卡片
 ```
 
-原生通知使用非精确 `AlarmManager.setAndAllowWhileIdle`，稳定 trigger ID 用于取消旧 `PendingIntent`。开机、日期、时间和时区变化会从同一投影重排闹钟；小组件也在日期/时间/时区变化时刷新。已完成任务不生成通知 trigger。Android 13+ 通知权限只能由明确用户操作请求，投影同步不自动请求权限。Dart 的提醒模型可跨平台保存，但系统级提醒、小组件和原生重排目前仅 Android 支持。
+Android 原生通知使用非精确 `AlarmManager.setAndAllowWhileIdle`，稳定 trigger ID 用于取消旧 `PendingIntent`。开机、日期、时间和时区变化会从同一投影重排闹钟；小组件也在日期/时间/时区变化时刷新。已完成任务不生成通知 trigger。通知权限只能由明确用户操作请求，投影同步不自动请求权限。
+
+鸿蒙没有「应用自行安排定时通知」的能力，因此改用系统后台代理提醒（`reminderAgentManager`）：每次同步先取消本应用已发布的提醒再按投影重建，最多保留 30 条；桌面小组件对应服务卡片（FormExtensionAbility），卡片与主应用通过沙箱文件 + preferences 交换数据。Dart 的提醒模型可跨平台保存，系统级提醒与桌面卡片目前支持 Android 与鸿蒙，其余平台只保存数据。鸿蒙侧的完整能力矩阵与构建方式见 [鸿蒙适配](harmonyos.md)。
 
 ## 更新日志
 
@@ -331,7 +336,7 @@ TaskProvider + CalendarProvider
 | storage_v2 路径必须通过安全检查 | 避免相对路径逃逸到应用目录外。 |
 | 备份 ZIP 不直接打包 `app.db` | 保留分区导入、冲突处理和跨平台恢复能力。 |
 | `ScheduleItem` / `TodoList` 不是当前权威 | 只允许用于旧数据库、旧备份、旧回收站和旧工具兼容。 |
-| 系统提醒仅 Android | 其他平台保存提醒数据，但没有原生 widget/AlarmManager 投递。 |
+| 系统提醒支持 Android 与鸿蒙 | Android 用 AlarmManager + 小组件，鸿蒙用后台代理提醒 + 服务卡片；其余平台只保存提醒数据，没有原生投递。 |
 ## LAN Pairing And Sync
 
 LAN sync is not scoped to a cloud account and runs beside cloud sync. It

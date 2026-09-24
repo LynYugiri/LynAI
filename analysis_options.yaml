@@ -12,6 +12,9 @@ include: package:flutter_lints/flutter.yaml
 analyzer:
   exclude:
     - third_party/**
+    # 鸿蒙构建时由 scripts/ohos-pub-get.sh 生成的依赖副本（见 doc/harmonyos.md），
+    # 属于生成物，不参与本工程的静态检查。
+    - build/ohos_deps/**
 
 linter:
   # The lint rules applied to this project can be customized in the

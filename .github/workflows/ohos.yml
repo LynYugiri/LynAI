@@ -1,0 +1,74 @@
+name: HarmonyOS
+
+# 鸿蒙代码门槛：使用 OpenHarmony SIG 的 Flutter SDK 分支 + 鸿蒙依赖覆盖，
+# 校验生产代码（lib/）在 TargetPlatform.ohos 下仍然零分析问题。
+#
+# 说明：
+# - 只需要 flutter_flutter 分支（公开可克隆）与一个占位 SDK 目录：
+#   `flutter pub get` / `flutter analyze` 只要求能定位到「鸿蒙 SDK」，
+#   并不调用 hvigor，因此这里不下载真实的 HarmonyOS SDK。
+# - 产出 HAP 需要 DevEco 6.1 的 HarmonyOS SDK，见 doc/harmonyos.md；本工作流不做打包。
+# - 因为要联网拉取引擎产物（约数百 MB），只在手动触发与 master 上的鸿蒙相关改动时运行，
+#   不作为 PR 必过门禁。
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, master]
+    paths:
+      - 'ohos/**'
+      - 'lib/utils/platform_info.dart'
+      - 'lib/utils/ohos_file_picker.dart'
+      - 'pubspec_overrides.ohos.yaml'
+      - 'scripts/ohos-*.sh'
+      - 'scripts/ohos_patches/**'
+      - '.github/workflows/ohos.yml'
+
+jobs:
+  analyze:
+    name: Analyze with OHOS Flutter SDK
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      FLUTTER_OHOS: ${{ github.workspace }}/flutter_flutter
+      # 占位 SDK：HmosSdk 只校验 <dir>/hmscore 与 <dir>/openharmony 是否存在。
+      DEVECO_SDK_HOME: ${{ runner.temp }}/ohos-sdk-stub
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache OHOS Flutter SDK clone
+        uses: actions/cache@v4
+        with:
+          path: flutter_flutter
+          key: flutter-ohos-3.44.9-${{ runner.os }}-v1
+
+      - name: Clone OHOS Flutter SDK fork
+        run: |
+          if [ ! -d "$FLUTTER_OHOS" ]; then
+            git clone --depth 1 --single-branch --branch oh-3.44.9-dev \
+              https://gitcode.com/openharmony-sig/flutter_flutter.git "$FLUTTER_OHOS"
+          fi
+
+      - name: Bootstrap OHOS Flutter SDK
+        run: |
+          # 浅克隆没有指向 HEAD 的 tag，flutter_tools 会把版本判成 0.0.0-unknown，
+          # 导致 pub 解析 flutter_test 失败；这里补一个本地版本 tag。
+          git -C "$FLUTTER_OHOS" tag -m "ci local version" "3.44.9+ohos-local.0" HEAD || true
+          mkdir -p "$DEVECO_SDK_HOME/hmscore" "$DEVECO_SDK_HOME/openharmony"
+          export PATH="$FLUTTER_OHOS/bin:$PATH"
+          flutter --version
+
+      - name: Apply OHOS dependency overrides
+        run: |
+          export PATH="$FLUTTER_OHOS/bin:$PATH"
+          bash scripts/ohos-pub-get.sh
+
+      - name: Analyze production code for OHOS
+        run: |
+          export PATH="$FLUTTER_OHOS/bin:$PATH"
+          flutter analyze --no-pub lib
+
+      - name: Restore default dependency set
+        if: always()
+        run: |
+          export PATH="$FLUTTER_OHOS/bin:$PATH"
+          bash scripts/ohos-pub-get.sh --restore || true

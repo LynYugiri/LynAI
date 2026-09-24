@@ -1,0 +1,25 @@
+/node_modules
+/oh_modules
+/local.properties
+/.idea
+**/build
+/.hvigor
+.cxx
+/.clangd
+/.clang-format
+/.clang-tidy
+**/.test
+**/BuildProfile.ets
+**/oh-package-lock.json5
+/package.json
+/package-lock.json
+
+**/src/main/resources/rawfile/flutter_assets/
+**/libs/**/libapp.so
+**/libs/**/libflutter.so
+**/libs/**/libvmservice_snapshot.so
+
+# 构建时由 native assets 从 Flutter 引擎缓存复制进来的原生库，属于产物。
+# 注意：sqlite3 目前走的是引擎按 Linux 目标预编译的 libsqlite3.so，
+# 在鸿蒙上不可用，详见 doc/harmonyos.md「已知缺口」。
+**/libs/**/*.so

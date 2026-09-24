@@ -55,11 +55,12 @@ LynAI 是一个本地优先的跨平台 AI 客户端。它把多模型聊天、�
 
 ## 平台
 
-Flutter 工程包含 Android、iOS、Linux、macOS、Windows 和 Web 目标。实际能力受插件、权限和平台通道支持影响。
+Flutter 工程包含 Android、iOS、Linux、macOS、Windows、Web 和鸿蒙（HarmonyOS / OpenHarmony）目标。实际能力受插件、权限和平台通道支持影响。
 
 | 平台 | 说明 |
 |------|------|
 | Android | 支持定位、打开应用、保存图库、任务/日历小组件、系统提醒通知、前台生成服务、系统长截图。系统提醒投递仅 Android 可用。支持内置本地 BlueLM 3B（MediaTek DX5/MT6993，arm64，模型放在设备目录，默认 `/sdcard/1225`）。 |
+| 鸿蒙（HarmonyOS） | 使用 OpenHarmony SIG 的 Flutter SDK 分支构建，`ohos/` 为 Stage 模型工程。支持对话、Markdown/LaTeX、知识库、笔记、日程（含系统提醒投递）、备份与云同步、局域网同步（手动配对码）、长图导出到图库、图片选择与拍照、选择文件与另存为、扫码配对、复制图片到剪贴板、分享、打开链接、应用内 WebView、语音输入（系统离线识别）、桌面服务卡片（日程），以及生成期间的后台长时任务。鸿蒙缺失的能力见 [doc/harmonyos.md](doc/harmonyos.md)。 |
 | Linux | 桌面端构建；图片分享优先走剪贴板或文件。 |
 | Windows | 桌面端构建；依赖 Flutter Windows 能力。 |
 | macOS | 桌面端构建；语音插件需要构建时兼容处理。 |

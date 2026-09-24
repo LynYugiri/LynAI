@@ -1,0 +1,57 @@
+{
+  "app": {
+    // 签名配置留空：仓库不携带签名材料。本地/CI 用
+    // `flutter build hap --debug --no-codesign` 产出未签名 HAP；
+    // 要安装到真机或上架时，在 DevEco Studio 里配置自动签名（需要华为账号），
+    // 此时再给 products[0] 补回 "signingConfig": "<配置名>"。
+    "signingConfigs": [],
+    "products": [
+      {
+        "name": "default",
+        // compatibleSdkVersion/targetSdkVersion 必须与引擎 flutter.har 一致：
+        // 引擎的 ArkTS 用到 API 26 才公开的 autoFillManager 接口，因此需要
+        // HarmonyOS 26.0.0（API 26）及以上的 command-line-tools；用 5.x/6.x 的
+        // SDK 会在 CompileArkTS 阶段报引擎 API 缺失（见 doc/harmonyos.md §4）。
+        // 注意 API ≥ 26 的版本号只接受点分形式（"26.0.0"），写成 "26.0.0(26)"
+        // 会被 hvigor 拒绝（00308018）；换 SDK 后用
+        // bash scripts/ohos-sync-sdk-version.sh 校准即可。
+        "compatibleSdkVersion": "26.0.0",
+        "targetSdkVersion": "26.0.0",
+        "runtimeOS": "HarmonyOS",
+        // 鸿蒙版 sqlite3 的原生库（ohpm 包 sqlite3-native-library）以字节码 HAR
+        // 形式分发，hvigor 要求开启规范化 OHM URL 才能引用，否则
+        // GenerateLoaderJson 会报 00306046 Specification Limit Violation。
+        "buildOption": {
+          "strictMode": {
+            "useNormalizedOHMUrl": true,
+          },
+        },
+      }
+    ],
+    "buildModeSet": [
+      {
+        "name": "debug"
+      },
+      {
+        "name": "profile"
+      },
+      {
+        "name": "release"
+      }
+    ]
+  },
+  "modules": [
+    {
+      "name": "entry",
+      "srcPath": "./entry",
+      "targets": [
+        {
+          "name": "default",
+          "applyToProducts": [
+            "default"
+          ]
+        }
+      ]
+    }
+  ]
+}

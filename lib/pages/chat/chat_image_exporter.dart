@@ -7,6 +7,7 @@ import 'package:screenshot/screenshot.dart';
 
 import '../../models/conversation.dart';
 import '../../models/message.dart';
+import '../../utils/platform_info.dart';
 import '../../utils/share_image_utils.dart';
 
 /// 聊天长图导出器。
@@ -80,7 +81,7 @@ class ChatImageExporter {
     }
     try {
       final timestamp = DateTime.now().millisecondsSinceEpoch;
-      if (Platform.isAndroid || Platform.isIOS) {
+      if (isMobilePlatform) {
         await saveImagesToGallery(
           images: images,
           filePrefix: 'lynai_share',

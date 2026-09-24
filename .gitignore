@@ -33,6 +33,11 @@ migrate_working_dir/
 /build/
 /coverage/
 
+# 鸿蒙构建期间由 scripts/ohos-pub-get.sh 临时生成：生效中的覆盖文件与
+# 锁文件备份都不入库，避免影响其它平台的依赖解析。
+/pubspec_overrides.yaml
+/pubspec.lock.ohos-backup
+
 # Symbolication related
 app.*.symbols
 
@@ -54,3 +59,7 @@ app.*.map.json
 
 # PPOCRv5 ncnn models (fetched by scripts/fetch-ncnn-deps.sh).
 /android/app/src/main/assets/ocr_models/
+
+# 鸿蒙签名材料（私钥库/CSR/证书/Profile）与密钥库密码都不入库：
+# 它们只用于本地签名，丢失或泄露都会导致无法覆盖安装 / 需要重新申请证书。
+/ohos/signature/

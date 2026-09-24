@@ -1,0 +1,36 @@
+{
+  "string": [
+    {
+      "name": "module_desc",
+      "value": "LynAI entry module"
+    },
+    {
+      "name": "EntryAbility_desc",
+      "value": "Cross-platform AI chat client"
+    },
+    {
+      "name": "EntryAbility_label",
+      "value": "LynAI"
+    },
+    {
+      "name": "reason_camera",
+      "value": "Scan pairing codes and capture attachments"
+    },
+    {
+      "name": "reason_microphone",
+      "value": "Voice input and audio attachments"
+    },
+    {
+      "name": "reason_location",
+      "value": "Share the current location in a conversation"
+    },
+    {
+      "name": "widget_display_name",
+      "value": "Schedule"
+    },
+    {
+      "name": "widget_desc",
+      "value": "Shows your upcoming schedule"
+    }
+  ]
+}

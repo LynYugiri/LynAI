@@ -1,0 +1,122 @@
+# 鸿蒙（HarmonyOS / OpenHarmony）构建专用的依赖覆盖。
+#
+# 用法：
+#   bash scripts/ohos-pub-get.sh            # 应用覆盖并执行 flutter pub get
+#   bash scripts/ohos-pub-get.sh --restore  # 还原 pubspec.yaml 的默认解析
+#
+# 为什么这样做：
+# Dart 只读取工程根目录下的 `pubspec_overrides.yaml`。本文件默认叫别的名字，
+# 不会参与解析，所以 Android / iOS / Linux / macOS / Windows / Web 的依赖图与
+# `pubspec.lock` 完全保持原样（「原软件行为不变」的前提）。只有需要产出 HAP 时
+# 才由脚本把它复制成 `pubspec_overrides.yaml`，并在结束后还原锁文件。
+#
+# 覆盖来源是 OpenHarmony SIG / CPF-Flutter 维护的 Flutter 插件适配分支，
+# 都是 endorsed federated 实现或包内自带 ohos 实现，Dart 侧不需要手工注册；
+# flutter_tools 会自动生成 GeneratedPluginRegistrant.ets 与 oh-package.json5。
+#
+# 故意没有列进来的依赖（鸿蒙侧暂无可用实现，代码里已按能力开关降级）：
+#   - super_clipboard      平台枚举没有 ohos，且缺 native 库
+#   - bonsoir              没有 ohos 实现；局域网同步保留导入配对码路径
+#   - speech_to_text       只有 3.22 分支适配，未跟上当前 SDK
+#   - mobile_scanner       适配分支落后，配对码扫描在鸿蒙上走图片导入
+#   - file_picker          只有 API 不兼容的 12.x 适配分支；鸿蒙改走自有
+#                          lynai/file_picker 通道（见 doc/harmonyos.md）
+#
+# 注意：切换到 sqlite3 2.x 方案后，必须先删掉上一次构建遗留的
+# ohos/entry/libs/**/libsqlite3.so（3.x 的 native assets 会往里复制 Linux 版），
+# 否则 hvigor 的 ProcessLibs 会报同名 .so 冲突。
+dependency_overrides:
+  # —— 先原样保留 pubspec.yaml 里已有的本地 vendored 覆盖 ——
+  # pubspec_overrides.yaml 会整体「替换」pubspec.yaml 的 dependency_overrides，
+  # 漏掉这些条目会让工程退回 pub.dev 上的上游版本（例如 lua_dardo 会失去异步
+  # Dart callback 支持，直接编译失败）。
+  webview_all_linux:
+    path: third_party/webview_all_linux
+  webview_all_windows:
+    path: third_party/webview_all_windows
+  lua_dardo:
+    path: third_party/lua_dardo
+
+  # —— 启动与持久化必需 ——
+  path_provider:
+    git:
+      url: https://gitcode.com/openharmony-sig/flutter_packages.git
+      path: packages/path_provider/path_provider
+      ref: br_path_provider-v2.1.5_ohos
+  shared_preferences:
+    git:
+      url: https://gitcode.com/openharmony-sig/flutter_packages.git
+      path: packages/shared_preferences/shared_preferences
+      ref: oh-3.44.9-dev
+  package_info_plus:
+    # 取 9.0.0-ohos 标签而不是 br_3.41_dev 的 10.2.1：9.0.0 与工程当前使用的
+    # 9.0.1 行为最接近，且它约束 win32 ^5.5.3，与 file_picker 11 的 win32 ^5.9.0
+    # 相容；10.2.1 要求 win32 ^6，会把 file_picker/device_info_plus 的 Windows
+    # 实现（在 io 平台会被条件导入编译）一起带崩。
+    git:
+      url: https://gitcode.com/CPF-Flutter/flutter_plus_plugins.git
+      path: packages/package_info_plus/package_info_plus
+      ref: package_info_plus-9.0.0-ohos-1.0.0
+
+  # —— 网络与系统能力 ——
+  url_launcher:
+    git:
+      url: https://gitcode.com/openharmony-sig/flutter_packages.git
+      path: packages/url_launcher/url_launcher
+      ref: oh-3.44.9-dev
+  permission_handler:
+    git:
+      url: https://gitcode.com/CPF-Flutter/flutter_permission_handler.git
+      path: permission_handler
+      ref: 12.0.1-ohos-1.0.0
+
+  # —— 媒体与分享 ——
+  image_picker:
+    git:
+      url: https://gitcode.com/openharmony-sig/flutter_packages.git
+      path: packages/image_picker/image_picker
+      ref: oh-3.44.9-dev
+  share_plus:
+    # 12.0.1 分支与工程当前使用的 12.0.2 API 基本一致，比 br_3.41_dev 的
+    # 13.3.0 更不容易引入行为差异。
+    git:
+      url: https://gitcode.com/CPF-Flutter/flutter_plus_plugins.git
+      path: packages/share_plus/share_plus
+      ref: br_share_plus-v12.0.1_ohos
+  record:
+    git:
+      url: https://gitcode.com/CPF-Flutter/fluttertpc_record.git
+      path: record
+      ref: br_3.41_dev
+
+  # webview_all 1.4.x 起在包内声明 ohos 实现（webview_all_ohos），
+  # 插件页 / Mermaid / MathLive 的内嵌 WebView 因此在鸿蒙上可用。
+  webview_all: ^1.4.1
+
+  # —— 本地数据库（sqlite3 / drift）——
+  # sqlite3 3.x 走 Dart native assets 构建钩子，鸿蒙上会取到 Linux/glibc 的
+  # 预编译库（NEEDED libc.so.6），在鸿蒙上无法加载；因此鸿蒙改用社区 2.x 适配分支：
+  # sqlite3 增加 PlatformUtils.isOhos → DynamicLibrary.open('libsqlite3.so')，
+  # sqlite3_flutter_libs 的 ohos 插件通过 ohpm 包 sqlite3-native-library
+  # 把真正的鸿蒙原生库打进 HAP。
+  # drift 必须同步降到仍依赖 sqlite3 2.x 的版本（≤ 2.31）。
+  sqlite3:
+    git:
+      url: https://github.com/SageMik/sqlite3-ohos.dart
+      path: sqlite3
+      ref: sqlite3-2.9.4
+  sqlite3_flutter_libs:
+    git:
+      url: https://github.com/SageMik/sqlite3-ohos.dart
+      path: sqlite3_flutter_libs
+      ref: sqlite3_flutter_libs-0.5.25-ohos
+  drift: 2.31.0
+
+  # —— 需要打补丁的上游包 ——
+  # 鸿蒙 Flutter SDK 给 TargetPlatform 增加了 ohos，这两个包里的平台 switch
+  # 没有穷尽匹配，会在鸿蒙上编译失败。scripts/ohos-pub-get.sh 会把它们复制到
+  # build/ohos_deps/ 并应用 scripts/ohos_patches/<包名>.patch。
+  fluent_ui:
+    path: build/ohos_deps/fluent_ui
+  flutter_math_fork:
+    path: build/ohos_deps/flutter_math_fork

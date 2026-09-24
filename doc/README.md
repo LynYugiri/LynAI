@@ -13,6 +13,7 @@
 | API、工具调用、备份、存储升级、durable 云/LAN transport ledger 和平台能力 | [服务层](services.md) |
 | Agent 多轮循环、取消、上下文、工具注册和本机 run graph | [Agent Runtime](agent-runtime.md) |
 | MCP transport、工具桥接、凭据和平台边界 | [MCP](mcp.md) |
+| 鸿蒙（HarmonyOS）适配、依赖覆盖与构建步骤 | [鸿蒙适配](harmonyos.md) |
 | 安全同步、设备身份、配对和加密备份的 v1 wire contract | [安全同步与备份协议 v1](protocol-v1.md) |
 
 ## 一句话架构

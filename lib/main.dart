@@ -128,7 +128,7 @@ Future<void> main() async {
           ),
           dispose: (_, storage) => unawaited(storage.close()),
         ),
-        Provider<SecretStore>(create: (_) => FlutterSecureSecretStore()),
+        Provider<SecretStore>(create: (_) => createDefaultSecretStore()),
         Provider(
           create: (ctx) => DatasetSecretStore(
             ctx.read<StorageV2Service>(),

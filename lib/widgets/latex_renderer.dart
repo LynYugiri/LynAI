@@ -17,6 +17,7 @@ import 'package:super_clipboard/super_clipboard.dart';
 import 'package:webview_all/webview_all.dart';
 
 import '../services/code_syntax_service.dart';
+import '../utils/platform_info.dart';
 import '../utils/snackbar_utils.dart';
 import '../utils/webview_dispose_utils.dart';
 import 'ai_explain_selection_area.dart';
@@ -1721,7 +1722,7 @@ class _ExportableBlock extends StatelessWidget {
       _showImageSnack(context, '图片已复制到剪贴板');
       return;
     }
-    if (Platform.isAndroid || Platform.isIOS) {
+    if (isMobilePlatform) {
       final result = await _channel.invokeMapMethod<String, dynamic>(
         'saveImageToGallery',
         {'bytes': bytes, 'fileName': fileName},
@@ -1740,7 +1741,7 @@ class _ExportableBlock extends StatelessWidget {
   }
 
   bool get _isDesktopPlatform {
-    return Platform.isLinux || Platform.isMacOS || Platform.isWindows;
+    return isDesktopPlatform;
   }
 
   void _showImageSnack(BuildContext context, String message) {

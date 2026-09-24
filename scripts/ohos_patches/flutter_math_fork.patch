@@ -1,0 +1,64 @@
+diff -ur a/flutter_math_fork/lib/src/render/layout/line_editable.dart b/flutter_math_fork/lib/src/render/layout/line_editable.dart
+--- a/flutter_math_fork/lib/src/render/layout/line_editable.dart	2026-09-24 08:08:05.435943830 +0800
++++ b/flutter_math_fork/lib/src/render/layout/line_editable.dart	2026-09-24 08:11:39.475067937 +0800
+@@ -487,6 +487,14 @@
+           cursorHeight, // - 2.0 * _kCaretHeightOffset,
+         );
+         break;
++      default:
++        _caretPrototype = Rect.fromLTWH(
++          0.0,
++          0.0, // _kCaretHeightOffset,
++          _cursorWidth,
++          cursorHeight, // - 2.0 * _kCaretHeightOffset,
++        );
++        break;
+     }
+ 
+     var caretRect = _caretPrototype
+diff -ur a/flutter_math_fork/lib/src/widgets/selectable.dart b/flutter_math_fork/lib/src/widgets/selectable.dart
+--- a/flutter_math_fork/lib/src/widgets/selectable.dart	2026-09-24 08:08:05.430281286 +0800
++++ b/flutter_math_fork/lib/src/widgets/selectable.dart	2026-09-24 08:08:05.636674279 +0800
+@@ -303,6 +303,17 @@
+             selectionTheme.selectionColor ?? theme.colorScheme.primary;
+ 
+         break;
++
++      default:
++        forcePressEnabled = false;
++        textSelectionControls ??= materialTextSelectionControls;
++        paintCursorAboveText = false;
++        cursorOpacityAnimates = false;
++        cursorColor ??= selectionTheme.cursorColor ?? theme.colorScheme.primary;
++        selectionColor =
++            selectionTheme.selectionColor ?? theme.colorScheme.primary;
++
++        break;
+     }
+ 
+     return RepaintBoundary(
+@@ -482,6 +493,8 @@
+       case TargetPlatform.linux:
+       case TargetPlatform.windows:
+       // Do nothing.
++      default:
++      // Do nothing.
+     }
+   }
+ 
+diff -ur a/flutter_math_fork/lib/src/widgets/selection/gesture_detector_builder_selectable.dart b/flutter_math_fork/lib/src/widgets/selection/gesture_detector_builder_selectable.dart
+--- a/flutter_math_fork/lib/src/widgets/selection/gesture_detector_builder_selectable.dart	2026-09-24 08:08:05.430124385 +0800
++++ b/flutter_math_fork/lib/src/widgets/selection/gesture_detector_builder_selectable.dart	2026-09-24 08:08:05.636733213 +0800
+@@ -57,6 +57,12 @@
+             cause: SelectionChangedCause.tap,
+           );
+           break;
++        default:
++          delegate.selectPositionAt(
++            from: lastTapDownPosition!,
++            cause: SelectionChangedCause.tap,
++          );
++          break;
+       }
+     }
+     // if (_state.widget.onTap != null)

@@ -1,7 +1,7 @@
 import 'dart:convert';
-import 'dart:io' show Platform;
 import 'dart:typed_data';
 
+import '../utils/platform_info.dart';
 import 'backend_client.dart';
 import 'device_identity_service.dart';
 
@@ -189,11 +189,9 @@ class DeviceRegistrationService {
   }
 
   static String _currentPlatform() {
-    if (Platform.isAndroid) return 'android';
-    if (Platform.isIOS) return 'ios';
-    if (Platform.isMacOS) return 'macos';
-    if (Platform.isWindows) return 'windows';
-    if (Platform.isLinux) return 'linux';
-    return 'unknown';
+    // 统一走 devicePlatformId：鸿蒙上报 'ohos'（后端 devices.platform 约束
+    // ^[a-z0-9._-]{1,32}$ 允许该取值），Web 返回 'web' 而不是抛
+    // UnsupportedError，其余平台与原有取值保持一致。
+    return devicePlatformId;
   }
 }

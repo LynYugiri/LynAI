@@ -1,0 +1,65 @@
+diff -ur a/fluent_ui/lib/src/controls/form/selection_controls.dart b/fluent_ui/lib/src/controls/form/selection_controls.dart
+--- a/fluent_ui/lib/src/controls/form/selection_controls.dart	2026-09-24 08:08:05.407177165 +0800
++++ b/fluent_ui/lib/src/controls/form/selection_controls.dart	2026-09-24 08:08:05.635415406 +0800
+@@ -525,6 +525,7 @@
+         TargetPlatform.macOS ||
+         TargetPlatform.linux =>
+           widget.lastSecondaryTapDownPosition ?? midpointAnchor,
++        _ => const Offset(100, 100),
+       },
+       children: items,
+     );
+@@ -567,6 +568,7 @@
+       TargetPlatform.windows ||
+       TargetPlatform.macOS ||
+       TargetPlatform.linux => Offset(_kToolbarScreenPadding, paddingAbove),
++      _ => Offset.zero,
+     };
+ 
+     final radius = BorderRadius.circular(6);
+diff -ur a/fluent_ui/lib/src/controls/form/text_box.dart b/fluent_ui/lib/src/controls/form/text_box.dart
+--- a/fluent_ui/lib/src/controls/form/text_box.dart	2026-09-24 08:08:05.407075585 +0800
++++ b/fluent_ui/lib/src/controls/form/text_box.dart	2026-09-24 08:08:05.636487078 +0800
+@@ -1102,6 +1102,10 @@
+         if (cause == SelectionChangedCause.longPress) {
+           _editableText.bringIntoView(selection.extent);
+         }
++      default:
++        if (cause == SelectionChangedCause.longPress) {
++          _editableText.bringIntoView(selection.extent);
++        }
+     }
+ 
+     switch (defaultTargetPlatform) {
+@@ -1115,6 +1119,8 @@
+         if (cause == SelectionChangedCause.drag) {
+           _editableText.hideToolbar();
+         }
++      default:
++        break;
+     }
+   }
+ 
+@@ -1292,6 +1298,10 @@
+             _effectiveFocusNode.requestFocus();
+           }
+         };
++      default:
++        textSelectionControls ??= WindowsTextSelectionHandleControls(
++          undoHistoryController: _effectiveUndoController,
++        );
+     }
+ 
+     final enabled = widget.enabled;
+diff -ur a/fluent_ui/lib/src/fluent_app.dart b/fluent_ui/lib/src/fluent_app.dart
+--- a/fluent_ui/lib/src/fluent_app.dart	2026-09-24 08:08:05.399819270 +0800
++++ b/fluent_ui/lib/src/fluent_app.dart	2026-09-24 08:08:05.635186719 +0800
+@@ -592,6 +592,8 @@
+           case TargetPlatform.android:
+           case TargetPlatform.fuchsia:
+             return child;
++          default:
++            return child;
+         }
+     }
+   }

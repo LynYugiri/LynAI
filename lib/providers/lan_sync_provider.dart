@@ -12,6 +12,7 @@ import '../services/lan_sync_coordinator.dart';
 import '../services/lan_secret_transfer_service.dart';
 import '../services/storage_v2_database.dart';
 import '../services/dataset_runtime_barrier.dart';
+import '../utils/platform_info.dart';
 
 typedef LanHostingOperation = Future<void> Function();
 
@@ -237,6 +238,13 @@ class LanSyncProvider extends ChangeNotifier {
   });
 
   Future<void> startDiscovery() => _run(() async {
+    // 鸿蒙上没有 bonsoir 的 mDNS 实现，发现设备会抛 MissingPluginException；
+    // 这里改为给出明确提示，手动导入配对码的配对路径仍然可用。
+    if (!supportsMdnsDiscovery) {
+      _notice = '当前平台不支持自动发现设备，请使用配对码手动配对。';
+      notifyListeners();
+      return;
+    }
     if (!await _ensureLanPermission()) return;
     final identity = await _coordinator.identityService.initialize();
     await _mdnsService.discover(localDeviceId: identity.deviceId);
