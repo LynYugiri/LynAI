@@ -145,7 +145,7 @@ void main() {
       expect(normalizeReasoningEffort(' HIGH '), 'high');
     });
 
-    test('对话设置优先于模型默认，二者都为空则不指定', () {
+    test('强度只来自对话设置，没有设置就不指定', () {
       final config = ModelConfig(
         id: 'c',
         name: 'OpenAI',
@@ -158,17 +158,16 @@ void main() {
           ModelEntry(
             name: 'gpt-4o',
             enabled: true,
-            reasoningEffort: 'low',
             catalog: hint(providerId: 'openai'),
           ),
         ],
       );
-      expect(config.effectiveReasoningEffort, 'low');
       expect(config.resolveReasoningEffort('high'), 'high');
-      expect(config.resolveReasoningEffort(null), 'low');
-      expect(config.resolveReasoningEffort('  '), 'low');
+      expect(config.resolveReasoningEffort(null), isNull);
+      expect(config.resolveReasoningEffort('  '), isNull);
+      expect(config.resolveReasoningEffort('  HIGH '), 'high');
 
-      final noDefault = ModelConfig(
+      final noCatalog = ModelConfig(
         id: 'c2',
         name: 'OpenAI',
         endpoint: 'https://api.openai.com/v1',
@@ -178,11 +177,13 @@ void main() {
         priority: 0,
         models: [ModelEntry(name: 'gpt-4o', enabled: true)],
       );
-      expect(noDefault.resolveReasoningEffort(null), isNull);
+      // 没有目录数据时不做白名单校验，原样透传由服务端判断。
+      expect(noCatalog.resolveReasoningEffort('whatever'), 'whatever');
+      expect(noCatalog.resolveReasoningEffort(null), isNull);
     });
 
-    test('残留的强度不在当前模型支持列表里时退回模型默认', () {
-      ModelConfig build({String? modelDefault}) => ModelConfig(
+    test('残留的强度不在当前模型支持列表里时落回不指定', () {
+      ModelConfig build() => ModelConfig(
         id: 'c',
         name: 'OpenAI',
         endpoint: 'https://api.openai.com/v1',
@@ -194,7 +195,6 @@ void main() {
           ModelEntry(
             name: 'gpt-4o',
             enabled: true,
-            reasoningEffort: modelDefault,
             catalog: hint(
               providerId: 'openai',
               effortValues: const ['low', 'medium'],
@@ -204,13 +204,11 @@ void main() {
       );
 
       // 对话里的 high 是上一个模型留下的，当前模型只支持 low/medium。
-      expect(build(modelDefault: 'low').resolveReasoningEffort('high'), 'low');
       expect(build().resolveReasoningEffort('high'), isNull);
       expect(build().resolveReasoningEffort('medium'), 'medium');
       // none 是显式关闭思考，不受支持列表限制。
       expect(build().resolveReasoningEffort('none'), 'none');
       expect(build().resolveReasoningEffort('NONE'), 'none');
-      expect(build(modelDefault: 'high').resolveReasoningEffort(null), isNull);
     });
   });
 
@@ -325,20 +323,20 @@ void main() {
   });
 
   group('Anthropic wire', () {
-    test('强度换算成 thinking.budget_tokens', () async {
+    test('目录给出 effort 的模型用 adaptive + output_config.effort', () async {
       final body = await captureBody(
         buildConfig: (endpoint) => ModelConfig(
           id: 'anthropic-1',
           name: 'Anthropic',
           endpoint: endpoint,
           apiKey: 'sk-ant',
-          modelName: 'claude-sonnet-4-5',
+          modelName: 'claude-opus-5',
           apiType: 'anthropic',
           priority: 0,
           maxTokens: 64000,
           models: [
             ModelEntry(
-              name: 'claude-sonnet-4-5',
+              name: 'claude-opus-5',
               enabled: true,
               catalog: hint(providerId: 'anthropic'),
             ),
@@ -349,7 +347,72 @@ void main() {
         reasoningEffort: 'medium',
       );
 
-      expect(body['thinking'], {'type': 'enabled', 'budget_tokens': 8192});
+      // 原生强度：adaptive thinking + output_config.effort，不再换算 token 预算。
+      expect(body['thinking'], {'type': 'adaptive'});
+      expect(body['output_config'], {'effort': 'medium'});
+      expect(body.containsKey('temperature'), isFalse);
+    });
+
+    test('默认（不选档位）只发 adaptive，不发 effort', () async {
+      final body = await captureBody(
+        buildConfig: (endpoint) => ModelConfig(
+          id: 'anthropic-1',
+          name: 'Anthropic',
+          endpoint: endpoint,
+          apiKey: 'sk-ant',
+          modelName: 'claude-opus-5',
+          apiType: 'anthropic',
+          priority: 0,
+          maxTokens: 64000,
+          models: [
+            ModelEntry(
+              name: 'claude-opus-5',
+              enabled: true,
+              catalog: hint(providerId: 'anthropic'),
+            ),
+          ],
+        ),
+        responseBody: anthropicResponse(),
+        thinking: true,
+      );
+
+      expect(body['thinking'], {'type': 'adaptive'});
+      expect(body.containsKey('output_config'), isFalse);
+    });
+
+    test('minimal 归一到 low', () async {
+      final body = await captureBody(
+        buildConfig: (endpoint) => ModelConfig(
+          id: 'anthropic-1',
+          name: 'Anthropic',
+          endpoint: endpoint,
+          apiKey: 'sk-ant',
+          modelName: 'claude-opus-5',
+          apiType: 'anthropic',
+          priority: 0,
+          maxTokens: 64000,
+          models: [
+            ModelEntry(
+              name: 'claude-opus-5',
+              enabled: true,
+              catalog: hint(
+                providerId: 'anthropic',
+                effortValues: const [
+                  'minimal',
+                  'low',
+                  'medium',
+                  'high',
+                ],
+              ),
+            ),
+          ],
+        ),
+        responseBody: anthropicResponse(),
+        thinking: true,
+        reasoningEffort: 'minimal',
+      );
+
+      expect(body['output_config'], {'effort': 'low'});
     });
 
     test('预算型档位（目录只给 budget_tokens）换算成预算', () async {
@@ -367,7 +430,6 @@ void main() {
             ModelEntry(
               name: 'claude-sonnet-4-5',
               enabled: true,
-              reasoningEffort: 'high',
               catalog: hint(
                 providerId: 'anthropic',
                 effortValues: const [],
@@ -377,12 +439,14 @@ void main() {
         ),
         responseBody: anthropicResponse(),
         thinking: true,
+        reasoningEffort: 'high',
       );
 
       expect(body['thinking'], {'type': 'enabled', 'budget_tokens': 24576});
+      expect(body.containsKey('output_config'), isFalse);
     });
 
-    test('extraParams.thinkingBudgetTokens 优先于强度', () async {
+    test('extraParams.thinkingBudgetTokens 走预算路径并优先于强度', () async {
       final body = await captureBody(
         buildConfig: (endpoint) => ModelConfig(
           id: 'anthropic-1',

@@ -141,7 +141,6 @@
 |------|------|
 | `catalog` | 从模型目录补全的建议值（`ModelCatalogHint`）：上下文窗口、输出上限、视觉/工具/思考能力、思考强度取值、命中的 `providerId`/`modelId` 与抓取时间。派生数据，刷新时整体替换，不写入用户字段。 |
 | `capabilityOverrides` | 用户在模型编辑器里拨动过的能力开关。只在「与目录建议不同」或「目录还没有建议」时记录，避免下次目录刷新把用户显式开启/关闭的能力改回去；没拨动过的开关不写入，继续跟随目录。 |
-| `reasoningEffort` | 该模型默认使用的思考强度；为空表示不指定，交给服务端默认行为。可选值来自目录的 `reasoning_options`。 |
 
 `effectiveContextWindow` 的优先级是：托管/本机 `userOverrides` > 子模型手填 `contextWindow` > 端点拉取 `fetchedContextWindow` > 目录 `catalog.contextWindow` > Provider 级 `contextWindow`。`effectiveMaxTokens` 同理（目录字段是 `catalog.maxOutputTokens`）。能力开关的生效规则：条目 `capabilityOverrides` > `userOverrides` > 目录建议 > 子模型字段（`false` 视为用户显式关闭，`true` 只是历史默认值）> true；托管配置的值来自服务端下发，只可能被本机覆盖关掉。目录永远只补空缺，不覆盖任何用户输入。
 
@@ -169,7 +168,7 @@ OCR 悬浮翻译使用请求内轻量文本组。Native OCR 输出 `text`、识�
 
 `reasoning_options` 有三种形态：`{type: toggle}`、`{type: effort, values: [...]}`、`{type: budget_tokens, min}`。`lib/models/reasoning_effort.dart` 定义客户端与后端共用的强度取值集合（`none`/`minimal`/`low`/`medium`/`high`/`xhigh`/`max`）、`none` 表示关闭思考，以及 effort → 思考预算的换算阶梯（1024/2048/8192/24576/32768/49152，用于 Anthropic 风格接口）；换算结果会被夹在 `[min, max_tokens-1]` 内。该阶梯是工程取值，不代表任何厂商推荐值。
 
-`ConversationSettings.reasoningEffort` 是对话级强度，`ModelEntry.reasoningEffort` 是模型默认强度；`ModelConfig.resolveReasoningEffort` 按「对话 > 模型默认 > 不指定」解析。不指定时客户端不下发任何强度参数；`none` 表示关闭思考，UI 侧会把历史配置里的 `none` 归一化成「关」。
+思考强度只由对话设置（`ConversationSettings.reasoningEffort`）决定，模型本身不带默认档位：`ModelConfig.resolveReasoningEffort` 在没有对话设置时返回 null（不指定），此时客户端不下发任何强度参数，交给服务端默认行为；`none` 表示关闭思考，UI 侧会把历史配置里的 `none` 归一化成「关」。目录给出了该模型的 effort 取值时只接受列表里的值，切换模型后残留的档位会被跳过而不是发给不支持的模型。
 
 `ModelConfig.effectiveReasoningEffortValues` 是 UI 可选档位：目录给出 effort 取值时用目录值（去掉与「关」重复的 `none`）；目录只给 `budget_tokens` 的预算型模型，只在能忠实换算成下发字段的配置上回退到 `budgetReasoningEffortLadder`（`low`/`medium`/`high`，见 `lib/models/reasoning_effort.dart`）——即直连 Anthropic（`thinking.budget_tokens`），或托管 relay 且 `/relay/config` 已广告 `capabilities.reasoningEffort`（由后端按上游格式换算）。其他 OpenAI 兼容端点不做猜测，宁可不给档位。
 

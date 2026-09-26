@@ -2324,6 +2324,16 @@ class ApiService {
         thinking &&
         rawThinking != false &&
         !isReasoningEffortDisabled(anthropicEffort);
+    // 目录给出 effort 取值说明该模型是 adaptive thinking 一代：用原生
+    // `thinking.type = adaptive` + `output_config.effort`，由模型按复杂度决定
+    // 想多少；只有预算（`budget_tokens`）的老式记录才走预算换算。
+    final effortLevel = anthropicEffortFor(anthropicEffort);
+    // 显式配置（完整 thinking 对象或 thinkingBudgetTokens）始终走预算路径，它们是
+    // 需要老式预算思考时的逃生舱。
+    final usesNativeEffort =
+        thinkingObject == null &&
+        config.extraParams['thinkingBudgetTokens'] == null &&
+        (config.activeEntry?.catalog?.reasoningEffortValues.isNotEmpty ?? false);
     final body = <String, dynamic>{
       'model': config.modelName,
       'messages': anthropicMessages,
@@ -2337,14 +2347,18 @@ class ApiService {
       if (thinkingEnabled)
         'thinking':
             thinkingObject ??
-            {
-              'type': 'enabled',
-              'budget_tokens': _anthropicThinkingBudget(
-                config,
-                maxTokens,
-                effort: anthropicEffort,
-              ),
-            },
+            (usesNativeEffort
+                ? const {'type': 'adaptive'}
+                : {
+                    'type': 'enabled',
+                    'budget_tokens': _anthropicThinkingBudget(
+                      config,
+                      maxTokens,
+                      effort: anthropicEffort,
+                    ),
+                  }),
+      if (thinkingEnabled && usesNativeEffort && effortLevel != null)
+        'output_config': {'effort': effortLevel},
     };
     if (systemPrompt.isNotEmpty) {
       body['system'] = systemPrompt;

@@ -182,12 +182,6 @@ class ModelEntry {
   /// 目录值是派生数据：刷新会整体替换它，但不会改动用户手填字段。
   final ModelCatalogHint? catalog;
 
-  /// 该模型默认使用的思考强度（effort 取值，如 `low`/`medium`/`high`）。
-  ///
-  /// null 表示不指定：对话没有单独设置时不下发强度参数，交给服务端默认行为。
-  /// 可选值来自模型目录的 `reasoning_options`（见 [ModelCatalogHint]）。
-  final String? reasoningEffort;
-
   /// 用户在模型编辑器里显式设定的能力开关（`supportsVision` 等）。
   ///
   /// 只在用户的选择与目录建议不同时才记录：目录建议 `false`、用户打开开关就
@@ -208,7 +202,6 @@ class ModelEntry {
     this.contextWindow,
     this.fetchedContextWindow,
     this.catalog,
-    this.reasoningEffort,
     Map<String, bool>? capabilityOverrides,
   }) : capabilityOverrides = Map.unmodifiable(
          capabilityOverrides ?? const <String, bool>{},
@@ -233,9 +226,6 @@ class ModelEntry {
       catalog: rawCatalog is Map
           ? ModelCatalogHint.fromJson(Map<String, dynamic>.from(rawCatalog))
           : null,
-      reasoningEffort: (json['reasoningEffort'] as String?)?.trim().isEmpty == true
-          ? null
-          : json['reasoningEffort'] as String?,
       capabilityOverrides: rawOverrides is Map
           ? {
               for (final entry in rawOverrides.entries)
@@ -261,8 +251,6 @@ class ModelEntry {
     if (fetchedContextWindow != null)
       'fetchedContextWindow': fetchedContextWindow,
     if (catalog != null) 'catalog': catalog!.toJson(),
-    if (reasoningEffort != null && reasoningEffort!.isNotEmpty)
-      'reasoningEffort': reasoningEffort,
     if (capabilityOverrides.isNotEmpty)
       'capabilityOverrides': capabilityOverrides,
   };
@@ -281,7 +269,6 @@ class ModelEntry {
     Object? contextWindow = _sentinel,
     Object? fetchedContextWindow = _sentinel,
     Object? catalog = _sentinel,
-    Object? reasoningEffort = _sentinel,
     Map<String, bool>? capabilityOverrides,
   }) {
     return ModelEntry(
@@ -309,9 +296,6 @@ class ModelEntry {
       catalog: identical(catalog, _sentinel)
           ? this.catalog
           : catalog as ModelCatalogHint?,
-      reasoningEffort: identical(reasoningEffort, _sentinel)
-          ? this.reasoningEffort
-          : reasoningEffort as String?,
       capabilityOverrides: capabilityOverrides ?? this.capabilityOverrides,
     );
   }
@@ -569,32 +553,22 @@ class ModelConfig {
       ? extraParams['relayReasoningEffort'] == true
       : apiType == 'anthropic';
 
-  /// 该模型配置默认的思考强度；null 表示不指定。
-  String? get effectiveReasoningEffort {
-    final value = activeEntry?.reasoningEffort?.trim();
-    return value == null || value.isEmpty ? null : value;
-  }
-
   /// 解析一次请求实际使用的思考强度。
   ///
-  /// 优先级：对话设置 > 模型默认 > 不指定。目录给出了该模型的 effort 取值
-  /// （[effectiveReasoningEffortValues] 非空）时只接受列表里的值：切换模型后
-  /// 残留的强度会被跳过并退回模型默认，避免把上一个模型的取值发给当前模型。
-  /// `none` 表示显式关闭思考，不受该列表限制。
+  /// 强度只来自对话设置：没有设置就是不指定（不下发任何强度参数），模型本身不带
+  /// 默认档位。目录给出了该模型的 effort 取值（[effectiveReasoningEffortValues]
+  /// 非空）时只接受列表里的值：切换模型后残留的强度会被跳过并落回不指定，避免把
+  /// 上一个模型的取值发给当前模型。`none` 表示显式关闭思考，不受该列表限制。
   String? resolveReasoningEffort(String? conversationEffort) {
+    final candidate = conversationEffort?.trim();
+    if (candidate == null || candidate.isEmpty) return null;
+    final normalized = normalizeReasoningEffort(candidate);
+    if (isReasoningEffortDisabled(normalized)) return reasoningEffortNone;
     final allowed = effectiveReasoningEffortValues
         .map(normalizeReasoningEffort)
         .where((value) => value.isNotEmpty)
         .toSet();
-    for (final candidate in [
-      conversationEffort?.trim(),
-      effectiveReasoningEffort,
-    ]) {
-      if (candidate == null || candidate.isEmpty) continue;
-      final normalized = normalizeReasoningEffort(candidate);
-      if (isReasoningEffortDisabled(normalized)) return reasoningEffortNone;
-      if (allowed.isEmpty || allowed.contains(normalized)) return normalized;
-    }
+    if (allowed.isEmpty || allowed.contains(normalized)) return normalized;
     return null;
   }
 

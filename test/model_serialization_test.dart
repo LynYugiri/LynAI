@@ -4073,7 +4073,6 @@ PRAGMA user_version = 2;
     expect(auto.supportsVision, isFalse);
     expect(auto.supportsTools, isTrue);
     expect(auto.effectiveReasoningEffortValues, ['low', 'medium', 'high']);
-    expect(auto.effectiveReasoningEffort, isNull);
 
     // 手填值、端点拉取值、显式关闭的能力都不被目录覆盖。
     final manual = auto.copyWith(
@@ -4250,7 +4249,6 @@ PRAGMA user_version = 2;
         ],
         fetchedAt: DateTime.utc(2026, 1, 2),
       ),
-      reasoningEffort: 'medium',
       capabilityOverrides: const {'supportsVision': true},
     );
     final restored = ModelEntry.fromJson(
@@ -4260,8 +4258,8 @@ PRAGMA user_version = 2;
     expect(restored.catalog?.supportsTools, isTrue);
     expect(restored.catalog?.supportsThinkingBudget, isTrue);
     expect(restored.catalog?.fetchedAt, DateTime.utc(2026, 1, 2));
-    expect(restored.reasoningEffort, 'medium');
     expect(restored.capabilityOverrides, {'supportsVision': true});
+    expect(restored.toJson().containsKey('reasoningEffort'), isFalse);
 
     // 旧数据没有这些字段时保持默认：目录为空、强度不指定、无覆盖。
     final legacy = ModelEntry.fromJson({
@@ -4272,7 +4270,6 @@ PRAGMA user_version = 2;
       'supportsTools': true,
     });
     expect(legacy.catalog, isNull);
-    expect(legacy.reasoningEffort, isNull);
     expect(legacy.capabilityOverrides, isEmpty);
     expect(legacy.toJson().containsKey('catalog'), isFalse);
     expect(legacy.toJson().containsKey('reasoningEffort'), isFalse);
@@ -4290,8 +4287,7 @@ PRAGMA user_version = 2;
     );
     final restoredConfig = ModelConfig.fromJson(config.toJson());
     expect(restoredConfig.catalogProviderId, 'openai');
-    expect(restoredConfig.models.single.reasoningEffort, 'medium');
-    expect(restoredConfig.effectiveReasoningEffort, 'medium');
+    expect(restoredConfig.resolveReasoningEffort('medium'), 'medium');
   });
 
   test('extraParams are included in OpenAI request body', () async {

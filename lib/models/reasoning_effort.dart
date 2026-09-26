@@ -47,6 +47,20 @@ const Map<String, int> reasoningEffortBudgets = {
 String normalizeReasoningEffort(String? value) =>
     (value ?? '').trim().toLowerCase();
 
+/// Anthropic 原生 `output_config.effort` 的取值。
+///
+/// 厂商文档（经 OpenRouter 的 Claude 4.6 迁移说明对齐）：`minimal` 归一到最低档
+/// `low`，`none` 表示关闭思考（不发该字段）。
+const List<String> anthropicEffortLevels = ['low', 'medium', 'high', 'xhigh', 'max'];
+
+/// 把通用档位换算成 Anthropic 原生 effort；`none`/未知取值返回 null。
+String? anthropicEffortFor(String? effort) {
+  final normalized = normalizeReasoningEffort(effort);
+  if (normalized.isEmpty || normalized == reasoningEffortNone) return null;
+  if (normalized == 'minimal') return 'low';
+  return anthropicEffortLevels.contains(normalized) ? normalized : null;
+}
+
 /// 该强度是否表示"显式关闭思考"。
 bool isReasoningEffortDisabled(String? effort) =>
     normalizeReasoningEffort(effort) == reasoningEffortNone;
