@@ -1,5 +1,4 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:lynai/models/model_catalog.dart';
 import 'package:lynai/models/model_config.dart';
 import 'package:lynai/pages/api_models_page.dart';
 
