@@ -16,6 +16,7 @@ class _FakeApiService extends ApiService {
     ModelConfig config,
     List<Map<String, dynamic>> messages, {
     bool thinking = false,
+    String? reasoningEffort,
     List<Map<String, dynamic>> tools = const [],
     Object? toolChoice,
   }) async {

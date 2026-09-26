@@ -89,6 +89,7 @@ import '../widgets/composer_trigger_palette.dart';
 import 'chat/dialog_settings_content.dart';
 import 'chat/history_drawer.dart';
 import 'chat/share_conversation_image.dart';
+import 'chat/withdraw_undo_countdown.dart';
 import 'chat/workspace_drawer.dart';
 
 final class _UserTextHighlight {
@@ -466,6 +467,9 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
   String? _convId;
   String? _pendingModelId;
   bool _thinking = true;
+
+  /// 本对话的思考强度（null 表示按模型默认/不指定）。
+  String? _reasoningEffort;
   bool _agentEnabled = false;
   ConversationSettings? _draftSettings;
   bool _streaming = false;
@@ -566,6 +570,9 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
 
   // 每次撤回都会作废上一次的撤销入口，避免连续撤回时恢复了错误的消息尾部。
   int _withdrawUndoGeneration = 0;
+
+  /// 撤回撤销窗口：提示条与其中环形倒计时的显示时长。
+  static const _withdrawUndoWindow = Duration(seconds: 10);
 
   late final ChatImageExporter _imageExporter = ChatImageExporter(
     controller: ScreenshotController(),
@@ -998,6 +1005,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     _draftSettings = null;
     _toolRoundLimitMessageId = null;
     _thinking = conv.settings.thinking;
+    _reasoningEffort = conv.settings.reasoningEffort;
     _agentEnabled = conv.settings.agentEnabled;
   }
 
@@ -3094,6 +3102,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
           model,
           request.messages,
           thinking: _thinking && _supportsThinking(model),
+          reasoningEffort: model.resolveReasoningEffort(_reasoningEffort),
           tools: request.forceFinalResponse ? const [] : tools,
           toolChoice: request.forceFinalResponse ? null : 'auto',
         ),
@@ -6251,14 +6260,18 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
   /// 显示带回滚窗口的撤回提示。
   ///
   /// 窗口内点「撤销」会把被删掉的消息尾部、以及撤回前的输入框状态一起还原。
+  /// 提示条自带环形倒计时，窗口结束自动退场；带 action 的 SnackBar 在
+  /// Flutter 3.35+ 默认 `persist: true`（到点也不消失，只能下滑关闭），必须
+  /// 显式关掉，否则提示条会一直压在输入区上方。
   void _showWithdrawUndo(_WithdrawSnapshot snapshot) {
     final messenger = ScaffoldMessenger.of(context);
     final generation = ++_withdrawUndoGeneration;
     messenger.hideCurrentSnackBar();
     messenger.showSnackBar(
       SnackBar(
-        content: const Text('已撤回，内容回到输入框'),
-        duration: const Duration(seconds: 6),
+        content: const WithdrawUndoCountdown(duration: _withdrawUndoWindow),
+        duration: _withdrawUndoWindow,
+        persist: false,
         action: SnackBarAction(
           label: '撤销',
           onPressed: () {
@@ -7131,7 +7144,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
   Widget _thinkBtn() {
     final model = _getModel(context.read<ModelConfigProvider>());
     final available = model == null || _supportsThinking(model);
-    return _inputActionButton(
+    final button = _inputActionButton(
       id: 'thinking',
       icon: Icons.psychology,
       label: '思考',
@@ -7155,6 +7168,81 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
             }
           : null,
     );
+    final effort = model == null ? null : _thinkingEffortBtn(model, available);
+    if (effort == null) return button;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [button, const SizedBox(width: 2), effort],
+    );
+  }
+
+  /// 思考强度选择：只在模型目录给出了 effort 取值时出现。
+  ///
+  /// 取值写进对话设置（未创建对话时写草稿设置）；「模型默认」表示不指定强度，
+  /// 由模型配置或服务端默认行为决定。
+  Widget? _thinkingEffortBtn(ModelConfig model, bool available) {
+    final values = model.effectiveReasoningEffortValues;
+    if (values.isEmpty) return null;
+    final current = model.resolveReasoningEffort(_reasoningEffort);
+    final label = current ?? '默认';
+    final scheme = Theme.of(context).colorScheme;
+    return Tooltip(
+      message: '思考强度：$label',
+      child: PopupMenuButton<String>(
+        tooltip: '思考强度',
+        enabled: available,
+        onSelected: (value) =>
+            _setReasoningEffort(value.isEmpty ? null : value, model),
+        itemBuilder: (_) => [
+          const PopupMenuItem(value: '', child: Text('模型默认')),
+          for (final value in values)
+            PopupMenuItem(value: value, child: Text(value)),
+        ],
+        child: Container(
+          constraints: const BoxConstraints(minHeight: 32),
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(
+              color: scheme.outlineVariant.withValues(alpha: 0.3),
+            ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 11,
+                  color: available
+                      ? (current == null ? scheme.outline : scheme.primary)
+                      : scheme.onSurface.withValues(alpha: 0.15),
+                ),
+              ),
+              Icon(Icons.expand_more, size: 15, color: scheme.outline),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// 保存思考强度到当前对话（或草稿）设置。
+  void _setReasoningEffort(String? value, ModelConfig model) {
+    setState(() => _reasoningEffort = value);
+    if (_convId != null) {
+      final conv = context.read<ConversationProvider>().getConversation(_convId!);
+      if (conv != null) {
+        _saveConversationSettings(
+          conv.settings.copyWith(reasoningEffort: value),
+        );
+        return;
+      }
+    }
+    final draft = _draftSettings;
+    if (draft != null) {
+      _saveDraftSettings(draft.copyWith(reasoningEffort: value));
+    }
   }
 
   Widget _ocrBtn() {

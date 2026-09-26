@@ -75,12 +75,12 @@ OpenAI 兼容和 Anthropic 流使用共享 `SseDecoder`，按空行分隔完整�
 
 | 协议 | 行为 |
 |------|------|
-| OpenAI 兼容 | 发送 `model`、`messages`、`stream`、`thinking`、采样参数；工具开启时发送 `tools` 和 `tool_choice`。 |
-| Ollama | 发送 `model`、`messages`、`stream`、`think`；采样参数进入 `options`。 |
-| Anthropic | system 消息提升到顶层 `system`（分段内容收敛为纯文本），其余消息写入 `messages`，内容转 Anthropic block；`thinking` 由输入框的思考开关直接驱动（Anthropic 必须显式声明才思考），预算可用模型预设的 `thinkingBudgetTokens` 或完整 `thinking` 对象覆盖；开启时不发 `temperature`（Anthropic 要求扩展思考下该值必须为 1）。 |
-| Managed canonical | 发送 `model`、canonical `messages`、`stream`、`thinking`、采样参数和可选工具；响应统一为 `content`、`reasoning`、`toolCalls`，SSE 增量使用同名字段和 `done`。 |
+| OpenAI 兼容 | 发送 `model`、`messages`、`stream`、`thinking`、采样参数；工具开启时发送 `tools` 和 `tool_choice`；有思考强度时按 provider 写 `reasoning_effort`（OpenRouter 写 `reasoning.effort`）。 |
+| Ollama | 发送 `model`、`messages`、`stream`、`think`（强度映射成 `low`/`medium`/`high` 档位）；采样参数进入 `options`。 |
+| Anthropic | system 消息提升到顶层 `system`（分段内容收敛为纯文本），其余消息写入 `messages`，内容转 Anthropic block；`thinking` 由输入框的思考开关直接驱动（Anthropic 必须显式声明才思考），预算优先级是 `thinkingBudgetTokens` > 思考强度换算 > 默认 1024，也可用完整 `thinking` 对象覆盖；开启时不发 `temperature`（Anthropic 要求扩展思考下该值必须为 1）。 |
+| Managed canonical | 发送 `model`、canonical `messages`、`stream`、`reasoning`（`enabled` + 可选 `budgetTokens`/`effort`，两者互斥且显式预算优先）、采样参数和可选工具；响应统一为 `content`、`reasoning`、`toolCalls`，SSE 增量使用同名字段和 `done`。 |
 
-OpenAI 兼容请求会显式发送 thinking 开关。部分已配置后端依赖 disabled 标记，不要随意删除。Anthropic 同样复用这个开关：它的 `thinking` 字段会让服务端按扩展思考校验（要求所选模型支持、且 temperature 为 1），因此由开关直接生成标准结构并在开启时省略 `temperature`，预设里显式写 `thinking: false` 可强制关闭。
+OpenAI 兼容请求会显式发送 thinking 开关。部分已配置后端依赖 disabled 标记，不要随意删除。当模型目录明确说该模型不支持推理、而且用户没有显式打开该能力时，客户端不再发送 `thinking` 与强度字段（给非推理模型发这些参数只会被忽略或被部分服务端拒绝）；`extraParams` 里已有的 `thinking`/`reasoning`/`reasoning_effort` 优先于客户端计算值。思考强度为 `none` 表示关闭思考。托管 canonical 的 `reasoning.effort` 只在 `/relay/config` 顶层广告 `capabilities.reasoningEffort` 时下发：旧后端对未知字段返回 400（严格 JSON 解码），该能力位由 `ModelConfigProvider` 写进托管配置的 `extraParams.relayReasoningEffort`。Anthropic 同样复用这个开关：它的 `thinking` 字段会让服务端按扩展思考校验（要求所选模型支持、且 temperature 为 1），因此由开关直接生成标准结构并在开启时省略 `temperature`，预设里显式写 `thinking: false` 可强制关闭。
 
 Direct Provider 的 `extraParams` 会合并到请求体，但不会覆盖代码已经设置的核心字段，例如 `model`、`messages`、`stream`，并把 `maxTokens` -> `max_tokens`、`topP` -> `top_p` 等名称规范化。Managed canonical 请求不透传 `extraParams`；客户端只从 active 子模型发送标准 `maxTokens`、`temperature`、`topP`，其余 advanced defaults 由后端模型处理。Vivo LASR 由 active speech 子模型的 `workflow=vivo_lasr` 选择现有 `/relay/speech/*` 流程。
 
@@ -109,6 +109,18 @@ OCR 和文件识别是发送前处理。处理结果会替换历史附件并标�
 | Anthropic `type:error` | 转成异常进入失败路径。 |
 | 单个坏 chunk | 跳过该 chunk，保留已收到正文。 |
 | 工具参数不是 JSON 对象 | 作为协议错误终止该次请求。 |
+
+## ModelCatalogService
+
+文件：`lib/services/model_catalog_service.dart`
+
+`ModelCatalogService` 负责加载、缓存与查询 models.dev 模型目录，供模型配置自动补全上下文窗口、输出上限、能力与思考强度。数据来源优先级：后端 `GET /models/catalog` 代理 → 直连 `https://models.dev/api.json` → 本地缓存文件 → 内置精简快照（`assets/model_catalog/catalog.json`，由 `scripts/build_model_catalog.dart` 生成）。任何一环失败都保留上一份可用数据并把原因写进状态，不向调用方抛异常。
+
+- 直连请求走 `BoundedOutboundHttpClient` + `OutboundNetworkPolicy`（HTTPS、公网 DNS、禁止重定向、8 MiB 上限、30s 超时），带 `If-None-Match`，304 时只更新检查时间；后端代理走 `BackendClient.getBounded('/models/catalog', maxBytes: 6 MiB)`，返回 404/405 时回退直连。
+- 裁剪规则与后端、内置快照一致：只保留默认 provider 集合（与 `defaultModelCatalogProviderIds` 相同）与目录文档需要的字段；命中目录不代表会改写用户配置。
+- 缓存文件是 `model_catalog_cache.json`，位于 storage_v2 根目录同级的 `model_catalog/`（无 storage 时用应用支持目录），内容 = 目录文档 + `etag` + `checkedAt`。它是派生缓存：不进 storage_v2、备份、云同步或 LAN 同步，删除后仍可用内置快照离线补全。
+- `ensureLoaded()` 共享同一次本地加载；缓存超过 `refreshTtl`（7 天）时后台刷新一次。`refresh()` 是显式刷新（设置页按钮、补全按钮），并发调用共享同一个 Future；`clearCache()` 删除缓存并回退内置快照。
+- 查询入口是 `hintFor(config, modelName)` / `hintForEndpoint(...)`（返回 `ModelCatalogHint`）与 `candidates(...)`（歧义时给候选）。匹配规则见 [数据模型](models.md)。隐私：只下载公开目录，不上传 API Key、对话内容或任何本机数据。
 
 ## OnDeviceLlmService
 

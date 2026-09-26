@@ -30,6 +30,10 @@ Future<bool> openPluginAiConversation(
     messenger.showSnackBar(
       SnackBar(
         content: const Text('需要先在「对话权限」中开启“修改插件文件”，AI 才能编辑插件草稿。'),
+        // 带 action 的 SnackBar 在 Flutter 3.35+ 默认 persist: true（永不自动
+        // 消失），这里显式关掉并给一段读完提示的时长。
+        duration: const Duration(seconds: 6),
+        persist: false,
         action: SnackBarAction(
           label: '去开启',
           onPressed: () => Navigator.push(

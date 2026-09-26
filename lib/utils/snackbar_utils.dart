@@ -16,6 +16,7 @@ SnackBar shortSnackBar(String message) {
       },
     ),
     duration: const Duration(seconds: 2),
+    persist: false,
     showCloseIcon: true,
   );
 }
@@ -32,6 +33,10 @@ void showShortSnackBar(BuildContext context, String message) {
 /// 创建带"查看详细"操作按钮的错误 SnackBar。
 ///
 /// 点击操作按钮会导航到 [ErrorDetailsPage]，展示错误的摘要和详细堆栈信息。
+///
+/// 带 action 的 SnackBar 在 Flutter 3.35+ 默认 `persist: true`，这里保持该
+/// 行为但显式写出来：错误提示不自动消失，直到用户点「查看详细」、点右侧关闭
+/// 按钮或下滑关闭，避免用户还没来得及读就消失。
 SnackBar errorSnackBar(
   BuildContext context,
   String message, {
@@ -43,6 +48,7 @@ SnackBar errorSnackBar(
   return SnackBar(
     content: Text(message),
     showCloseIcon: true,
+    persist: true,
     action: SnackBarAction(
       label: '查看详细',
       onPressed: () => Navigator.of(context).push(

@@ -109,6 +109,7 @@ flutter:
     - THIRD_PARTY_NOTICES.md
     - assets/mathlive/
     - assets/mermaid/
+    - assets/model_catalog/
     - assets/plugins/status-dashboard/
     - assets/plugins/status-dashboard/defaults/
     - assets/plugins/weather-query/

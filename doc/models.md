@@ -133,8 +133,17 @@
 | `disabledByUser` | 用户是否在本机关闭该托管配置。关闭后该配置不会被实际模型选择逻辑使用，但仍会继续接收服务端基线同步。 |
 | `userOverrides` | 用户对托管配置的本机覆盖项，优先级高于服务端下发值；当前覆盖 `maxTokens`、`temperature`、`topP`、`supportsVision`、`supportsThinking` 和 `supportsTools`。 |
 | `cloudSyncEnabled` | 用户是否明确允许同步此非托管 Provider 的非秘密配置，默认 false。托管 Provider 始终由服务端维护，不进入该同步域。 |
+| `catalogProviderId` | 手动指定的模型目录（models.dev）provider id；为空时由 endpoint host 自动推断。 |
 
-`ModelEntry` 是子模型。子模型可以独立设置启用状态、视觉能力、thinking 能力、工具能力、采样参数和 managed workflow。schema 4 下发的 Vivo LASR workflow 保存在对应 speech 子模型上，不提升到配置级。
+`ModelEntry` 是子模型。子模型可以独立设置启用状态、视觉能力、thinking 能力、工具能力、采样参数、思考强度默认值和 managed workflow。schema 4 下发的 Vivo LASR workflow 保存在对应 speech 子模型上，不提升到配置级。子模型还携带三类派生/覆盖数据：
+
+| 字段 | 说明 |
+|------|------|
+| `catalog` | 从模型目录补全的建议值（`ModelCatalogHint`）：上下文窗口、输出上限、视觉/工具/思考能力、思考强度取值、命中的 `providerId`/`modelId` 与抓取时间。派生数据，刷新时整体替换，不写入用户字段。 |
+| `capabilityOverrides` | 用户在模型编辑器里显式设定的能力开关。只在选择与目录建议不同时记录，避免下次目录刷新把用户显式开启的能力改回去。 |
+| `reasoningEffort` | 该模型默认使用的思考强度；为空表示不指定，交给服务端默认行为。可选值来自目录的 `reasoning_options`。 |
+
+`effectiveContextWindow` 的优先级是：托管/本机 `userOverrides` > 子模型手填 `contextWindow` > 端点拉取 `fetchedContextWindow` > 目录 `catalog.contextWindow` > Provider 级 `contextWindow`。`effectiveMaxTokens` 同理（目录字段是 `catalog.maxOutputTokens`）。能力开关的生效规则：条目 `capabilityOverrides` > `userOverrides` > 目录建议 > 子模型字段（`false` 视为用户显式关闭，`true` 只是历史默认值）> true；托管配置的值来自服务端下发，只可能被本机覆盖关掉。目录永远只补空缺，不覆盖任何用户输入。
 
 后端连接后（无需登录），`ModelConfigProvider` 从公开的 `/relay/config` 读取 `schemaVersion: 4` 的平铺模型列表，按规范化 `category` 创建一个名为 `LynAI` 的托管配置，ID 形如 `__lynai_relay_<category>__`；schema v3 wire 响应不受支持。托管 endpoint 派生自 `BackendClient.backendUrl + '/relay'`；已登录时请求可附带用户 JWT，未登录时不发送鉴权头，请求体只发送 `model`。同步会先完整构建下一份托管集合再替换；离线、请求失败或响应无效时保留当前托管数据。相同 category ID 已存在时保留分类内排序、当前模型、本机禁用状态和用户覆盖。旧客户端或备份中持久化的 Provider-scoped 托管 ID 会在本地按 category 合并为当前 ID，保存待处理映射，并迁移设置、对话、情景演绎和插件配置中的精确引用；该本地兼容不恢复 schema v3 网络协议。
 
@@ -147,6 +156,18 @@ Agent 可通过 `model.chat` 调用 Chat 模型，通过 `model.ocr` 调用 OCR 
 OCR 悬浮翻译使用请求内轻量文本组。Native OCR 输出 `text`、识别用 `recognitionPolygon/recognitionBounds`、显示用 `polygon/displayBounds`、`orientation`、浮点 `angle`、`fontSize`、`confidence` 以及兼容字段 `bounds/boxW/boxH/prob`。Android `OcrTextGrouper` 按几何关系把 OCR 行合为 `g_N` 文本组，Dart `FloatingTranslationController` 只按组 ID 映射 AI 译文；这些 ID 不用于跨屏缓存。
 
 请求参数优先级：托管配置的 `userOverrides` 高于子模型参数，高于 Provider 参数，高于接口默认值。
+
+## 模型目录与思考强度
+
+文件：`lib/models/model_catalog.dart`、`lib/models/reasoning_effort.dart`
+
+`ModelCatalogDocument` 是 models.dev 目录在客户端的规范化视图，字段名沿用上游 wire 名称：`providers.<id>.models.<id>` 下保留 `id`、`name`、`limit`（`context`/`input`/`output`）、`attachment`、`tool_call`、`reasoning`、`reasoning_options`、`modalities`、`temperature`、`release_date`、`last_updated`；`description`、`cost` 等字段在裁剪阶段丢弃。解析容忍单条损坏记录与未知字段，但顶层结构不可识别或 `schemaVersion` 高于当前支持版本时整份拒绝。内置快照、本地缓存、后端 `/models/catalog` 响应共用这一种形状。
+
+`ModelCatalogIndex` 按 provider + 模型名匹配：先精确 id，再依次做小写、去 `vendor/` 前缀、去 `:latest`/`-latest`/`-preview`/日期后缀的归一化匹配；归一化后仍有多个不同模型时返回 null（宁可不填也不猜），候选列表交给 UI。`ModelCatalogProviderResolver` 按「显式 `catalogProviderId` > 已知 endpoint host 表 > 目录里 provider 的 `api` host」解析 provider，本地/未知 endpoint 返回 null。
+
+`reasoning_options` 有三种形态：`{type: toggle}`、`{type: effort, values: [...]}`、`{type: budget_tokens, min}`。`lib/models/reasoning_effort.dart` 定义客户端与后端共用的强度取值集合（`none`/`minimal`/`low`/`medium`/`high`/`xhigh`/`max`）、`none` 表示关闭思考，以及 effort → 思考预算的换算阶梯（1024/2048/8192/24576/32768/49152，用于 Anthropic 风格接口）；换算结果会被夹在 `[min, max_tokens-1]` 内。该阶梯是工程取值，不代表任何厂商推荐值。
+
+`ConversationSettings.reasoningEffort` 是对话级强度，`ModelEntry.reasoningEffort` 是模型默认强度；`ModelConfig.resolveReasoningEffort` 按「对话 > 模型默认 > 不指定」解析。不指定时客户端不下发任何强度参数。
 
 ## AppSettings、角色和提示词
 

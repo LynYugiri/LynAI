@@ -396,6 +396,12 @@ class ModelConfigProvider extends ChangeNotifier with SerializedSaveQueue {
       debugPrint('同步 LynAI 模型失败: 模型数据格式错误');
       return false;
     }
+    // 顶层 capabilities 是 additive 字段：旧后端没有它，relay 就会因为
+    // DisallowUnknownFields 拒绝 reasoning.effort，因此客户端必须按它决定是否
+    // 下发思考强度。标记写进托管配置的 extraParams（不进入用户覆盖与上游请求体）。
+    final rawCapabilities = decoded['capabilities'];
+    final relaySupportsReasoningEffort =
+        rawCapabilities is Map && rawCapabilities['reasoningEffort'] == true;
     final endpoint = '${backendUrl.replaceAll(RegExp(r'/+$'), '')}/relay';
     final previousManaged = _models
         .where((model) => model.managed)
@@ -436,7 +442,10 @@ class ModelConfigProvider extends ChangeNotifier with SerializedSaveQueue {
           apiType: '',
           priority:
               existing?.priority ?? nextPriorityForCategory(group.category),
-          extraParams: group.extraParams,
+          extraParams: {
+            ...group.extraParams,
+            if (relaySupportsReasoningEffort) 'relayReasoningEffort': true,
+          },
           models: modelEntries,
           managed: true,
           disabledByUser: existing?.disabledByUser ?? false,

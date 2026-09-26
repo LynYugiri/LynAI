@@ -13,6 +13,7 @@ import 'appearance_settings_page.dart';
 import 'data_settings_page.dart';
 import 'floating_assistant_settings_page.dart';
 import 'memory_settings_page.dart';
+import 'model_catalog_settings_page.dart';
 import 'permission_management_page.dart';
 import 'plugin_settings_page.dart';
 import 'role_management_page.dart';
@@ -196,6 +197,27 @@ class _SettingsPageState extends State<SettingsPage> {
         onTap: () => Navigator.push(
           context,
           MaterialPageRoute(builder: (_) => const ApiModelsPage()),
+        ),
+      ),
+      SettingsEntry(
+        icon: Icons.travel_explore,
+        title: '模型目录',
+        subtitle: '从 models.dev 补全上下文、输出上限与能力',
+        iconColor: Colors.teal,
+        searchTerms: const [
+          'models.dev',
+          '模型目录',
+          '上下文窗口',
+          'context window',
+          '输出上限',
+          '思考强度',
+          '参数补全',
+        ],
+        onTap: () => Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => const ModelCatalogSettingsPage(),
+          ),
         ),
       ),
       SettingsEntry(

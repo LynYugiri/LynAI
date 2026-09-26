@@ -41,6 +41,7 @@ import 'services/scheduled_task_scheduler.dart';
 import 'services/device_identity_service.dart';
 import 'services/device_registration_service.dart';
 import 'services/secret_store.dart';
+import 'services/model_catalog_service.dart';
 import 'services/server_capabilities_service.dart';
 import 'services/dataset_secret_store.dart';
 import 'services/dataset_runtime_coordinator.dart';
@@ -306,6 +307,12 @@ Future<void> main() async {
           dispose: (_, scheduler) => scheduler.dispose(),
         ),
         ChangeNotifierProvider(create: (_) => ServerCapabilitiesService()),
+        ChangeNotifierProvider(
+          create: (ctx) => ModelCatalogService(
+            backend: ctx.read<BackendClient>(),
+            storageV2: ctx.read<StorageV2Service>(),
+          ),
+        ),
         ProxyProvider4<
           SettingsProvider,
           SecretStore,

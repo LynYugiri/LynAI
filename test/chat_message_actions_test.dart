@@ -7,6 +7,7 @@ import 'package:lynai/models/composer_reference.dart';
 import 'package:lynai/models/conversation.dart';
 import 'package:lynai/models/message.dart';
 import 'package:lynai/models/model_config.dart';
+import 'package:lynai/pages/chat/withdraw_undo_countdown.dart';
 import 'package:lynai/pages/chat_page.dart';
 import 'package:lynai/providers/calendar_provider.dart';
 import 'package:lynai/providers/conversation_provider.dart';
@@ -36,6 +37,7 @@ class _HangingStreamApi extends ApiService {
     ModelConfig config,
     List<Map<String, dynamic>> messages, {
     bool thinking = false,
+    String? reasoningEffort,
     List<Map<String, dynamic>> tools = const [],
     Object? toolChoice,
   }) {
@@ -184,6 +186,50 @@ void main() {
         '回复二',
       ]);
       expect(_composerText(tester), '正在输入');
+
+      await _finish(tester, conversations);
+    });
+
+    testWidgets('撤回提示 10 秒倒计时结束后自动消失', (tester) async {
+      final conversations = memoryConversationProvider();
+      final cid = _seedConversation(conversations);
+      await _pumpChat(tester, storage, conversations, cid);
+
+      await tester.tap(find.byTooltip('撤回').at(1));
+      await tester.pump();
+
+      final countdown = find.byType(WithdrawUndoCountdown);
+      expect(countdown, findsOneWidget);
+      expect(find.text('已撤回，内容回到输入框'), findsOneWidget);
+
+      // 先让入场动画结束，SnackBar 的关闭计时器在入场完成后才启动。
+      await tester.pump(const Duration(milliseconds: 500));
+
+      // 倒计时环在窗口内随时间收缩。
+      await tester.pump(const Duration(milliseconds: 4500));
+      expect(countdown, findsOneWidget);
+      expect(
+        tester
+            .widget<CircularProgressIndicator>(
+              find.descendant(
+                of: countdown,
+                matching: find.byType(CircularProgressIndicator),
+              ),
+            )
+            .value,
+        closeTo(0.5, 0.02),
+      );
+
+      // 窗口结束后提示条自动退场。带 action 的 SnackBar 在 Flutter 3.35+ 默认
+      // persist: true，没有显式 persist: false 时这里会一直留着，构成回归保护。
+      await tester.pump(const Duration(seconds: 6));
+      await tester.pump(const Duration(seconds: 1));
+      expect(countdown, findsNothing);
+      expect(find.text('撤销'), findsNothing);
+      expect(
+        conversations.getConversation(cid)!.messages.map((m) => m.content),
+        ['看下 @笔记一', '回复一'],
+      );
 
       await _finish(tester, conversations);
     });

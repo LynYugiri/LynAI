@@ -76,7 +76,7 @@ Run 同时固定权限快照。后续模型 turn、Agent Lua 同步预检、异�
 
 模型返回 context overflow 时，runtime 在 `contextBudgetingEnabled` 为 true 时最多强制压缩重试一次，第二次 overflow 直接失败；关闭该开关后不重试，原样抛出错误。`ApiService` 会把常见上下文超限错误包装为 `AgentContextOverflowException`，主对话、悬浮聊天和 Subagent 都通过类型判断触发这次重试。主对话和悬浮聊天按 `ConversationSettings.contextCompressionEnabled` 同时控制压缩与预算截断；Subagent 的短暂隔离上下文仍保持启用。生产调用方在启用时注入 `ModelContextCompactor`：它用当前 Chat 模型（关闭 thinking/tools）把被裁消息压缩为有界 checkpoint；compactor 失败、超时或返回空摘要时回退到现有截断策略，不使 run 失败。`/压缩` 指令复用同一个 compactor，但走**独立参数与独立调用点**（更长超时、保留待办与决策的摘要提示词），把结果写成对话级 `ConversationContextCheckpoint` 并持久化；此后 `buildApiMessages` 在组装发送副本时用该摘要顶替被覆盖的那段历史（原始消息不删除），自动压缩与预算裁剪照旧在其后生效。覆盖集合与现存消息 ID 不相交时（撤回、分支重置或远端同步改写）检查点按失效处理，不拿描述已不存在历史的摘要顶替上下文。`/总结` 不新开上下文路径：它取同一份 `buildApiMessages` 结果并再走一次预算裁剪，只替换 system 段并去掉工具，因此总结覆盖的是模型实际看得到的（已压缩）上下文，结果仅展示、不写回对话。
 
-上下文预算按模型生效值 `ModelConfig.effectiveContextWindow` 构造，来源优先级为用户本地覆盖 > 托管 `/relay/config` 下发 > 从模型 endpoint 拉取 > 默认 262144（`defaultAgentContextWindow`，256k）。估算仍是近似，不是精确 tokenizer。
+上下文预算按模型生效值 `ModelConfig.effectiveContextWindow` 构造，来源优先级为用户本地覆盖 > 手填/托管 `/relay/config` 下发 > 从模型 endpoint 拉取 > 模型目录（models.dev）建议 > Provider 级 > 默认 262144（`defaultAgentContextWindow`，256k）。模型目录只补空缺，不覆盖用户输入；目录来源与缓存见 [服务层](services.md)。估算仍是近似，不是精确 tokenizer。
 
 ## Tool Result Sanitization Foundation
 

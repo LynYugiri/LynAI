@@ -591,6 +591,9 @@ class FloatingChatSessionController extends ChangeNotifier {
           request.messages,
           thinking:
               conversationSettings?.thinking == true && model.supportsThinking,
+          reasoningEffort: model.resolveReasoningEffort(
+            conversationSettings?.reasoningEffort,
+          ),
           tools: request.forceFinalResponse ? const [] : tools,
           toolChoice: request.forceFinalResponse ? null : 'auto',
         ),

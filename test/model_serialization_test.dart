@@ -17,6 +17,7 @@ import 'package:lynai/models/conversation.dart';
 import 'package:lynai/models/local_date.dart';
 import 'package:lynai/models/local_time.dart';
 import 'package:lynai/models/message.dart';
+import 'package:lynai/models/model_catalog.dart';
 import 'package:lynai/models/model_config.dart';
 import 'package:lynai/models/note.dart';
 import 'package:lynai/models/roleplay.dart';
@@ -4038,6 +4039,146 @@ PRAGMA user_version = 2;
       expect(restored.effectiveContextWindow, 24000);
     },
   );
+
+  test('模型目录建议与思考强度按"只补空缺"的优先级生效', () {
+    final hint = ModelCatalogHint(
+      providerId: 'openai',
+      modelId: 'gpt-4o',
+      contextWindow: 128000,
+      maxOutputTokens: 16384,
+      supportsVision: false,
+      supportsTools: true,
+      supportsThinking: true,
+      reasoningOptions: const [
+        ModelCatalogReasoningOption(
+          kind: ModelCatalogReasoningKind.effort,
+          values: ['low', 'medium', 'high'],
+        ),
+      ],
+    );
+
+    final auto = ModelConfig(
+      id: '1',
+      name: 'Provider',
+      endpoint: 'https://api.openai.com/v1',
+      apiKey: 'key',
+      modelName: 'gpt-4o',
+      apiType: 'openai',
+      priority: 0,
+      models: [ModelEntry(name: 'gpt-4o', enabled: true, catalog: hint)],
+    );
+    expect(auto.effectiveContextWindow, 128000);
+    expect(auto.effectiveMaxTokens, 16384);
+    expect(auto.supportsVision, isFalse);
+    expect(auto.supportsTools, isTrue);
+    expect(auto.effectiveReasoningEffortValues, ['low', 'medium', 'high']);
+    expect(auto.effectiveReasoningEffort, isNull);
+
+    // 手填值、端点拉取值、显式关闭的能力都不被目录覆盖。
+    final manual = auto.copyWith(
+      models: [
+        ModelEntry(
+          name: 'gpt-4o',
+          enabled: true,
+          contextWindow: 8000,
+          fetchedContextWindow: 16000,
+          maxTokens: 512,
+          supportsThinking: false,
+          catalog: hint,
+        ),
+      ],
+    );
+    expect(manual.effectiveContextWindow, 8000);
+    expect(manual.effectiveMaxTokens, 512);
+    expect(manual.supportsThinking, isFalse);
+
+    final endpointValue = manual.copyWith(
+      models: [
+        ModelEntry(
+          name: 'gpt-4o',
+          enabled: true,
+          fetchedContextWindow: 16000,
+          catalog: hint,
+        ),
+      ],
+    );
+    expect(endpointValue.effectiveContextWindow, 16000);
+
+    // 用户在编辑器里显式打开目录说"不支持"的能力时，以用户选择为准。
+    final explicit = auto.copyWith(
+      models: [
+        ModelEntry(
+          name: 'gpt-4o',
+          enabled: true,
+          catalog: hint,
+          capabilityOverrides: const {'supportsVision': true},
+        ),
+      ],
+    );
+    expect(explicit.supportsVision, isTrue);
+  });
+
+  test('目录建议与能力覆盖可以 JSON 往返，旧数据仍可解析', () {
+    final entry = ModelEntry(
+      name: 'gpt-4o',
+      enabled: true,
+      catalog: ModelCatalogHint(
+        providerId: 'openai',
+        modelId: 'gpt-4o',
+        contextWindow: 128000,
+        maxOutputTokens: 16384,
+        supportsTools: true,
+        reasoningOptions: const [
+          ModelCatalogReasoningOption(
+            kind: ModelCatalogReasoningKind.budgetTokens,
+            minBudgetTokens: 1024,
+          ),
+        ],
+        fetchedAt: DateTime.utc(2026, 1, 2),
+      ),
+      reasoningEffort: 'medium',
+      capabilityOverrides: const {'supportsVision': true},
+    );
+    final restored = ModelEntry.fromJson(
+      jsonDecode(jsonEncode(entry.toJson())) as Map<String, dynamic>,
+    );
+    expect(restored.catalog?.contextWindow, 128000);
+    expect(restored.catalog?.supportsTools, isTrue);
+    expect(restored.catalog?.supportsThinkingBudget, isTrue);
+    expect(restored.catalog?.fetchedAt, DateTime.utc(2026, 1, 2));
+    expect(restored.reasoningEffort, 'medium');
+    expect(restored.capabilityOverrides, {'supportsVision': true});
+
+    // 旧数据没有这些字段时保持默认：目录为空、强度不指定、无覆盖。
+    final legacy = ModelEntry.fromJson({
+      'name': 'legacy-model',
+      'enabled': true,
+      'supportsVision': true,
+      'supportsThinking': true,
+      'supportsTools': true,
+    });
+    expect(legacy.catalog, isNull);
+    expect(legacy.reasoningEffort, isNull);
+    expect(legacy.capabilityOverrides, isEmpty);
+    expect(legacy.toJson().containsKey('catalog'), isFalse);
+    expect(legacy.toJson().containsKey('reasoningEffort'), isFalse);
+
+    final config = ModelConfig(
+      id: '1',
+      name: 'Provider',
+      endpoint: 'https://api.openai.com/v1',
+      apiKey: 'key',
+      modelName: 'gpt-4o',
+      apiType: 'openai',
+      priority: 0,
+      catalogProviderId: 'openai',
+      models: [entry],
+    );
+    final restoredConfig = ModelConfig.fromJson(config.toJson());
+    expect(restoredConfig.catalogProviderId, 'openai');
+    expect(restoredConfig.models.single.reasoningEffort, 'medium');
+    expect(restoredConfig.effectiveReasoningEffort, 'medium');
+  });
 
   test('extraParams are included in OpenAI request body', () async {
     final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);

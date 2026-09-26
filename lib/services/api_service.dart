@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:uuid/uuid.dart';
 import '../models/model_config.dart';
+import '../models/reasoning_effort.dart';
 import '../models/ocr_text_block.dart';
 import 'backend_client.dart';
 import 'local_bluelm_prompt_codec.dart';
@@ -1109,6 +1110,7 @@ class ApiService {
     ModelConfig config,
     List<Map<String, dynamic>> messages, {
     bool thinking = false,
+    String? reasoningEffort,
     List<Map<String, dynamic>> tools = const [],
     Object? toolChoice,
   }) async {
@@ -1121,6 +1123,7 @@ class ApiService {
           config,
           messages,
           thinking: thinking,
+          reasoningEffort: reasoningEffort,
           tools: tools,
           toolChoice: toolChoice,
         ).timeout(_timeout);
@@ -1129,18 +1132,21 @@ class ApiService {
           config,
           _ollamaMessages(messages),
           thinking: thinking,
+          reasoningEffort: reasoningEffort,
         ).timeout(_timeout);
       } else if (config.apiType == 'anthropic') {
         return await _sendAnthropicRequest(
           config,
           _anthropicMessages(messages),
           thinking: thinking,
+          reasoningEffort: reasoningEffort,
         ).timeout(_timeout);
       } else {
         return await _sendOpenAICompatibleRequest(
           config,
           messages,
           thinking: thinking,
+          reasoningEffort: reasoningEffort,
           tools: tools,
           toolChoice: toolChoice,
         ).timeout(_timeout);
@@ -1162,6 +1168,7 @@ class ApiService {
     ModelConfig config,
     List<Map<String, dynamic>> messages, {
     bool thinking = false,
+    String? reasoningEffort,
     List<Map<String, dynamic>> tools = const [],
     Object? toolChoice,
   }) async* {
@@ -1175,6 +1182,7 @@ class ApiService {
           config,
           messages,
           thinking: thinking,
+          reasoningEffort: reasoningEffort,
           tools: tools,
           toolChoice: toolChoice,
         );
@@ -1183,18 +1191,21 @@ class ApiService {
           config,
           _ollamaMessages(messages),
           thinking: thinking,
+          reasoningEffort: reasoningEffort,
         );
       } else if (config.apiType == 'anthropic') {
         yield* _sendAnthropicStreamRequest(
           config,
           _anthropicMessages(messages),
           thinking: thinking,
+          reasoningEffort: reasoningEffort,
         );
       } else {
         yield* _sendOpenAICompatibleStreamRequest(
           config,
           messages,
           thinking: thinking,
+          reasoningEffort: reasoningEffort,
           tools: tools,
           toolChoice: toolChoice,
         );
@@ -1255,6 +1266,43 @@ class ApiService {
     );
   }
 
+  /// 写入 OpenAI 兼容请求的思考相关字段。
+  ///
+  /// 规则（目录只做收敛，不改变老行为）：
+  /// 1. 目录明确说该模型不支持推理、且用户没有显式打开时，不下发 `thinking` 与
+  ///    强度字段——给非推理模型发这些参数只会被忽略或被部分服务端拒绝；
+  /// 2. 其余情况保持"开关直接映射成 `thinking.type`"的既有语义；
+  /// 3. 开启思考且用户选了强度时：OpenRouter 用 `reasoning.effort`，其他
+  ///    OpenAI 兼容端点用 `reasoning_effort`；`extraParams` 里已有的同名键优先。
+  void _applyOpenAIThinking(
+    Map<String, dynamic> body,
+    ModelConfig config, {
+    required bool thinking,
+    String? reasoningEffort,
+  }) {
+    final catalog = config.activeEntry?.catalog;
+    if (catalog != null && !config.supportsThinking) return;
+    final effort = config.resolveReasoningEffort(reasoningEffort);
+    final enabled =
+        thinking && config.supportsThinking && !isReasoningEffortDisabled(effort);
+    if (!body.containsKey('thinking')) {
+      body['thinking'] = {'type': enabled ? 'enabled' : 'disabled'};
+    }
+    if (!enabled || effort == null) return;
+    if (catalog?.providerId == 'openrouter') {
+      final existing = body['reasoning'];
+      final merged = existing is Map
+          ? Map<String, dynamic>.from(existing)
+          : <String, dynamic>{};
+      merged.putIfAbsent('effort', () => normalizeReasoningEffort(effort));
+      body['reasoning'] = merged;
+      return;
+    }
+    if (!body.containsKey('reasoning_effort')) {
+      body['reasoning_effort'] = normalizeReasoningEffort(effort);
+    }
+  }
+
   Map<String, dynamic> _managedChatBody(
     ModelConfig config,
     List<Map<String, dynamic>> messages, {
@@ -1262,16 +1310,31 @@ class ApiService {
     required bool thinking,
     required List<Map<String, dynamic>> tools,
     required Object? toolChoice,
+    String? reasoningEffort,
   }) {
     final budgetTokens = (config.extraParams['thinkingBudgetTokens'] as num?)
         ?.toInt();
+    // 托管 relay 只在 /relay/config 广告 capabilities.reasoningEffort 时才接受
+    // reasoning.effort；旧后端对未知字段是 400（DisallowUnknownFields）。
+    final relaySupportsEffort =
+        config.extraParams['relayReasoningEffort'] == true;
+    final effort = config.resolveReasoningEffort(reasoningEffort);
+    final effortDisablesThinking = isReasoningEffortDisabled(effort);
+    final thinkingEnabled = thinking && !effortDisablesThinking;
     final body = <String, dynamic>{
       'model': config.modelName,
       'messages': messages.map(_managedChatMessage).toList(growable: false),
       'stream': stream,
       'reasoning': {
-        'enabled': thinking,
-        if (thinking && budgetTokens != null) 'budgetTokens': budgetTokens,
+        'enabled': thinkingEnabled,
+        if (thinkingEnabled && budgetTokens != null)
+          'budgetTokens': budgetTokens,
+        // effort 与显式 budgetTokens 互斥（后端也会拒绝同时出现），显式预算优先。
+        if (thinkingEnabled &&
+            budgetTokens == null &&
+            relaySupportsEffort &&
+            effort != null)
+          'effort': normalizeReasoningEffort(effort),
       },
       if (config.effectiveMaxTokens != null)
         'maxTokens': config.effectiveMaxTokens,
@@ -1382,6 +1445,7 @@ class ApiService {
     ModelConfig config,
     List<Map<String, dynamic>> messages, {
     required bool thinking,
+    String? reasoningEffort,
     required List<Map<String, dynamic>> tools,
     required Object? toolChoice,
   }) async {
@@ -1391,6 +1455,7 @@ class ApiService {
       messages,
       stream: false,
       thinking: thinking,
+      reasoningEffort: reasoningEffort,
       tools: tools,
       toolChoice: toolChoice,
     );
@@ -1425,6 +1490,7 @@ class ApiService {
     ModelConfig config,
     List<Map<String, dynamic>> messages, {
     required bool thinking,
+    String? reasoningEffort,
     required List<Map<String, dynamic>> tools,
     required Object? toolChoice,
   }) async* {
@@ -1434,6 +1500,7 @@ class ApiService {
       messages,
       stream: true,
       thinking: thinking,
+      reasoningEffort: reasoningEffort,
       tools: tools,
       toolChoice: toolChoice,
     );
@@ -1526,6 +1593,7 @@ class ApiService {
     ModelConfig config,
     List<Map<String, dynamic>> messages, {
     bool thinking = false,
+    String? reasoningEffort,
     List<Map<String, dynamic>> tools = const [],
     Object? toolChoice,
   }) async {
@@ -1540,11 +1608,16 @@ class ApiService {
       if (config.effectiveTemperature != null)
         'temperature': config.effectiveTemperature,
       if (config.effectiveTopP != null) 'top_p': config.effectiveTopP,
-      'thinking': {'type': thinking ? 'enabled' : 'disabled'},
       if (tools.isNotEmpty) 'tools': tools,
       if (tools.isNotEmpty) 'tool_choice': toolChoice ?? 'auto',
     };
     _applyExtraRequestParams(body, config);
+    _applyOpenAIThinking(
+      body,
+      config,
+      thinking: thinking,
+      reasoningEffort: reasoningEffort,
+    );
 
     final headers = <String, String>{'Content-Type': 'application/json'};
     _applyOpenAIAuthAndRelayParams(config, body, headers);
@@ -1592,6 +1665,7 @@ class ApiService {
     ModelConfig config,
     List<Map<String, dynamic>> messages, {
     bool thinking = false,
+    String? reasoningEffort,
     List<Map<String, dynamic>> tools = const [],
     Object? toolChoice,
   }) async* {
@@ -1607,11 +1681,16 @@ class ApiService {
       if (config.effectiveTemperature != null)
         'temperature': config.effectiveTemperature,
       if (config.effectiveTopP != null) 'top_p': config.effectiveTopP,
-      'thinking': {'type': thinking ? 'enabled' : 'disabled'},
       if (tools.isNotEmpty) 'tools': tools,
       if (tools.isNotEmpty) 'tool_choice': toolChoice ?? 'auto',
     };
     _applyExtraRequestParams(body, config);
+    _applyOpenAIThinking(
+      body,
+      config,
+      thinking: thinking,
+      reasoningEffort: reasoningEffort,
+    );
 
     final headers = <String, String>{'Content-Type': 'application/json'};
     _applyOpenAIAuthAndRelayParams(config, body, headers);
@@ -1857,10 +1936,32 @@ class ApiService {
     return calls;
   }
 
+  /// Ollama 的 `think` 取值：布尔开关或 `low`/`medium`/`high` 档位。
+  ///
+  /// 强度里 Ollama 只认识三档，其余的按最接近的档位收敛，`none` 视为关闭。
+  Object _ollamaThinkValue(
+    ModelConfig config, {
+    required bool thinking,
+    String? reasoningEffort,
+  }) {
+    if (!thinking) return false;
+    final effort = normalizeReasoningEffort(
+      config.resolveReasoningEffort(reasoningEffort),
+    );
+    if (effort == reasoningEffortNone) return false;
+    return switch (effort) {
+      'minimal' || 'low' => 'low',
+      'medium' => 'medium',
+      'high' || 'xhigh' || 'max' => 'high',
+      _ => true,
+    };
+  }
+
   Future<ChatResponse> _sendOllamaRequest(
     ModelConfig config,
     List<Map<String, dynamic>> messages, {
     bool thinking = false,
+    String? reasoningEffort,
   }) async {
     final uri = _endpointUri(config, '/api/chat');
 
@@ -1868,7 +1969,11 @@ class ApiService {
       'model': config.modelName,
       'messages': messages,
       'stream': false,
-      'think': thinking,
+      'think': _ollamaThinkValue(
+        config,
+        thinking: thinking,
+        reasoningEffort: reasoningEffort,
+      ),
     };
 
     _applyOllamaRequestParams(body, config);
@@ -1902,6 +2007,7 @@ class ApiService {
     ModelConfig config,
     List<Map<String, dynamic>> messages, {
     bool thinking = false,
+    String? reasoningEffort,
   }) async* {
     final uri = _endpointUri(config, '/api/chat');
 
@@ -1909,7 +2015,11 @@ class ApiService {
       'model': config.modelName,
       'messages': messages,
       'stream': true,
-      'think': thinking,
+      'think': _ollamaThinkValue(
+        config,
+        thinking: thinking,
+        reasoningEffort: reasoningEffort,
+      ),
     };
 
     _applyOllamaRequestParams(body, config);
@@ -2046,6 +2156,7 @@ class ApiService {
     ModelConfig config,
     List<Map<String, dynamic>> messages, {
     bool thinking = false,
+    String? reasoningEffort,
   }) async* {
     final uri = _endpointUri(config, '/messages');
     final body = _anthropicRequestBody(
@@ -2053,6 +2164,7 @@ class ApiService {
       messages,
       stream: true,
       thinking: thinking,
+      reasoningEffort: reasoningEffort,
     );
 
     final headers = <String, String>{'Content-Type': 'application/json'};
@@ -2122,6 +2234,7 @@ class ApiService {
     ModelConfig config,
     List<Map<String, dynamic>> messages, {
     bool thinking = false,
+    String? reasoningEffort,
   }) async {
     final uri = _endpointUri(config, '/messages');
     final body = _anthropicRequestBody(
@@ -2129,6 +2242,7 @@ class ApiService {
       messages,
       stream: false,
       thinking: thinking,
+      reasoningEffort: reasoningEffort,
     );
 
     final headers = <String, String>{'Content-Type': 'application/json'};
@@ -2179,6 +2293,7 @@ class ApiService {
     List<Map<String, dynamic>> messages, {
     required bool stream,
     required bool thinking,
+    String? reasoningEffort,
   }) {
     final anthropicMessages = <Map<String, dynamic>>[];
     final systemPrompts = <String>[];
@@ -2202,8 +2317,13 @@ class ApiService {
     final thinkingObject = rawThinking is Map
         ? Map<String, dynamic>.from(rawThinking)
         : null;
-    // 预设显式关掉思考时，即使 App 的开关是开的也不发。
-    final thinkingEnabled = thinking && rawThinking != false;
+    // 预设显式关掉思考时，即使 App 的开关是开的也不发；强度选 `none` 同样表示
+    // 关闭思考（Anthropic 没有 disabled 结构，省略即关闭）。
+    final anthropicEffort = config.resolveReasoningEffort(reasoningEffort);
+    final thinkingEnabled =
+        thinking &&
+        rawThinking != false &&
+        !isReasoningEffortDisabled(anthropicEffort);
     final body = <String, dynamic>{
       'model': config.modelName,
       'messages': anthropicMessages,
@@ -2219,7 +2339,11 @@ class ApiService {
             thinkingObject ??
             {
               'type': 'enabled',
-              'budget_tokens': _anthropicThinkingBudget(config, maxTokens),
+              'budget_tokens': _anthropicThinkingBudget(
+                config,
+                maxTokens,
+                effort: anthropicEffort,
+              ),
             },
     };
     if (systemPrompt.isNotEmpty) {
@@ -2378,10 +2502,26 @@ class ApiService {
     return content.toString();
   }
 
-  int _anthropicThinkingBudget(ModelConfig config, int maxTokens) {
+  /// Anthropic 的思考预算。
+  ///
+  /// 优先级：`extraParams.thinkingBudgetTokens`（显式配置）> 思考强度换算 >
+  /// 默认 1024。Anthropic 要求预算小于 max_tokens，换算结果会被夹取。
+  int _anthropicThinkingBudget(
+    ModelConfig config,
+    int maxTokens, {
+    String? effort,
+  }) {
     final configured = config.extraParams['thinkingBudgetTokens'];
     if (configured is num && configured > 0) {
       return math.min(configured.toInt(), math.max(1, maxTokens - 1));
+    }
+    final normalized = normalizeReasoningEffort(effort);
+    if (normalized.isNotEmpty && !isReasoningEffortDisabled(normalized)) {
+      return reasoningBudgetForEffort(
+        normalized,
+        min: config.effectiveReasoningBudgetMin,
+        maxTokens: maxTokens,
+      );
     }
     return math.min(1024, math.max(1, maxTokens - 1));
   }

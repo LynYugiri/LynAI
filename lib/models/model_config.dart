@@ -1,4 +1,137 @@
 import 'dart:convert';
+import 'model_catalog.dart';
+
+/// 从模型目录（models.dev）得到的建议值。
+///
+/// 目录值只用于**补全空缺**：它是派生数据，由目录服务在刷新/获取模型列表时
+/// 写入，永远不会改写用户手填的 `maxTokens`、`contextWindow` 或能力开关。
+/// 生效优先级见 [ModelConfig.effectiveContextWindow] 与
+/// [ModelConfig.supportsVision] 等 getter。
+class ModelCatalogHint {
+  /// 创建一个目录建议。
+  ModelCatalogHint({
+    required this.providerId,
+    required this.modelId,
+    this.exact = true,
+    this.contextWindow,
+    this.maxOutputTokens,
+    this.supportsVision = false,
+    this.supportsTools = false,
+    this.supportsThinking = false,
+    this.reasoningOptions = const [],
+    this.fetchedAt,
+  });
+
+  /// 命中的 models.dev provider id。
+  final String providerId;
+
+  /// 命中的模型 id。
+  final String modelId;
+
+  /// 是否精确命中模型 id（false 表示经过归一化/去 vendor 前缀匹配）。
+  final bool exact;
+
+  /// 目录给出的上下文窗口。
+  final int? contextWindow;
+
+  /// 目录给出的最大输出 token 数。
+  final int? maxOutputTokens;
+
+  /// 目录给出的视觉能力。
+  final bool supportsVision;
+
+  /// 目录给出的工具调用能力。
+  final bool supportsTools;
+
+  /// 目录给出的思考输出能力。
+  final bool supportsThinking;
+
+  /// 目录给出的思考强度选项。
+  final List<ModelCatalogReasoningOption> reasoningOptions;
+
+  /// 目录数据的抓取时间。
+  final DateTime? fetchedAt;
+
+  /// 支持的思考强度取值（effort 型，保持上游顺序）。
+  List<String> get reasoningEffortValues => reasoningOptions
+      .where((option) => option.kind == ModelCatalogReasoningKind.effort)
+      .expand((option) => option.values)
+      .toList(growable: false);
+
+  /// 是否支持思考预算（budget_tokens 型）。
+  bool get supportsThinkingBudget => reasoningOptions.any(
+    (option) => option.kind == ModelCatalogReasoningKind.budgetTokens,
+  );
+
+  /// 从目录记录构造建议值。
+  factory ModelCatalogHint.fromModel(
+    ModelCatalogModel model, {
+    required String providerId,
+    bool exact = true,
+    DateTime? fetchedAt,
+  }) {
+    return ModelCatalogHint(
+      providerId: providerId,
+      modelId: model.id,
+      exact: exact,
+      contextWindow: model.contextWindow,
+      maxOutputTokens: model.maxOutputTokens,
+      supportsVision: model.supportsVision,
+      supportsTools: model.toolCall,
+      supportsThinking: model.reasoning,
+      reasoningOptions: model.effortOptions,
+      fetchedAt: fetchedAt,
+    );
+  }
+
+  /// 从 JSON 数据创建目录建议。
+  factory ModelCatalogHint.fromJson(Map<String, dynamic> json) {
+    final options = <ModelCatalogReasoningOption>[];
+    final rawOptions = json['reasoningOptions'];
+    if (rawOptions is List) {
+      for (final item in rawOptions) {
+        final parsed = ModelCatalogReasoningOption.tryParse(item);
+        if (parsed != null) options.add(parsed);
+      }
+    }
+    return ModelCatalogHint(
+      providerId: json['providerId'] as String? ?? '',
+      modelId: json['modelId'] as String? ?? '',
+      exact: json['exact'] as bool? ?? true,
+      contextWindow: (json['contextWindow'] as num?)?.toInt(),
+      maxOutputTokens: (json['maxOutputTokens'] as num?)?.toInt(),
+      supportsVision: json['supportsVision'] == true,
+      supportsTools: json['supportsTools'] == true,
+      supportsThinking: json['supportsThinking'] == true,
+      reasoningOptions: List.unmodifiable(options),
+      fetchedAt: DateTime.tryParse(json['fetchedAt']?.toString() ?? ''),
+    );
+  }
+
+  /// 将当前实例序列化为 JSON Map。
+  Map<String, dynamic> toJson() {
+    return {
+      'providerId': providerId,
+      'modelId': modelId,
+      'exact': exact,
+      if (contextWindow != null) 'contextWindow': contextWindow,
+      if (maxOutputTokens != null) 'maxOutputTokens': maxOutputTokens,
+      'supportsVision': supportsVision,
+      'supportsTools': supportsTools,
+      'supportsThinking': supportsThinking,
+      if (reasoningOptions.isNotEmpty)
+        'reasoningOptions': reasoningOptions
+            .map((option) => option.toJson())
+            .toList(growable: false),
+      if (fetchedAt != null) 'fetchedAt': fetchedAt!.toUtc().toIso8601String(),
+    };
+  }
+
+  @override
+  String toString() =>
+      'ModelCatalogHint($providerId/$modelId, context: $contextWindow, '
+      'output: $maxOutputTokens)';
+}
 
 /// 提供商配置中的一个可选子模型。
 ///
@@ -43,6 +176,23 @@ class ModelEntry {
   /// 与 [contextWindow] 分开存储，避免自动拉取值覆盖用户手填值。
   final int? fetchedContextWindow;
 
+  /// 从模型目录（models.dev）补全的建议值，为空表示还没有匹配到目录记录。
+  ///
+  /// 目录值是派生数据：刷新会整体替换它，但不会改动用户手填字段。
+  final ModelCatalogHint? catalog;
+
+  /// 该模型默认使用的思考强度（effort 取值，如 `low`/`medium`/`high`）。
+  ///
+  /// null 表示不指定：对话没有单独设置时不下发强度参数，交给服务端默认行为。
+  /// 可选值来自模型目录的 `reasoning_options`（见 [ModelCatalogHint]）。
+  final String? reasoningEffort;
+
+  /// 用户在模型编辑器里显式设定的能力开关（`supportsVision` 等）。
+  ///
+  /// 只在用户的选择与目录建议不同时才记录：目录建议 `false`、用户打开开关就
+  /// 会写入 `true`，避免下一次目录刷新把用户显式开启的能力又关回去。
+  final Map<String, bool> capabilityOverrides;
+
   /// 创建一个子模型配置实例。
   ModelEntry({
     required this.name,
@@ -56,10 +206,17 @@ class ModelEntry {
     this.workflow,
     this.contextWindow,
     this.fetchedContextWindow,
-  });
+    this.catalog,
+    this.reasoningEffort,
+    Map<String, bool>? capabilityOverrides,
+  }) : capabilityOverrides = Map.unmodifiable(
+         capabilityOverrides ?? const <String, bool>{},
+       );
 
   /// 从 JSON 数据创建 [ModelEntry] 实例。
   factory ModelEntry.fromJson(Map<String, dynamic> json) {
+    final rawCatalog = json['catalog'];
+    final rawOverrides = json['capabilityOverrides'];
     return ModelEntry(
       name: json['name'] as String,
       enabled: json['enabled'] as bool? ?? false,
@@ -72,6 +229,19 @@ class ModelEntry {
       workflow: json['workflow'] as String?,
       contextWindow: (json['contextWindow'] as num?)?.toInt(),
       fetchedContextWindow: (json['fetchedContextWindow'] as num?)?.toInt(),
+      catalog: rawCatalog is Map
+          ? ModelCatalogHint.fromJson(Map<String, dynamic>.from(rawCatalog))
+          : null,
+      reasoningEffort: (json['reasoningEffort'] as String?)?.trim().isEmpty == true
+          ? null
+          : json['reasoningEffort'] as String?,
+      capabilityOverrides: rawOverrides is Map
+          ? {
+              for (final entry in rawOverrides.entries)
+                if (entry.key is String && entry.value is bool)
+                  entry.key as String: entry.value as bool,
+            }
+          : null,
     );
   }
 
@@ -89,6 +259,11 @@ class ModelEntry {
     if (contextWindow != null) 'contextWindow': contextWindow,
     if (fetchedContextWindow != null)
       'fetchedContextWindow': fetchedContextWindow,
+    if (catalog != null) 'catalog': catalog!.toJson(),
+    if (reasoningEffort != null && reasoningEffort!.isNotEmpty)
+      'reasoningEffort': reasoningEffort,
+    if (capabilityOverrides.isNotEmpty)
+      'capabilityOverrides': capabilityOverrides,
   };
 
   /// 创建当前实例的副本，可选择性更新部分字段。
@@ -104,6 +279,9 @@ class ModelEntry {
     Object? workflow = _sentinel,
     Object? contextWindow = _sentinel,
     Object? fetchedContextWindow = _sentinel,
+    Object? catalog = _sentinel,
+    Object? reasoningEffort = _sentinel,
+    Map<String, bool>? capabilityOverrides,
   }) {
     return ModelEntry(
       name: name ?? this.name,
@@ -127,6 +305,13 @@ class ModelEntry {
       fetchedContextWindow: identical(fetchedContextWindow, _sentinel)
           ? this.fetchedContextWindow
           : fetchedContextWindow as int?,
+      catalog: identical(catalog, _sentinel)
+          ? this.catalog
+          : catalog as ModelCatalogHint?,
+      reasoningEffort: identical(reasoningEffort, _sentinel)
+          ? this.reasoningEffort
+          : reasoningEffort as String?,
+      capabilityOverrides: capabilityOverrides ?? this.capabilityOverrides,
     );
   }
 
@@ -231,6 +416,12 @@ class ModelConfig {
   /// 用户是否明确允许将此非托管 Provider 的非秘密配置同步到云端。
   final bool cloudSyncEnabled;
 
+  /// 手动指定的模型目录 provider id（models.dev）。
+  ///
+  /// 为空时由目录服务按 endpoint host 自动推断；显式指定用于自建转发层或
+  /// 目录里没有 `api` 字段的服务。
+  final String? catalogProviderId;
+
   /// 创建一个模型配置实例。
   ModelConfig({
     required this.id,
@@ -252,6 +443,7 @@ class ModelConfig {
     Map<String, dynamic>? userOverrides,
     List<ModelEntry>? models,
     this.cloudSyncEnabled = false,
+    this.catalogProviderId,
   }) : apiKeySecretRef = apiKeySecretRef ?? secretReferenceForId(id),
        extraParams = extraParams ?? {},
        userOverrides = userOverrides ?? {},
@@ -309,10 +501,13 @@ class ModelConfig {
     return enabled.isNotEmpty ? enabled.first : models.first;
   }
 
-  /// 生效的最大 Token 数，优先使用子模型设置。
+  /// 生效的最大 Token 数。
+  ///
+  /// 优先级：用户本地覆盖 > 子模型手填 > 模型目录建议 > Provider 级。
   int? get effectiveMaxTokens =>
       (userOverrides['maxTokens'] as num?)?.toInt() ??
       activeEntry?.maxTokens ??
+      activeEntry?.catalog?.maxOutputTokens ??
       maxTokens;
 
   /// 生效的温度参数，优先使用子模型设置。
@@ -327,11 +522,13 @@ class ModelConfig {
 
   /// 生效的上下文窗口大小。
   ///
-  /// 优先级：用户本地覆盖 > 手填/托管下发 > 远端拉取 > Provider 级 > null。
+  /// 优先级：用户本地覆盖 > 手填/托管下发 > 端点拉取 > 模型目录建议 >
+  /// Provider 级 > null。目录只补空缺，不会覆盖任何用户输入。
   int? get effectiveContextWindow =>
       (userOverrides['contextWindow'] as num?)?.toInt() ??
       activeEntry?.contextWindow ??
       activeEntry?.fetchedContextWindow ??
+      activeEntry?.catalog?.contextWindow ??
       contextWindow;
 
   /// 当前激活模型是否支持视觉输入。
@@ -346,11 +543,61 @@ class ModelConfig {
   bool get supportsTools =>
       _effectiveCapability('supportsTools', activeEntry?.supportsTools);
 
+  /// 生效的思考强度取值（来自模型目录，effort 型）。
+  List<String> get effectiveReasoningEffortValues =>
+      activeEntry?.catalog?.reasoningEffortValues ?? const [];
+
+  /// 该模型配置默认的思考强度；null 表示不指定。
+  String? get effectiveReasoningEffort {
+    final value = activeEntry?.reasoningEffort?.trim();
+    return value == null || value.isEmpty ? null : value;
+  }
+
+  /// 解析一次请求实际使用的思考强度。
+  ///
+  /// 优先级：对话设置 > 模型默认 > 不指定。调用方应已确认模型支持思考且
+  /// 该值在 [effectiveReasoningEffortValues] 里；这里只负责取值与去空。
+  String? resolveReasoningEffort(String? conversationEffort) {
+    final conversation = conversationEffort?.trim();
+    if (conversation != null && conversation.isNotEmpty) return conversation;
+    return effectiveReasoningEffort;
+  }
+
+  /// 生效的思考预算下限（来自模型目录，budget_tokens 型）。
+  int? get effectiveReasoningBudgetMin {
+    for (final option in activeEntry?.catalog?.reasoningOptions ?? const []) {
+      if (option.kind == ModelCatalogReasoningKind.budgetTokens) {
+        return option.minBudgetTokens;
+      }
+    }
+    return null;
+  }
+
+  /// 计算能力开关的生效值。
+  ///
+  /// 托管配置的值来自服务端下发，能力只可能被本机覆盖关掉；用户自建配置的
+  /// 优先级是：条目显式覆盖 > 本机覆盖 > 目录建议 > 子模型手填值（`false`
+  /// 视为用户显式关闭，`true` 只是历史默认值，因此让位给目录）> true。
   bool _effectiveCapability(String key, bool? configured) {
     final fallback = configured ?? true;
-    final override = userOverrides[key] as bool?;
-    if (!managed) return override ?? fallback;
-    return fallback && override != false;
+    final entry = activeEntry;
+    final entryOverride = entry?.capabilityOverrides[key];
+    final override = entryOverride ?? userOverrides[key] as bool?;
+    if (managed) return fallback && override != false;
+    if (override != null) return override;
+    if (fallback == false) return false;
+    return _catalogCapability(key) ?? true;
+  }
+
+  bool? _catalogCapability(String key) {
+    final catalog = activeEntry?.catalog;
+    if (catalog == null) return null;
+    return switch (key) {
+      'supportsVision' => catalog.supportsVision,
+      'supportsThinking' => catalog.supportsThinking,
+      'supportsTools' => catalog.supportsTools,
+      _ => null,
+    };
   }
 
   /// 当前配置是否可使用应用原生工具协议。
@@ -380,6 +627,7 @@ class ModelConfig {
     Map<String, dynamic>? userOverrides,
     List<ModelEntry>? models,
     bool? cloudSyncEnabled,
+    Object? catalogProviderId = _sentinel,
   }) {
     return ModelConfig(
       id: id ?? this.id,
@@ -411,6 +659,9 @@ class ModelConfig {
       userOverrides: userOverrides ?? this.userOverrides,
       models: models ?? this.models,
       cloudSyncEnabled: cloudSyncEnabled ?? this.cloudSyncEnabled,
+      catalogProviderId: identical(catalogProviderId, _sentinel)
+          ? this.catalogProviderId
+          : catalogProviderId as String?,
     );
   }
 
@@ -476,6 +727,7 @@ class ModelConfig {
           : {},
       models: entries,
       cloudSyncEnabled: json['cloudSyncEnabled'] == true,
+      catalogProviderId: json['catalogProviderId'] as String?,
     );
   }
 
@@ -500,6 +752,8 @@ class ModelConfig {
       if (extraParams.isNotEmpty) 'extraParams': extraParams,
       if (userOverrides.isNotEmpty) 'userOverrides': userOverrides,
       if (cloudSyncEnabled) 'cloudSyncEnabled': true,
+      if (catalogProviderId != null && catalogProviderId!.isNotEmpty)
+        'catalogProviderId': catalogProviderId,
     };
   }
 

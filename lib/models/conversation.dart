@@ -20,6 +20,12 @@ class ConversationSettings {
   /// 是否启用了思考过程输出。
   final bool thinking;
 
+  /// 思考强度（来自模型目录的 effort 取值）。
+  ///
+  /// null 表示不指定：按所选模型的默认强度，模型没有默认值时不下发强度参数，
+  /// 由服务端按自身默认行为处理。
+  final String? reasoningEffort;
+
   /// 选中的系统提示词模板 ID。
   final String? selectedSystemPromptId;
 
@@ -64,6 +70,7 @@ class ConversationSettings {
     required this.modelId,
     this.modelName,
     this.thinking = true,
+    this.reasoningEffort,
     this.selectedSystemPromptId,
     this.systemPrompt = 'You are a helpful assistant.',
     this.speechModelId,
@@ -99,6 +106,7 @@ class ConversationSettings {
     bool? agentEnabled,
     int? maxToolRounds,
     bool? contextCompressionEnabled,
+    Object? reasoningEffort = _sentinel,
   }) {
     return ConversationSettings(
       modelId: modelId ?? this.modelId,
@@ -106,6 +114,9 @@ class ConversationSettings {
           ? this.modelName
           : modelName as String?,
       thinking: thinking ?? this.thinking,
+      reasoningEffort: identical(reasoningEffort, _sentinel)
+          ? this.reasoningEffort
+          : reasoningEffort as String?,
       selectedSystemPromptId: identical(selectedSystemPromptId, _sentinel)
           ? this.selectedSystemPromptId
           : selectedSystemPromptId as String?,
@@ -145,6 +156,9 @@ class ConversationSettings {
       modelId: json['modelId'] as String? ?? fallbackModelId,
       modelName: json['modelName'] as String?,
       thinking: json['thinking'] as bool? ?? true,
+      reasoningEffort: (json['reasoningEffort'] as String?)?.trim().isEmpty == true
+          ? null
+          : json['reasoningEffort'] as String?,
       selectedSystemPromptId: json['selectedSystemPromptId'] as String?,
       systemPrompt:
           json['systemPrompt'] as String? ?? 'You are a helpful assistant.',
@@ -177,6 +191,8 @@ class ConversationSettings {
       'modelId': modelId,
       if (modelName != null && modelName!.isNotEmpty) 'modelName': modelName,
       'thinking': thinking,
+      if (reasoningEffort != null && reasoningEffort!.isNotEmpty)
+        'reasoningEffort': reasoningEffort,
       if (selectedSystemPromptId != null)
         'selectedSystemPromptId': selectedSystemPromptId,
       'systemPrompt': systemPrompt,

@@ -3,6 +3,8 @@ import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
+import '../models/agent_defaults.dart';
+import '../models/model_catalog.dart';
 import '../models/model_config.dart';
 import '../providers/conversation_provider.dart';
 import '../providers/model_config_provider.dart';
@@ -15,6 +17,7 @@ import '../widgets/settings_entry.dart';
 import '../widgets/text_editing_controller_host.dart';
 import 'local_model_settings_page.dart';
 import 'mcp_settings_page.dart';
+import 'model_catalog_settings_page.dart';
 import 'web_search_settings_page.dart';
 
 const _endpointPresets = [
@@ -411,6 +414,8 @@ class _EditModelPageState extends State<_EditModelPage> {
   bool _closing = false;
   bool _refreshingManaged = false;
   bool _cloudSyncEnabled = false;
+  bool _applyingCatalogHints = false;
+  String? _catalogProviderId;
   ModelConfig? _managedDisplayModel;
   List<Map<String, dynamic>> _filteredPresets = [];
 
@@ -474,6 +479,7 @@ class _EditModelPageState extends State<_EditModelPage> {
     _newModelController = TextEditingController();
     _apiType = model?.apiType ?? _defaultApiType;
     _cloudSyncEnabled = model?.cloudSyncEnabled ?? false;
+    _catalogProviderId = model?.catalogProviderId;
     _modelEntries =
         model?.models.toList() ?? [ModelEntry(name: '', enabled: false)];
     _filteredPresets = List.from(_currentEndpointPresets);
@@ -531,15 +537,16 @@ class _EditModelPageState extends State<_EditModelPage> {
   bool _saveModel() {
     if (_isManaged) return false;
     if (!_formKey.currentState!.validate()) return false;
-    final entries = isInterfaceOnly
+    final rawEntries = isInterfaceOnly
         ? [ModelEntry(name: _fixedInterfaceModelName, enabled: true)]
         : _modelEntries.where((m) => m.name.trim().isNotEmpty).toList();
-    if (!isInterfaceOnly && entries.isEmpty) {
+    if (!isInterfaceOnly && rawEntries.isEmpty) {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(const SnackBar(content: Text('请至少添加一个模型')));
       return false;
     }
+    final entries = isChat ? _withCatalogHints(rawEntries) : rawEntries;
     final enabled = entries.where((m) => m.enabled).toList();
     if (enabled.isEmpty) {
       ScaffoldMessenger.of(
@@ -578,6 +585,7 @@ class _EditModelPageState extends State<_EditModelPage> {
       extraParams: extraParams,
       models: entries,
       cloudSyncEnabled: _cloudSyncEnabled,
+      catalogProviderId: _catalogProviderId,
     );
     if (isEditing) {
       widget.provider.updateModel(config);
@@ -911,12 +919,17 @@ class _EditModelPageState extends State<_EditModelPage> {
           .toList();
       if (!mounted) return;
       setState(() => _modelEntries.addAll(newEntries));
+      // Endpoint 一般不返回上下文信息，这里用模型目录补全空缺参数。
+      final matched = await _applyCatalogHints();
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
             newEntries.isNotEmpty
                 ? '新增 ${newEntries.length} 个模型'
-                : '没有新模型，已全部存在',
+                      '${matched > 0 ? '，目录匹配 $matched 个' : ''}'
+                : '没有新模型，已全部存在'
+                      '${matched > 0 ? '，目录刷新 $matched 个' : ''}',
           ),
         ),
       );
@@ -928,6 +941,75 @@ class _EditModelPageState extends State<_EditModelPage> {
       }
     } finally {
       if (mounted) setState(() => _isFetchingModels = false);
+    }
+  }
+
+  /// 按模型目录补全/刷新当前编辑中的模型条目，返回命中的条目数。
+  ///
+  /// 只写目录建议（派生数据），不碰用户手填的参数；没有目录服务或没有数据时
+  /// 直接返回 0。
+  Future<int> _applyCatalogHints() async {
+    final catalog = modelCatalogOrNull(context);
+    if (catalog == null) return 0;
+    await catalog.ensureLoaded();
+    if (!mounted) return 0;
+    var matched = 0;
+    final updated = _modelEntries.map((entry) {
+      if (entry.name.trim().isEmpty) return entry;
+      final hint = catalog.hintForEndpoint(
+        endpoint: _endpointController.text.trim(),
+        explicitProviderId: _catalogProviderId,
+        modelName: entry.name,
+      );
+      if (hint == null) return entry;
+      matched++;
+      return entry.copyWith(catalog: hint);
+    }).toList(growable: false);
+    if (matched > 0 && mounted) {
+      setState(() => _modelEntries = updated);
+    }
+    return matched;
+  }
+
+  /// 给待保存的条目附上目录建议（派生数据，不覆盖用户手填值）。
+  List<ModelEntry> _withCatalogHints(List<ModelEntry> entries) {
+    final catalog = modelCatalogOrNull(context);
+    if (catalog == null) return entries;
+    return entries
+        .map((entry) {
+          final hint = catalog.hintForEndpoint(
+            endpoint: _endpointController.text.trim(),
+            explicitProviderId: _catalogProviderId,
+            modelName: entry.name,
+          );
+          return hint == null ? entry : entry.copyWith(catalog: hint);
+        })
+        .toList(growable: false);
+  }
+
+  Future<void> _applyCatalogHintsManually() async {
+    final catalog = modelCatalogOrNull(context);
+    if (catalog == null) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('模型目录服务不可用')));
+      return;
+    }
+    setState(() => _applyingCatalogHints = true);
+    try {
+      final matched = await _applyCatalogHints();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            matched > 0
+                ? '已按模型目录补全 $matched 个模型'
+                : '没有匹配到目录记录；可在「模型目录」里刷新或手动指定来源',
+          ),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _applyingCatalogHints = false);
     }
   }
 
@@ -1094,6 +1176,23 @@ class _EditModelPageState extends State<_EditModelPage> {
                         _isFetchingModels ? '获取中...' : '从 Endpoint 获取模型列表',
                       ),
                     ),
+                  if (isChat) const SizedBox(height: 8),
+                  if (isChat)
+                    OutlinedButton.icon(
+                      onPressed: _applyingCatalogHints
+                          ? null
+                          : _applyCatalogHintsManually,
+                      icon: _applyingCatalogHints
+                          ? const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.travel_explore),
+                      label: const Text('按模型目录补全参数'),
+                    ),
+                  if (isChat) const SizedBox(height: 12),
+                  if (isChat) _catalogSourceField(),
                   if (isChat) const SizedBox(height: 12),
                   if (isChat) ...[
                     _advancedOptionsSection(),
@@ -1707,6 +1806,127 @@ class _EditModelPageState extends State<_EditModelPage> {
     );
   }
 
+  /// 模型目录来源：默认按 Endpoint 自动识别，可手动指定 models.dev provider。
+  Widget _catalogSourceField() {
+    final catalog = modelCatalogOrNull(context);
+    final providers = catalog?.providers ?? const <ModelCatalogProvider>[];
+    final resolver = const ModelCatalogProviderResolver();
+    final autoResolved = resolver.resolve(
+      endpoint: _endpointController.text.trim(),
+      document: catalog?.document,
+    );
+    final selected = _catalogProviderId;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        DropdownButtonFormField<String?>(
+          key: ValueKey('catalogProvider_${selected ?? 'auto'}'),
+          initialValue: selected,
+          decoration: const InputDecoration(
+            labelText: '模型目录来源',
+            border: OutlineInputBorder(),
+            prefixIcon: Icon(Icons.travel_explore),
+          ),
+          items: [
+            DropdownMenuItem<String?>(
+              value: null,
+              child: Text(
+                autoResolved == null
+                    ? '自动识别（当前：未识别）'
+                    : '自动识别（当前：$autoResolved）',
+              ),
+            ),
+            for (final provider in providers)
+              DropdownMenuItem<String?>(
+                value: provider.id,
+                child: Text('${provider.name}（${provider.id}）'),
+              ),
+          ],
+          onChanged: (value) => setState(() => _catalogProviderId = value),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          providers.isEmpty
+              ? '还没有目录数据：可在「设置 → 模型目录」里刷新，或先保存一次让内置快照生效。'
+              : '目录只用于补全空缺参数；手填值、Endpoint 返回值优先。',
+          style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+        ),
+      ],
+    );
+  }
+
+  /// 模型列表里显示每个模型生效的参数与来源。
+  ///
+  /// 这样"上下文未知 → 用 256k 默认值"不再悄无声息，用户能看出目录是否补全。
+  Widget _entryParameterSummary(ModelEntry entry) {
+    final catalog = entry.catalog;
+    final manualContext = entry.contextWindow;
+    final fetchedContext = entry.fetchedContextWindow;
+    final providerContext = widget.model?.contextWindow;
+    final context =
+        manualContext ??
+        fetchedContext ??
+        catalog?.contextWindow ??
+        providerContext;
+    final contextSource = manualContext != null
+        ? '手填'
+        : fetchedContext != null
+        ? 'Endpoint'
+        : catalog?.contextWindow != null
+        ? '目录'
+        : providerContext != null
+        ? 'Provider'
+        : '默认 ${formatModelTokenCount(defaultAgentContextWindow)}';
+    final manualOutput = entry.maxTokens;
+    final catalogOutput = catalog?.maxOutputTokens;
+    final providerOutput = widget.model?.maxTokens;
+    final output = manualOutput ?? catalogOutput ?? providerOutput;
+    final outputSource = manualOutput != null
+        ? '手填'
+        : catalogOutput != null
+        ? '目录'
+        : providerOutput != null
+        ? 'Provider'
+        : null;
+    final capabilities = <String>[
+      if (_entryCapability(entry, 'supportsVision')) '视觉',
+      if (_entryCapability(entry, 'supportsTools')) '工具',
+      if (_entryCapability(entry, 'supportsThinking')) '思考',
+    ];
+    final effort = catalog?.reasoningEffortValues ?? const <String>[];
+    final parts = <String>[
+      '上下文 $contextSource ${formatModelTokenCount(context)}',
+      '输出 ${outputSource == null ? '服务端默认' : '$outputSource ${formatModelTokenCount(output)}'}',
+      if (capabilities.isNotEmpty) capabilities.join('/'),
+      if (effort.isNotEmpty) '强度 ${effort.join('/')}',
+    ];
+    return Text(
+      parts.join(' · '),
+      style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+    );
+  }
+
+  /// 与 [ModelConfig] 相同的单个条目能力解析规则（列表里还没有激活条目）。
+  bool _entryCapability(ModelEntry entry, String key) {
+    final entryOverride = entry.capabilityOverrides[key];
+    final override = entryOverride ?? widget.model?.userOverrides[key] as bool?;
+    if (override != null) return override;
+    final configured = switch (key) {
+      'supportsVision' => entry.supportsVision,
+      'supportsTools' => entry.supportsTools,
+      'supportsThinking' => entry.supportsThinking,
+      _ => true,
+    };
+    if (!configured) return false;
+    final fromCatalog = switch (key) {
+      'supportsVision' => entry.catalog?.supportsVision,
+      'supportsTools' => entry.catalog?.supportsTools,
+      'supportsThinking' => entry.catalog?.supportsThinking,
+      _ => null,
+    };
+    return fromCatalog ?? true;
+  }
+
   Widget _modelList() {
     return Container(
       decoration: BoxDecoration(
@@ -1752,6 +1972,7 @@ class _EditModelPageState extends State<_EditModelPage> {
                         fontFamily: 'monospace',
                       ),
                     ),
+                    subtitle: _entryParameterSummary(entry),
                     trailing: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
@@ -1985,6 +2206,14 @@ class _EditModelPageState extends State<_EditModelPage> {
   Future<void> _editModelEntry(int index) async {
     final entry = _modelEntries[index];
     final formKey = GlobalKey<FormState>();
+    final catalog = modelCatalogOrNull(context);
+    final catalogHint =
+        entry.catalog ??
+        catalog?.hintForEndpoint(
+          endpoint: _endpointController.text.trim(),
+          explicitProviderId: _catalogProviderId,
+          modelName: entry.name,
+        );
     final maxTokens = TextEditingController(
       text: entry.maxTokens?.toString() ?? '',
     );
@@ -1995,9 +2224,36 @@ class _EditModelPageState extends State<_EditModelPage> {
     final contextWindow = TextEditingController(
       text: entry.contextWindow?.toString() ?? '',
     );
-    var supportsVision = entry.supportsVision;
-    var supportsThinking = entry.supportsThinking;
-    var supportsTools = entry.supportsTools;
+    // 弹窗初值用"生效值"：目录补全后的能力应该显示为已开启，用户改动的项才
+    // 记成显式覆盖，没动过的继续跟随目录。
+    bool effectiveCapability(String key, bool configured) {
+      final override =
+          entry.capabilityOverrides[key] ??
+          widget.model?.userOverrides[key] as bool?;
+      if (override != null) return override;
+      if (!configured) return false;
+      final fromCatalog = switch (key) {
+        'supportsVision' => catalogHint?.supportsVision,
+        'supportsTools' => catalogHint?.supportsTools,
+        'supportsThinking' => catalogHint?.supportsThinking,
+        _ => null,
+      };
+      return fromCatalog ?? true;
+    }
+
+    var supportsVision = effectiveCapability(
+      'supportsVision',
+      entry.supportsVision,
+    );
+    var supportsThinking = effectiveCapability(
+      'supportsThinking',
+      entry.supportsThinking,
+    );
+    var supportsTools = effectiveCapability(
+      'supportsTools',
+      entry.supportsTools,
+    );
+    var reasoningEffort = entry.reasoningEffort;
     final result = await showDialog<ModelEntry>(
       context: context,
       builder: (ctx) => StatefulBuilder(
@@ -2009,6 +2265,11 @@ class _EditModelPageState extends State<_EditModelPage> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: ModelCatalogHintPanel(hint: catalogHint),
+                  ),
+                  const Divider(height: 20),
                   SwitchListTile(
                     contentPadding: EdgeInsets.zero,
                     title: const Text('视觉'),
@@ -2083,6 +2344,34 @@ class _EditModelPageState extends State<_EditModelPage> {
                       border: OutlineInputBorder(),
                     ),
                   ),
+                  if (catalogHint != null &&
+                      catalogHint.reasoningEffortValues.isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    DropdownButtonFormField<String?>(
+                      key: ValueKey(
+                        'reasoningEffort_${entry.reasoningEffort ?? ''}',
+                      ),
+                      initialValue: entry.reasoningEffort,
+                      decoration: const InputDecoration(
+                        labelText: '思考强度默认值',
+                        helperText: '对话没有单独设置时生效；不指定则按服务端默认',
+                        border: OutlineInputBorder(),
+                      ),
+                      items: [
+                        const DropdownMenuItem<String?>(
+                          value: null,
+                          child: Text('不指定'),
+                        ),
+                        for (final value in catalogHint.reasoningEffortValues)
+                          DropdownMenuItem<String?>(
+                            value: value,
+                            child: Text(value),
+                          ),
+                      ],
+                      onChanged: (value) =>
+                          setDialog(() => reasoningEffort = value),
+                    ),
+                  ],
                   const SizedBox(height: 12),
                   TextFormField(
                     controller: contextWindow,
@@ -2111,6 +2400,28 @@ class _EditModelPageState extends State<_EditModelPage> {
             TextButton(
               onPressed: () {
                 if (!formKey.currentState!.validate()) return;
+                final overrides = Map<String, bool>.from(
+                  entry.capabilityOverrides,
+                );
+                final catalogValues = <String, bool?>{
+                  'supportsVision': catalogHint?.supportsVision,
+                  'supportsTools': catalogHint?.supportsTools,
+                  'supportsThinking': catalogHint?.supportsThinking,
+                };
+                final chosen = <String, bool>{
+                  'supportsVision': supportsVision,
+                  'supportsTools': supportsTools,
+                  'supportsThinking': supportsThinking,
+                };
+                for (final item in chosen.entries) {
+                  final fromCatalog = catalogValues[item.key];
+                  if (fromCatalog != null && fromCatalog != item.value) {
+                    // 用户选择与目录建议不同：固定下来，别被下次刷新改回去。
+                    overrides[item.key] = item.value;
+                  } else {
+                    overrides.remove(item.key);
+                  }
+                }
                 Navigator.pop(
                   ctx,
                   entry.copyWith(
@@ -2121,6 +2432,8 @@ class _EditModelPageState extends State<_EditModelPage> {
                     temperature: double.tryParse(temperature.text.trim()),
                     topP: double.tryParse(topP.text.trim()),
                     contextWindow: int.tryParse(contextWindow.text.trim()),
+                    reasoningEffort: reasoningEffort,
+                    capabilityOverrides: overrides,
                   ),
                 );
               },

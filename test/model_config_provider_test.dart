@@ -138,6 +138,44 @@ void main() {
       expect(backend.requestedPaths, ['/relay/config']);
     });
 
+    test('顶层 capabilities.reasoningEffort 决定托管配置是否可发强度', () async {
+      final provider = memoryModelConfigProvider();
+      final supported = _FakeBackendClient(
+        responses: {
+          '/relay/config': _jsonResponse({
+            'object': 'relay_config',
+            'schemaVersion': 4,
+            'capabilities': {'reasoningEffort': true},
+            'data': [_relayModel('effort-model')],
+          }),
+        },
+      );
+      expect(await provider.syncLynaiManagedModels(supported), isTrue);
+      expect(
+        provider.models.single.extraParams['relayReasoningEffort'],
+        isTrue,
+      );
+
+      // 旧后端没有该字段：不能下发 reasoning.effort（会被 400 拒绝）。
+      final legacyProvider = memoryModelConfigProvider();
+      final legacy = _FakeBackendClient(
+        responses: {
+          '/relay/config': _jsonResponse({
+            'object': 'relay_config',
+            'schemaVersion': 4,
+            'data': [_relayModel('legacy-model')],
+          }),
+        },
+      );
+      expect(await legacyProvider.syncLynaiManagedModels(legacy), isTrue);
+      expect(
+        legacyProvider.models.single.extraParams.containsKey(
+          'relayReasoningEffort',
+        ),
+        isFalse,
+      );
+    });
+
     test('syncs relay config without an account token', () async {
       final provider = memoryModelConfigProvider();
       final backend = _FakeBackendClient(

@@ -94,7 +94,7 @@ Agent 工具轮数上限保存为 `ConversationSettings.maxToolRounds`（新建�
 | 引用按钮 | 在光标处插入 `@` 从而打开引用面板（与直接输入 `@` 等价），选取引用源后生成不可拆分的引用 Chip。 |
 | 对话设置 | 系统提示词、语音模型、OCR 模型（含 Android 本地 OCR 选项）、文件识别模型、文件识别 prompt 和上下文压缩开关。 |
 | 上下文压缩开关 | 开启时超预算历史会先压缩较早消息，无法容纳时再截断；关闭后不压缩、不截断，上下文超限时直接失败。 |
-| thinking 开关 | 控制当前请求是否启用思考能力。 |
+| thinking 开关 | 控制当前请求是否启用思考能力。模型目录给出 effort 取值时，开关右侧会出现强度选择（`模型默认` / `low` / `medium` / `high` 等），写进对话设置；未创建对话时写草稿设置。强度为 `none` 表示关闭思考。 |
 | OCR 开关 | 控制图片是否先走 OCR；识别结果以 `[图片 OCR 识别结果（来源: …，可能含识别误差）]` 标注替换原图发往模型，原图不再作为多模态附件上传。 |
 | 文件识别开关 | 控制非图片文件是否先由 Chat 模型读取；识别结果以 `[文件识别结果（来源: …，可能含识别误差）]` 标注替换原文发往模型，原文件不再作为输入上传。 |
 | 附件按钮 | 选择文件、多图、拍照或桌面剪贴板图片。 |
@@ -305,6 +305,7 @@ Agent 工具轮数上限保存为 `ConversationSettings.maxToolRounds`（新建�
 | 外观 | `appearance_settings_page.dart` | 子项目入口页：主题（预设色、HSV 调色板、深色模式）与背景（背景图、清除背景、模糊开关和强度）。 |
 | 向导 | `wizard_settings_page.dart` | 子项目入口页：新手向导与功能引导。 |
 | 模型与接口 | `api_models_page.dart` | Chat、OCR、语音转文字、图片生成四个模型类别，以及本地模型、网页搜索和 MCP 服务入口。 |
+| 模型目录 | `model_catalog_settings_page.dart` | 查看 models.dev 目录状态（来源、数据时间、最近检查、provider/模型数、最近错误），立即刷新、为已配置模型批量补全参数、清除本地缓存；页面底部说明只下载公开目录、不上传任何本机数据。 |
 | 权限管理 | `agent_defaults_settings_page.dart` | 控制之后创建的主聊天和悬浮聊天是否默认启用 Agent、默认权限以及单次任务最大工具轮数（默认 24）。默认权限为全部可分配权限，用户可逐项收回。历史对话不随默认值变化；对话设置弹窗只编辑当前对话权限，Agent 模式由输入区按钮切换。 |
 | 悬浮窗 | `floating_assistant_settings_page.dart` | Android 系统悬浮助手设置。原生面板分为 Chat、Translation、Agent；翻译支持一次翻译和停止滚动后自动翻译，Agent 模式展示运行状态与完整 Plan。 |
 | 翻译历史 | `translation_history_page.dart` | 浏览悬浮窗屏幕翻译历史记录（时间/原文/译文/应用包名），长按复制、一键清空。 |
@@ -327,7 +328,9 @@ HTTP server 录入 endpoint，并可显式允许 HTTP 或私网；默认要求 H
 
 文件：`lib/pages/api_models_page.dart`
 
-模型与接口页先展示四个模型配置分类：Chat、OCR、Speech、Image Generation，再展示本地模型、网页搜索和 MCP 服务三个相关设置入口。Chat 配置可以有多个子模型，每个子模型都可以单独设置启用状态、视觉能力、思考能力、工具能力和采样参数。每个分类最多显示一个名为 LynAI 的托管配置，不展示上游 Provider ID；该配置不可手动修改 endpoint/API key，但可以在本机关闭，或为 `maxTokens`、`temperature`、`topP`、视觉、思考和工具能力设置本机覆盖项。刷新操作表示同步 LynAI 模型，而不是同步 Provider。
+模型与接口页先展示四个模型配置分类：Chat、OCR、Speech、Image Generation，再展示本地模型、网页搜索和 MCP 服务三个相关设置入口。Chat 配置可以有多个子模型，每个子模型都可以单独设置启用状态、视觉能力、思考能力、工具能力、采样参数和思考强度默认值。子模型列表每行显示生效的上下文窗口/输出上限及其来源（手填、Endpoint、目录、Provider 或默认值），不再让"默认 256k"默默生效。Chat 配置还可以手动指定「模型目录来源」（models.dev provider），用于自建转发层或目录里没有 `api` 字段的服务。
+
+Chat 编辑页提供「从 Endpoint 获取模型列表」（端点通常不返回上下文信息）和「按模型目录补全参数」两个动作：前者会在新增模型后顺带匹配目录，后者对当前配置的所有子模型重新匹配。两者都只写 `ModelEntry.catalog` 这类派生建议，不覆盖用户手填值；子模型编辑弹窗顶部展示目录建议（上下文、输出上限、视觉/工具/思考、强度取值与命中的目录条目），用户改动的能力开关会记成 `capabilityOverrides`，没改动的继续跟随目录。每个分类最多显示一个名为 LynAI 的托管配置，不展示上游 Provider ID；该配置不可手动修改 endpoint/API key，但可以在本机关闭，或为 `maxTokens`、`temperature`、`topP`、视觉、思考和工具能力设置本机覆盖项。刷新操作表示同步 LynAI 模型，而不是同步 Provider。
 
 高级参数支持显式清空。实现上通过 sentinel 区分“不更新”和“清空为 null”。
 

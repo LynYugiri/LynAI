@@ -30,6 +30,7 @@ class _FakeApiService extends ApiService {
     ModelConfig config,
     List<Map<String, dynamic>> messages, {
     bool thinking = false,
+    String? reasoningEffort,
     List<Map<String, dynamic>> tools = const [],
     Object? toolChoice,
   }) {
@@ -45,6 +46,7 @@ class _FakeApiService extends ApiService {
     ModelConfig config,
     List<Map<String, dynamic>> messages, {
     bool thinking = false,
+    String? reasoningEffort,
     List<Map<String, dynamic>> tools = const [],
     Object? toolChoice,
   }) async => const ChatResponse(content: 'title');
@@ -58,6 +60,7 @@ class _AskUserApiService extends ApiService {
     ModelConfig config,
     List<Map<String, dynamic>> messages, {
     bool thinking = false,
+    String? reasoningEffort,
     List<Map<String, dynamic>> tools = const [],
     Object? toolChoice,
   }) async* {
