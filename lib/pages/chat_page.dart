@@ -491,6 +491,17 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
   /// 次层候选项对应的 (源, 路径, 过滤词) 快照，防止晚到结果覆盖新状态。
   String _composerItemsToken = '';
 
+  /// 触发面板的锚点：面板用 Overlay 浮在输入区**上方**，既不裁切也不盖住输入框。
+  ///
+  /// 之前把面板放进输入区 Stack 并用 `bottom: 0` 锚定，结果它压在输入框和按钮
+  /// 行上面；v4.1.0 是在外层 Stack 里贴输入区上沿显示的。
+  final LayerLink _composerPaletteLink = LayerLink();
+
+  /// `OverlayPortal` 的构造需要 controller；面板显隐完全由 overlay 内容决定
+  /// （为空时不占位），因此不调用 show/hide，避免在 build 期间触碰 scheduler。
+  final OverlayPortalController _composerOverlayController =
+      OverlayPortalController();
+
   int _composerSelectedIndex = 0;
 
   /// `/总结` 的结果：只展示、不进上下文；切换对话时清空。
@@ -1871,6 +1882,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
   }
 
   void _closeComposerPalette() {
+    _setComposerOverlayVisible(false);
     _composerTrigger = null;
     _composerPendingSelector = null;
     _composerItemRows = const [];
@@ -1903,6 +1915,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
         _composerTrigger?.query != match.query ||
         _composerTrigger?.start != match.start;
     if (!changed) return;
+    _setComposerOverlayVisible(true);
     setState(() {
       _composerTrigger = match;
       _composerSelectedIndex = 0;
@@ -2238,6 +2251,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       _showMissingChatModelTip();
       return;
     }
+    _setComposerOverlayVisible(true);
     setState(() => _composerCommandBusy = '正在压缩较早的对话历史…');
     final conversationsReadAvailable = _conversationsReadAvailable();
     try {
@@ -2289,7 +2303,10 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       debugPrint('压缩上下文失败: $error');
       _showComposerCommandTip('压缩失败，历史已保持原样');
     } finally {
-      if (mounted) setState(() => _composerCommandBusy = null);
+      if (mounted) {
+        setState(() => _composerCommandBusy = null);
+        if (_composerTrigger == null) _setComposerOverlayVisible(false);
+      }
     }
   }
 
@@ -2313,6 +2330,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       _showMissingChatModelTip();
       return;
     }
+    _setComposerOverlayVisible(true);
     setState(() => _composerCommandBusy = '正在总结这段对话…');
     final conversationsReadAvailable = _conversationsReadAvailable();
     try {
@@ -2369,7 +2387,10 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       debugPrint('总结对话失败: $error');
       _showComposerCommandTip('总结失败：$error');
     } finally {
-      if (mounted) setState(() => _composerCommandBusy = null);
+      if (mounted) {
+        setState(() => _composerCommandBusy = null);
+        if (_composerTrigger == null) _setComposerOverlayVisible(false);
+      }
     }
   }
 
@@ -6372,9 +6393,23 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     final hasSpeech = speechModelId != null && speechModelId.isNotEmpty;
     // 每帧只构建一次上下文标记（内部分别读检查点与总结），避免重复 watch。
     final contextBanner = _composerContextBanner();
-    return Stack(
-      children: [
-        Container(
+    return OverlayPortal(
+      controller: _composerOverlayController,
+      overlayChildBuilder: (context) => Positioned(
+        width: MediaQuery.sizeOf(context).width,
+        child: CompositedTransformFollower(
+          link: _composerPaletteLink,
+          showWhenUnlinked: false,
+          targetAnchor: Alignment.topCenter,
+          followerAnchor: Alignment.bottomCenter,
+          child: _composerTrigger != null || _composerCommandBusy != null
+              ? _composerOverlayPanels()
+              : const SizedBox.shrink(),
+        ),
+      ),
+      child: CompositedTransformTarget(
+        link: _composerPaletteLink,
+        child: Container(
           decoration: BoxDecoration(
             color: Theme.of(context).colorScheme.surface,
             boxShadow: [
@@ -6413,74 +6448,111 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
                                 : _handleComposerPaletteKey,
                             child: TextField(
                               controller: _msgCtrl,
-                          focusNode: _focusNode,
-                          style: const TextStyle(fontSize: 16),
-                          decoration: const InputDecoration(
-                            hintText: '输入消息...',
-                            border: InputBorder.none,
-                            contentPadding: EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 10,
+                              focusNode: _focusNode,
+                              style: const TextStyle(fontSize: 16),
+                              decoration: const InputDecoration(
+                                hintText: '输入消息...',
+                                border: InputBorder.none,
+                                contentPadding: EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 10,
+                                ),
+                              ),
+                              maxLines: 5,
+                              minLines: 1,
+                              textInputAction: TextInputAction.newline,
+                              onTap: _handleInputTap,
+                              onChanged: (_) => _inputRevision.value++,
                             ),
                           ),
-                          maxLines: 5,
-                          minLines: 1,
-                          textInputAction: TextInputAction.newline,
-                          onTap: _handleInputTap,
-                          onChanged: (_) => _inputRevision.value++,
-                        ),
-                      ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 4),
-          Row(
-            children: [
-              Expanded(
-                child: SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: Row(
-                    children: [
-                      _modelSel(model, mp),
-                      const SizedBox(width: 4),
-                      _referenceBtn(),
-                      const SizedBox(width: 4),
-                      _dialogSetBtn(),
-                      const SizedBox(width: 4),
-                      _agentBtn(),
-                      const SizedBox(width: 4),
-                      _thinkBtn(),
-                      const SizedBox(width: 4),
-                      _ocrBtn(),
-                      const SizedBox(width: 4),
-                      _imageRecognitionBtn(),
-                      const SizedBox(width: 4),
-                      _imageGenerationBtn(),
-                    ],
                   ),
-                ),
+                ],
               ),
-              const SizedBox(width: 4),
-              _attachBtn(),
-              const SizedBox(width: 4),
-              ValueListenableBuilder<int>(
-                valueListenable: _inputRevision,
-                builder: (context, _, _) => _voiceOrSendBtn(hasSpeech),
+              const SizedBox(height: 4),
+              Row(
+                children: [
+                  Expanded(
+                    child: SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: Row(
+                        children: [
+                          _modelSel(model, mp),
+                          const SizedBox(width: 4),
+                          _referenceBtn(),
+                          const SizedBox(width: 4),
+                          _dialogSetBtn(),
+                          const SizedBox(width: 4),
+                          _agentBtn(),
+                          const SizedBox(width: 4),
+                          _thinkBtn(),
+                          const SizedBox(width: 4),
+                          _ocrBtn(),
+                          const SizedBox(width: 4),
+                          _imageRecognitionBtn(),
+                          const SizedBox(width: 4),
+                          _imageGenerationBtn(),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  _attachBtn(),
+                  const SizedBox(width: 4),
+                  ValueListenableBuilder<int>(
+                    valueListenable: _inputRevision,
+                    builder: (context, _, _) => _voiceOrSendBtn(hasSpeech),
+                  ),
+                ],
               ),
+              if (_showAttach) _attachMenu(),
             ],
-          ),
-          if (_showAttach) _attachMenu(),
-        ],
           ),
         ),
-        // 触发面板贴在输入区上方，锚定输入框，不随消息列表滚动。
-        if (_composerTrigger != null)
-          Positioned(left: 0, right: 0, bottom: 0, child: _composerPaletteOverlay()),
-        // `/压缩`、`/总结` 期间给出可见进度：它们要跑一次模型调用，没有反馈时
-        // 用户会以为没反应而重复触发。
-        if (_composerCommandBusy != null)
-          Positioned(left: 0, right: 0, bottom: 0, child: _composerBusyBanner()),
-      ],
+      ),
+    );
+  }
+
+  /// 浮在输入区上方的触发面板与 `/压缩`、`/总结` 进度条。
+  /// 同步 overlay 显隐。
+  ///
+  /// `OverlayPortalController.show()/hide()` 不允许在 build 期间调用，因此这里
+  /// 只在状态真正变化的事件处理路径（触发态建立/关闭、指令开始/结束）里调用；
+  /// 组件树在 [dispose] 后也会走到这里，所以要判 [mounted]。
+  void _setComposerOverlayVisible(bool shouldShow) {
+    if (!mounted) return;
+    if (shouldShow) {
+      if (!_composerOverlayController.isShowing) {
+        _composerOverlayController.show();
+      }
+    } else if (_composerOverlayController.isShowing) {
+      _composerOverlayController.hide();
+    }
+  }
+
+  /// 浮在输入区上方的触发面板与 `/压缩`、`/总结` 进度条。
+  Widget _composerOverlayPanels() {
+    final trigger = _composerTrigger;
+    final busy = _composerCommandBusy;
+    if (trigger == null && busy == null) return const SizedBox.shrink();
+    return Align(
+      alignment: Alignment.bottomCenter,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(8, 0, 8, 6),
+        // 宽屏上限：面板跟随输入区宽度，但不拉成一条长横条。
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 560),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // `/压缩`、`/总结` 要跑一次模型调用：没有反馈时用户会以为没反应
+              // 而重复触发。
+              if (busy != null) _composerBusyBanner(),
+              if (trigger != null) _composerPalette(trigger),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
@@ -6519,32 +6591,24 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     );
   }
 
-  /// 输入区上方的 `@` / `/` 触发面板浮层。
-  Widget _composerPaletteOverlay() {
-    final trigger = _composerTrigger;
-    if (trigger == null) return const SizedBox.shrink();
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(8, 0, 8, 6),
-      child: Align(
-        alignment: Alignment.bottomCenter,
-        child: Material(
-          elevation: 8,
-          borderRadius: BorderRadius.circular(12),
-          color: Colors.transparent,
-          child: ComposerTriggerPalette(
-            sourceRows: _composerSourceRows,
-            itemRows: _composerItemRows,
-            pendingItems: trigger.isReference && _composerPendingSelector != null,
-            query: trigger.query,
-            selectedIndex: _composerSelectedIndex,
-            onSelect: (row) => _activateComposerPaletteRow(row, trigger),
-            onEnterSource: _enterComposerSelector,
-            onBack: () => _leaveComposerLevel(trigger),
-            emptyHint: trigger.isReference
-                ? '没有匹配的引用，继续输入会按普通文本处理'
-                : '没有匹配的指令，继续输入会按普通文本处理',
-          ),
-        ),
+  /// `@` / `/` 触发面板主体。
+  Widget _composerPalette(ComposerTriggerMatch trigger) {
+    return Material(
+      elevation: 8,
+      borderRadius: BorderRadius.circular(12),
+      color: Colors.transparent,
+      child: ComposerTriggerPalette(
+        sourceRows: _composerSourceRows,
+        itemRows: _composerItemRows,
+        pendingItems: trigger.isReference && _composerPendingSelector != null,
+        query: trigger.query,
+        selectedIndex: _composerSelectedIndex,
+        onSelect: (row) => _activateComposerPaletteRow(row, trigger),
+        onEnterSource: _enterComposerSelector,
+        onBack: () => _leaveComposerLevel(trigger),
+        emptyHint: trigger.isReference
+            ? '没有匹配的引用，继续输入会按普通文本处理'
+            : '没有匹配的指令，继续输入会按普通文本处理',
       ),
     );
   }

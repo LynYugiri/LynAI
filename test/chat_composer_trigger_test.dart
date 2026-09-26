@@ -72,10 +72,37 @@ void main() {
     await tester.pump();
   }
 
+  Rect composerRect(WidgetTester tester) =>
+      tester.getRect(find.byType(TextField).first);
+
+  Rect paletteRect(WidgetTester tester) =>
+      tester.getRect(find.byType(ComposerTriggerPalette));
+
   /// 草稿写入有 400ms 防抖：测试结束前推进时钟并落盘，避免 pending timer。
   Future<void> settleDrafts(WidgetTester tester) async {
     await tester.pump(const Duration(milliseconds: 500));
   }
+
+  testWidgets('触发面板浮在输入框上方，不遮挡输入框与按钮行', (tester) async {
+    // v4.2.0 曾把面板塞进输入区 Stack 并用 bottom:0 锚定，结果它压在输入框上，
+    // 看起来就是「点引用弹出来的框奇奇怪怪」。这条断言锁住相对位置。
+    await pumpChat(tester);
+    await typeInComposer(tester, '@');
+    expect(find.byType(ComposerTriggerPalette), findsOneWidget);
+
+    final palette = paletteRect(tester);
+    final composer = composerRect(tester);
+    expect(
+      palette.bottom,
+      lessThanOrEqualTo(composer.top + 1),
+      reason: '面板底边应贴在输入框上沿之外，而不是盖住输入框',
+    );
+
+    // 输入框与发送按钮仍然可见、可点。
+    expect(composer.height, greaterThan(0));
+    expect(find.byTooltip('插入引用（也可直接输入 @）'), findsOneWidget);
+    await settleDrafts(tester);
+  });
 
   testWidgets('输入 @ 打开引用面板，输入空格后按普通文本处理', (tester) async {
     await pumpChat(tester);

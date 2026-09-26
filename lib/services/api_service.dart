@@ -2078,49 +2078,44 @@ class ApiService {
       );
     }
 
-    var doneEmitted = false;
     await for (final chunk
         in streamedResponse.stream
             .transform(utf8.decoder)
             .transform(const SseDecoder())
             .timeout(_streamTimeout)) {
       final data = chunk.data.trim();
-      if (data.isNotEmpty) {
-        try {
-          final json = jsonDecode(data);
-          if (json is! Map) {
-            throw Exception('Anthropic SSE 返回的顶层 JSON 必须是 object');
-          }
-          final type = json['type'] as String?;
-          if (type == 'error') {
-            throw Exception(_formatApiError(json['error']));
-          }
-
-          if (type == 'content_block_delta') {
-            final delta = json['delta'];
-            if (delta != null) {
-              final deltaType = delta['type'] as String?;
-              if (deltaType == 'text_delta') {
-                yield StreamChunk(content: delta['text'] as String?);
-              } else if (deltaType == 'thinking_delta') {
-                yield StreamChunk(
-                  reasoningContent: delta['thinking'] as String?,
-                );
-              }
-            }
-          } else if (type == 'message_stop') {
-            doneEmitted = true;
-            yield StreamChunk(isDone: true);
-            break;
-          }
-        } on FormatException catch (error) {
-          throw Exception('Anthropic SSE 格式错误: $error');
+      if (data.isEmpty) continue;
+      try {
+        final json = jsonDecode(data);
+        if (json is! Map) {
+          throw Exception('Anthropic SSE 返回的顶层 JSON 必须是 object');
         }
+        final type = json['type'] as String?;
+        if (type == 'error') {
+          throw Exception(_formatApiError(json['error']));
+        }
+
+        if (type == 'content_block_delta') {
+          final delta = json['delta'];
+          if (delta != null) {
+            final deltaType = delta['type'] as String?;
+            if (deltaType == 'text_delta') {
+              yield StreamChunk(content: delta['text'] as String?);
+            } else if (deltaType == 'thinking_delta') {
+              yield StreamChunk(reasoningContent: delta['thinking'] as String?);
+            }
+          }
+        } else if (type == 'message_stop') {
+          yield StreamChunk(isDone: true);
+          break;
+        }
+      } on FormatException catch (error) {
+        throw Exception('Anthropic SSE 格式错误: $error');
       }
     }
-    if (!doneEmitted) {
-      throw Exception('Anthropic SSE 在 message_stop 前结束');
-    }
+    // 兼容中转/代理在 message_stop 之前直接断流：已经收到的正文已经 yield 给
+    // 调用方了，这里不能因为缺少终态标记就抛错把整次回复判失败（v2.2.3 的
+    // 行为是保留已收到内容并正常收尾）。
   }
 
   Future<ChatResponse> _sendAnthropicRequest(
@@ -2186,36 +2181,83 @@ class ApiService {
     required bool thinking,
   }) {
     final anthropicMessages = <Map<String, dynamic>>[];
-    String? systemPrompt;
+    final systemPrompts = <String>[];
 
     for (final m in messages) {
       if (m['role'] == 'system') {
-        systemPrompt = m['content'] as String;
+        final text = _anthropicTextContent(m['content']);
+        if (text.isNotEmpty) systemPrompts.add(text);
       } else {
         anthropicMessages.add({'role': m['role'], 'content': m['content']});
       }
     }
 
     final maxTokens = config.effectiveMaxTokens ?? 4096;
+    final systemPrompt = systemPrompts.join('\n\n');
+    // 思考开关（输入框下方那个）对 Anthropic 同样生效，不需要用户再开第二个
+    // 开关。Anthropic 与 OpenAI 兼容系的差别在于：它的扩展思考必须在请求体里
+    // 显式声明，因此这里由开关直接生成标准 `thinking` 结构；预算可用预设或
+    // [thinkingBudgetTokens] 覆盖。
+    final rawThinking = config.extraParams['thinking'];
+    final thinkingObject = rawThinking is Map
+        ? Map<String, dynamic>.from(rawThinking)
+        : null;
+    // 预设显式关掉思考时，即使 App 的开关是开的也不发。
+    final thinkingEnabled = thinking && rawThinking != false;
     final body = <String, dynamic>{
       'model': config.modelName,
       'messages': anthropicMessages,
       'max_tokens': maxTokens,
       'stream': stream,
-      if (config.effectiveTemperature != null)
+      // Anthropic 要求扩展思考下 temperature 必须为 1；思考开启时不发它，
+      // 避免整个请求被服务端 400。
+      if (!thinkingEnabled && config.effectiveTemperature != null)
         'temperature': config.effectiveTemperature,
       if (config.effectiveTopP != null) 'top_p': config.effectiveTopP,
-      if (thinking && !config.extraParams.containsKey('thinking'))
-        'thinking': {
-          'type': 'enabled',
-          'budget_tokens': _anthropicThinkingBudget(config, maxTokens),
-        },
+      if (thinkingEnabled)
+        'thinking':
+            thinkingObject ??
+            {
+              'type': 'enabled',
+              'budget_tokens': _anthropicThinkingBudget(config, maxTokens),
+            },
     };
-    if (systemPrompt != null) {
+    if (systemPrompt.isNotEmpty) {
       body['system'] = systemPrompt;
     }
-    _applyExtraRequestParams(body, config);
+    // thinking / thinkingBudgetTokens 已在本方法内按 Anthropic 语义处理，
+    // 不能再让通用合并逻辑把原始值塞进 body。
+    _applyExtraRequestParams(
+      body,
+      config.extraParams.containsKey('thinking') ||
+              config.extraParams.containsKey('thinkingBudgetTokens')
+          ? config.copyWith(
+              extraParams: Map<String, dynamic>.from(config.extraParams)
+                ..remove('thinking')
+                ..remove('thinkingBudgetTokens'),
+            )
+          : config,
+    );
     return body;
+  }
+
+  /// 把 system 段内容收敛成纯文本。
+  ///
+  /// system 既可能是字符串，也可能是 `[{type: text, text: ...}]` 形式的
+  /// 分段内容；用裸 `as String` 会在这条路径上直接抛类型错误，让整个请求在
+  /// 客户端就失败。
+  String _anthropicTextContent(Object? content) {
+    if (content == null) return '';
+    if (content is String) return content;
+    if (content is List) {
+      return content
+          .whereType<Map>()
+          .where((part) => part['type'] == null || part['type'] == 'text')
+          .map((part) => part['text']?.toString() ?? '')
+          .where((text) => text.isNotEmpty)
+          .join('\n');
+    }
+    return content.toString();
   }
 
   List<ChatToolCall> _parseOpenAIToolCalls(dynamic message) {

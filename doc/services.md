@@ -77,10 +77,10 @@ OpenAI 兼容和 Anthropic 流使用共享 `SseDecoder`，按空行分隔完整�
 |------|------|
 | OpenAI 兼容 | 发送 `model`、`messages`、`stream`、`thinking`、采样参数；工具开启时发送 `tools` 和 `tool_choice`。 |
 | Ollama | 发送 `model`、`messages`、`stream`、`think`；采样参数进入 `options`。 |
-| Anthropic | system 消息提升到顶层 `system`，其余消息写入 `messages`，内容转 Anthropic block。 |
+| Anthropic | system 消息提升到顶层 `system`（分段内容收敛为纯文本），其余消息写入 `messages`，内容转 Anthropic block；`thinking` 由输入框的思考开关直接驱动（Anthropic 必须显式声明才思考），预算可用模型预设的 `thinkingBudgetTokens` 或完整 `thinking` 对象覆盖；开启时不发 `temperature`（Anthropic 要求扩展思考下该值必须为 1）。 |
 | Managed canonical | 发送 `model`、canonical `messages`、`stream`、`thinking`、采样参数和可选工具；响应统一为 `content`、`reasoning`、`toolCalls`，SSE 增量使用同名字段和 `done`。 |
 
-OpenAI 兼容请求会显式发送 thinking 开关。部分已配置后端依赖 disabled 标记，不要随意删除。
+OpenAI 兼容请求会显式发送 thinking 开关。部分已配置后端依赖 disabled 标记，不要随意删除。Anthropic 同样复用这个开关：它的 `thinking` 字段会让服务端按扩展思考校验（要求所选模型支持、且 temperature 为 1），因此由开关直接生成标准结构并在开启时省略 `temperature`，预设里显式写 `thinking: false` 可强制关闭。
 
 Direct Provider 的 `extraParams` 会合并到请求体，但不会覆盖代码已经设置的核心字段，例如 `model`、`messages`、`stream`，并把 `maxTokens` -> `max_tokens`、`topP` -> `top_p` 等名称规范化。Managed canonical 请求不透传 `extraParams`；客户端只从 active 子模型发送标准 `maxTokens`、`temperature`、`topP`，其余 advanced defaults 由后端模型处理。Vivo LASR 由 active speech 子模型的 `workflow=vivo_lasr` 选择现有 `/relay/speech/*` 流程。
 
