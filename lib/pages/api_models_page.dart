@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import '../models/agent_defaults.dart';
 import '../models/model_catalog.dart';
 import '../models/model_config.dart';
+import '../models/reasoning_effort.dart';
 import '../providers/conversation_provider.dart';
 import '../providers/model_config_provider.dart';
 import '../providers/plugin_provider.dart';
@@ -990,6 +991,25 @@ class _EditModelPageState extends State<_EditModelPage> {
     } finally {
       if (mounted) setState(() => _isFetchingModels = false);
     }
+  }
+
+  /// 编辑器里的思考强度档位。
+  ///
+  /// 目录给出 effort 取值时直接用；预算型（目录只给 `budget_tokens`）只在能忠实
+  /// 换算的配置上回退到通用档位——直连 Anthropic，或托管 relay 已广告
+  /// `capabilities.reasoningEffort`。
+  List<String> _editorEffortValues(ModelCatalogHint? hint) {
+    if (hint == null) return const [];
+    final values = hint.reasoningEffortValues
+        .where((value) => value != reasoningEffortNone)
+        .toList(growable: false);
+    if (values.isNotEmpty) return values;
+    if (!hint.supportsThinking) return const [];
+    final managed = widget.model?.managed == true;
+    final supportsLadder = managed
+        ? widget.model?.extraParams['relayReasoningEffort'] == true
+        : _apiType == 'anthropic';
+    return supportsLadder ? budgetReasoningEffortLadder : const [];
   }
 
   /// 按模型目录补全/刷新当前编辑中的模型条目，返回命中的条目数。
@@ -2321,6 +2341,7 @@ class _EditModelPageState extends State<_EditModelPage> {
     // 继续跟随目录。否则「目录还没有数据时打开开关」会在下次刷新被目录改回去。
     final touchedCapabilities = <String>{};
     var reasoningEffort = entry.reasoningEffort;
+    final editorEffortValues = _editorEffortValues(catalogHint);
     final result = await showDialog<ModelEntry>(
       context: context,
       builder: (ctx) => StatefulBuilder(
@@ -2420,8 +2441,7 @@ class _EditModelPageState extends State<_EditModelPage> {
                       border: OutlineInputBorder(),
                     ),
                   ),
-                  if (catalogHint != null &&
-                      catalogHint.reasoningEffortValues.isNotEmpty) ...[
+                  if (editorEffortValues.isNotEmpty) ...[
                     const SizedBox(height: 12),
                     DropdownButtonFormField<String?>(
                       key: ValueKey(
@@ -2430,7 +2450,7 @@ class _EditModelPageState extends State<_EditModelPage> {
                       initialValue: entry.reasoningEffort,
                       decoration: const InputDecoration(
                         labelText: '思考强度默认值',
-                        helperText: '对话没有单独设置时生效；不指定则按服务端默认',
+                        helperText: '对话没有单独设置时生效；不指定与关都不发强度',
                         border: OutlineInputBorder(),
                       ),
                       items: [
@@ -2438,7 +2458,11 @@ class _EditModelPageState extends State<_EditModelPage> {
                           value: null,
                           child: Text('不指定'),
                         ),
-                        for (final value in catalogHint.reasoningEffortValues)
+                        const DropdownMenuItem<String?>(
+                          value: reasoningEffortNone,
+                          child: Text('关'),
+                        ),
+                        for (final value in editorEffortValues)
                           DropdownMenuItem<String?>(
                             value: value,
                             child: Text(value),

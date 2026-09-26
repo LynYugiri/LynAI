@@ -544,9 +544,30 @@ class ModelConfig {
   bool get supportsTools =>
       _effectiveCapability('supportsTools', activeEntry?.supportsTools);
 
-  /// 生效的思考强度取值（来自模型目录，effort 型）。
-  List<String> get effectiveReasoningEffortValues =>
-      activeEntry?.catalog?.reasoningEffortValues ?? const [];
+  /// 生效的思考强度可选档位。
+  ///
+  /// 目录给出 effort 取值时直接用目录值；目录只给 `budget_tokens`（Anthropic 风格的
+  /// 预算型模型）时，如果本配置能把档位忠实地换算成预算，就回退到通用档位
+  /// [budgetReasoningEffortLadder]；其余 OpenAI 兼容端点不做猜测，宁可不给档位。
+  List<String> get effectiveReasoningEffortValues {
+    final catalog = activeEntry?.catalog;
+    if (catalog == null) return const [];
+    final values = catalog.reasoningEffortValues
+        .where((value) => value != reasoningEffortNone)
+        .toList(growable: false);
+    if (values.isNotEmpty) return values;
+    if (!catalog.supportsThinking) return const [];
+    return _supportsBudgetEffortLadder ? budgetReasoningEffortLadder : const [];
+  }
+
+  /// 是否能把通用档位换算成该配置认得的下发字段。
+  ///
+  /// 托管 relay 需要后端广告 `capabilities.reasoningEffort`（旧后端对未知字段
+  /// fail closed）；非托管只有 Anthropic 格式有 `thinking.budget_tokens` 可用。
+  bool get _supportsBudgetEffortLadder =>
+      managed
+      ? extraParams['relayReasoningEffort'] == true
+      : apiType == 'anthropic';
 
   /// 该模型配置默认的思考强度；null 表示不指定。
   String? get effectiveReasoningEffort {

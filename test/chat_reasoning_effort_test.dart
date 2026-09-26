@@ -129,8 +129,13 @@ void main() {
     await tester.pump(const Duration(milliseconds: 50));
   }
 
+  /// 思考按钮（一个控件同时表达开关与强度，提示气泡是「思考：关/默认/档位」）。
+  Finder thinkingButton() => find.byWidgetPredicate(
+    (widget) => widget is Tooltip && (widget.message ?? '').startsWith('思考：'),
+  );
+
   Future<void> selectEffort(WidgetTester tester, String value) async {
-    await tester.tap(find.byTooltip('思考强度'));
+    await tester.tap(thinkingButton());
     await tester.pumpAndSettle();
     await tester.tap(find.text(value).last);
     await tester.pumpAndSettle();
@@ -147,10 +152,10 @@ void main() {
       api: api,
     );
 
-    // 目录给了 effort 取值时输入栏出现强度选择。
-    expect(find.byTooltip('思考强度'), findsOneWidget);
+    // 目录给了 effort 取值时列表里出现档位。
+    expect(thinkingButton(), findsOneWidget);
     await selectEffort(tester, 'high');
-    expect(find.text('high'), findsOneWidget);
+    expect(find.byTooltip('思考：high'), findsOneWidget);
 
     // 发送后才会创建对话：新对话必须带上刚选的强度。
     await tester.enterText(find.byType(TextField).first, '你好');
@@ -185,7 +190,7 @@ void main() {
       api: api,
       conversationId: withEffort,
     );
-    expect(find.text('low'), findsOneWidget);
+    expect(find.byTooltip('思考：low'), findsOneWidget);
 
     await pumpChat(
       tester,
@@ -195,7 +200,7 @@ void main() {
       conversationId: withoutEffort,
     );
     expect(tester.takeException(), isNull);
-    expect(find.text('默认'), findsOneWidget);
+    expect(find.byTooltip('思考：默认'), findsOneWidget);
 
     await tester.pump(const Duration(milliseconds: 500));
     await conversations.flushPendingSaves();

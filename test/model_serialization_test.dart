@@ -19,6 +19,7 @@ import 'package:lynai/models/local_time.dart';
 import 'package:lynai/models/message.dart';
 import 'package:lynai/models/model_catalog.dart';
 import 'package:lynai/models/model_config.dart';
+import 'package:lynai/models/reasoning_effort.dart';
 import 'package:lynai/models/note.dart';
 import 'package:lynai/models/roleplay.dart';
 import 'package:lynai/models/schedule_item.dart';
@@ -4116,6 +4117,119 @@ PRAGMA user_version = 2;
       ],
     );
     expect(explicit.supportsVision, isTrue);
+  });
+
+  test('思考强度档位：目录 effort 优先，预算型只在能忠实换算时回退', () {
+    ModelConfig config({
+      required String apiType,
+      required ModelCatalogHint hint,
+      bool managed = false,
+      Map<String, dynamic> extraParams = const {},
+    }) {
+      return ModelConfig(
+        id: 'c',
+        name: 'p',
+        endpoint: apiType == 'anthropic'
+            ? 'https://api.anthropic.com'
+            : 'https://api.openai.com/v1',
+        apiKey: 'k',
+        modelName: 'model',
+        apiType: managed ? '' : apiType,
+        priority: 0,
+        managed: managed,
+        extraParams: extraParams,
+        models: [ModelEntry(name: 'model', enabled: true, catalog: hint)],
+      );
+    }
+
+    final effortHint = ModelCatalogHint(
+      providerId: 'openai',
+      modelId: 'model',
+      supportsThinking: true,
+      reasoningOptions: const [
+        ModelCatalogReasoningOption(
+          kind: ModelCatalogReasoningKind.effort,
+          values: ['none', 'low', 'medium', 'high'],
+        ),
+      ],
+    );
+    final budgetHint = ModelCatalogHint(
+      providerId: 'anthropic',
+      modelId: 'model',
+      supportsThinking: true,
+      reasoningOptions: const [
+        ModelCatalogReasoningOption(
+          kind: ModelCatalogReasoningKind.budgetTokens,
+          minBudgetTokens: 1024,
+        ),
+      ],
+    );
+    final toggleHint = ModelCatalogHint(
+      providerId: 'zai',
+      modelId: 'model',
+      supportsThinking: true,
+      reasoningOptions: const [
+        ModelCatalogReasoningOption(kind: ModelCatalogReasoningKind.toggle),
+      ],
+    );
+
+    // 目录 effort：直接用目录取值，并去掉与「关」重复的 none。
+    expect(
+      config(apiType: 'openai', hint: effortHint)
+          .effectiveReasoningEffortValues,
+      ['low', 'medium', 'high'],
+    );
+    // 预算型 + 直连 Anthropic：回退到通用档位。
+    expect(
+      config(apiType: 'anthropic', hint: budgetHint)
+          .effectiveReasoningEffortValues,
+      budgetReasoningEffortLadder,
+    );
+    // 预算型 + 托管 relay：需要后端广告能力位才回退。
+    expect(
+      config(
+        apiType: 'openai',
+        hint: budgetHint,
+        managed: true,
+        extraParams: const {'relayReasoningEffort': true},
+      ).effectiveReasoningEffortValues,
+      budgetReasoningEffortLadder,
+    );
+    expect(
+      config(apiType: 'openai', hint: budgetHint, managed: true)
+          .effectiveReasoningEffortValues,
+      isEmpty,
+    );
+    // 预算型 + 其他 OpenAI 兼容端点：不做猜测。
+    expect(
+      config(apiType: 'openai', hint: budgetHint)
+          .effectiveReasoningEffortValues,
+      isEmpty,
+    );
+    // 直连 Anthropic 的扩展思考本来就只认 budget_tokens，所以只要模型会推理，
+    // 即使目录写的是 toggle 也提供通用档位。
+    expect(
+      config(apiType: 'anthropic', hint: toggleHint)
+          .effectiveReasoningEffortValues,
+      budgetReasoningEffortLadder,
+    );
+    // 目录说模型不推理：不给任何档位（能力开关本身也会是关闭的）。
+    expect(
+      config(
+        apiType: 'anthropic',
+        hint: ModelCatalogHint(
+          providerId: 'anthropic',
+          modelId: 'model',
+          supportsThinking: false,
+        ),
+      ).effectiveReasoningEffortValues,
+      isEmpty,
+    );
+    expect(
+      config(apiType: 'anthropic', hint: effortHint)
+          .effectiveReasoningEffortValues,
+      ['low', 'medium', 'high'],
+    );
   });
 
   test('目录建议与能力覆盖可以 JSON 往返，旧数据仍可解析', () {

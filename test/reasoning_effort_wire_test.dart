@@ -352,6 +352,36 @@ void main() {
       expect(body['thinking'], {'type': 'enabled', 'budget_tokens': 8192});
     });
 
+    test('预算型档位（目录只给 budget_tokens）换算成预算', () async {
+      final body = await captureBody(
+        buildConfig: (endpoint) => ModelConfig(
+          id: 'anthropic-1',
+          name: 'Anthropic',
+          endpoint: endpoint,
+          apiKey: 'sk-ant',
+          modelName: 'claude-sonnet-4-5',
+          apiType: 'anthropic',
+          priority: 0,
+          maxTokens: 64000,
+          models: [
+            ModelEntry(
+              name: 'claude-sonnet-4-5',
+              enabled: true,
+              reasoningEffort: 'high',
+              catalog: hint(
+                providerId: 'anthropic',
+                effortValues: const [],
+              ),
+            ),
+          ],
+        ),
+        responseBody: anthropicResponse(),
+        thinking: true,
+      );
+
+      expect(body['thinking'], {'type': 'enabled', 'budget_tokens': 24576});
+    });
+
     test('extraParams.thinkingBudgetTokens 优先于强度', () async {
       final body = await captureBody(
         buildConfig: (endpoint) => ModelConfig(

@@ -23,6 +23,13 @@ const List<String> reasoningEffortOrder = [
 /// 显式关闭思考的强度取值。
 const String reasoningEffortNone = 'none';
 
+/// 目录只给 `budget_tokens`（预算型，多数 Claude 直连模型）时客户端提供的通用档位。
+///
+/// 这些档位不是厂商给的取值，而是把"只有预算、没有 effort"的接口用统一的低/中/高
+/// 表达出来，再由客户端换算成 `thinking.budget_tokens`；因此只在能忠实换算的配置上
+/// 提供（直连 Anthropic，或托管 relay 由后端按上游格式换算）。
+const List<String> budgetReasoningEffortLadder = ['low', 'medium', 'high'];
+
 /// 强度 → 思考预算（token）的换算阶梯。
 ///
 /// 只用于 Anthropic 风格接口：它没有 effort 概念，只有 `budget_tokens`。
@@ -43,6 +50,15 @@ String normalizeReasoningEffort(String? value) =>
 /// 该强度是否表示"显式关闭思考"。
 bool isReasoningEffortDisabled(String? effort) =>
     normalizeReasoningEffort(effort) == reasoningEffortNone;
+
+/// 档位对应的预算说明（用于 UI 副标题）；没有对应预算时返回 null。
+String? reasoningEffortBudgetLabel(String effort) {
+  final budget = reasoningEffortBudgets[normalizeReasoningEffort(effort)];
+  if (budget == null) return null;
+  // 档位是工程取值，展示按 k 取整即可（下发仍是精确值，且会被 max_tokens 夹取）。
+  if (budget < 1000) return '思考预算 $budget token';
+  return '思考预算约 ${(budget / 1000).round()}k token';
+}
 
 /// 把强度换算成思考预算。
 ///

@@ -27,6 +27,7 @@ import '../models/plugin.dart';
 import '../models/conversation_context.dart';
 import '../models/message.dart';
 import '../models/model_config.dart';
+import '../models/reasoning_effort.dart';
 import '../providers/conversation_provider.dart';
 import '../providers/feature_provider.dart';
 import '../providers/calendar_provider.dart';
@@ -485,6 +486,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
   bool _preparingSend = false;
   bool _showAttach = false;
   bool _showModelMenu = false;
+  bool _showThinkingMenu = false;
 
   /// 当前生效的 `@` / `/` 触发；null 表示没有触发（面板关闭）。
   ComposerTriggerMatch? _composerTrigger;
@@ -1021,8 +1023,13 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     if (conv == null) return;
     _draftSettings = null;
     _toolRoundLimitMessageId = null;
-    _thinking = conv.settings.thinking;
-    _reasoningEffort = conv.settings.reasoningEffort;
+    // 历史配置可能把强度存成 "none"（关闭思考）：在 UI 侧归一化成"关"。
+    final storedEffort = conv.settings.reasoningEffort;
+    _thinking =
+        conv.settings.thinking && !isReasoningEffortDisabled(storedEffort);
+    _reasoningEffort = isReasoningEffortDisabled(storedEffort)
+        ? null
+        : storedEffort;
     _agentEnabled = conv.settings.agentEnabled;
   }
 
@@ -3314,7 +3321,10 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     final updated = config.copyWith(modelName: modelName);
     mp.updateModel(updated);
     _switchModel(updated);
-    setState(() => _showModelMenu = false);
+    setState(() {
+      _showModelMenu = false;
+      _showThinkingMenu = false;
+    });
   }
 
   Future<void> _retry() async {
@@ -4630,6 +4640,8 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
                     ),
               if (_showScrollToBottom) _scrollToBottomButton(),
               if (_showModelMenu) _floatingModelList(mp),
+              if (_showThinkingMenu && model != null)
+                _floatingThinkingList(model),
             ],
           ),
         ),
@@ -6699,7 +6711,10 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
                             _switchModel(m);
                           } else {
                             _switchModel(m);
-                            setState(() => _showModelMenu = false);
+                            setState(() {
+      _showModelMenu = false;
+      _showThinkingMenu = false;
+    });
                           }
                         },
                       ),
@@ -6730,7 +6745,10 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
                                 ),
                                 onTap: () {
                                   _setSubModel(m, e.name);
-                                  setState(() => _showModelMenu = false);
+                                  setState(() {
+      _showModelMenu = false;
+      _showThinkingMenu = false;
+    });
                                 },
                               ),
                             ),
@@ -6900,7 +6918,10 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
             ComposerTriggerMatch.referenceSymbol,
           );
           if (_focusNode.canRequestFocus) _focusNode.requestFocus();
-          setState(() => _showModelMenu = false);
+          setState(() {
+            _showModelMenu = false;
+            _showThinkingMenu = false;
+          });
           _syncComposerTrigger();
         },
         child: Container(
@@ -7006,6 +7027,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     return InkWell(
       onTap: () => setState(() {
         _showModelMenu = true;
+        _showThinkingMenu = false;
         _closeComposerPalette();
       }),
       child: ConstrainedBox(
@@ -7163,85 +7185,88 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     );
   }
 
+  /// 思考设置按钮：像模型选择一样点开列表，直接选「关 / 默认 / 强度档位」。
+  ///
+  /// 一个控件同时表达开关与强度，避免"开关旁边再挂一个小箭头"的双入口：
+  /// 选「关」= 关闭思考；「默认」= 开启思考但不指定强度；档位 = 开启思考并指定强度。
   Widget _thinkBtn() {
     final model = _getModel(context.read<ModelConfigProvider>());
     final available = model == null || _supportsThinking(model);
-    final button = _inputActionButton(
-      id: 'thinking',
-      icon: Icons.psychology,
-      label: '思考',
-      selected: _thinking && available,
-      onPressed: available
-          ? () {
-              final value = !_thinking;
-              setState(() => _thinking = value);
-              if (_convId != null) {
-                final conv = context
-                    .read<ConversationProvider>()
-                    .getConversation(_convId!);
-                if (conv != null) {
-                  _saveConversationSettings(
-                    conv.settings.copyWith(thinking: value),
-                  );
-                }
-              } else if (_draftSettings != null) {
-                _saveDraftSettings(_draftSettings!.copyWith(thinking: value));
-              }
-            }
-          : null,
-    );
-    final effort = model == null ? null : _thinkingEffortBtn(model, available);
-    if (effort == null) return button;
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [button, const SizedBox(width: 2), effort],
-    );
-  }
-
-  /// 思考强度选择：只在模型目录给出了 effort 取值时出现。
-  ///
-  /// 取值写进对话设置（未创建对话时写草稿设置）；「模型默认」表示不指定强度，
-  /// 由模型配置或服务端默认行为决定。
-  Widget? _thinkingEffortBtn(ModelConfig model, bool available) {
-    final values = model.effectiveReasoningEffortValues;
-    if (values.isEmpty) return null;
-    final current = model.resolveReasoningEffort(_reasoningEffort);
-    final label = current ?? '默认';
+    if (!available) {
+      return _inputActionButton(
+        id: 'thinking',
+        icon: Icons.psychology,
+        label: '思考',
+        selected: false,
+        onPressed: null,
+      );
+    }
     final scheme = Theme.of(context).colorScheme;
-    return Tooltip(
-      message: '思考强度：$label',
-      child: PopupMenuButton<String>(
-        tooltip: '思考强度',
-        enabled: available,
-        onSelected: (value) =>
-            _setReasoningEffort(value.isEmpty ? null : value, model),
-        itemBuilder: (_) => [
-          const PopupMenuItem(value: '', child: Text('模型默认')),
-          for (final value in values)
-            PopupMenuItem(value: value, child: Text(value)),
-        ],
+    final selected = _thinking;
+    // 文案固定是「思考」：关闭时灰色、开启（默认）时亮色；选了档位就追加档位名。
+    final effort = _reasoningEffort?.trim() ?? '';
+    final label = !_thinking || effort.isEmpty ? '思考' : '思考 · $effort';
+    final hideLabel = MediaQuery.sizeOf(context).width < 430;
+    if (_showThinkingMenu) {
+      return InkWell(
+        onTap: () => setState(() => _showThinkingMenu = false),
+        borderRadius: BorderRadius.circular(8),
         child: Container(
           constraints: const BoxConstraints(minHeight: 32),
-          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(8),
+            color: scheme.primary.withValues(alpha: 0.1),
+            border: Border.all(color: scheme.primary.withValues(alpha: 0.3)),
+          ),
+          child: Icon(
+            Icons.psychology,
+            size: 16,
+            color: scheme.primary,
+          ),
+        ),
+      );
+    }
+    return Tooltip(
+      message: '思考：${_thinkingStateLabel()}',
+      child: InkWell(
+        borderRadius: BorderRadius.circular(8),
+        onTap: () => setState(() {
+          _showThinkingMenu = true;
+          _showModelMenu = false;
+          _closeComposerPalette();
+        }),
+        child: Container(
+          constraints: const BoxConstraints(minHeight: 32),
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(8),
+            color: selected ? scheme.primary.withValues(alpha: 0.1) : null,
             border: Border.all(
-              color: scheme.outlineVariant.withValues(alpha: 0.3),
+              color: selected
+                  ? scheme.primary.withValues(alpha: 0.3)
+                  : scheme.outlineVariant.withValues(alpha: 0.3),
             ),
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text(
-                label,
-                style: TextStyle(
-                  fontSize: 11,
-                  color: available
-                      ? (current == null ? scheme.outline : scheme.primary)
-                      : scheme.onSurface.withValues(alpha: 0.15),
-                ),
+              Icon(
+                Icons.psychology,
+                size: 16,
+                color: selected ? scheme.primary : scheme.outline,
               ),
-              Icon(Icons.expand_more, size: 15, color: scheme.outline),
+              if (!hideLabel) ...[
+                const SizedBox(width: 4),
+                Text(
+                  label,
+                  maxLines: 1,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: selected ? scheme.primary : scheme.outline,
+                  ),
+                ),
+              ],
             ],
           ),
         ),
@@ -7249,25 +7274,132 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     );
   }
 
-  /// 保存思考强度到当前对话（或草稿）设置。
-  ///
-  /// 草稿设置可能还没建立（新对话在第一次保存设置前 `_draftSettings` 为 null），
-  /// 这种情况下用 [_currentConversationSettings] 现算一份再改，否则这里选的强度
-  /// 只对第一次请求生效，新建对话时不会写进对话设置。
-  void _setReasoningEffort(String? value, ModelConfig model) {
-    setState(() => _reasoningEffort = value);
+  /// 当前思考设置的状态文本（用于提示气泡）：关 / 默认 / 档位名。
+  String _thinkingStateLabel() {
+    if (!_thinking) return '关';
+    final current = _reasoningEffort?.trim();
+    if (current == null || current.isEmpty) return '默认';
+    return current;
+  }
+
+  /// 思考设置的浮层列表，样式与模型选择一致。
+  Widget _floatingThinkingList(ModelConfig model) {
+    return Positioned(
+      left: 12,
+      right: 12,
+      bottom: 8,
+      child: Material(
+        elevation: 8,
+        borderRadius: BorderRadius.circular(12),
+        color: Colors.transparent,
+        child: _thinkingList(model),
+      ),
+    );
+  }
+
+  Widget _thinkingList(ModelConfig model) {
+    final scheme = Theme.of(context).colorScheme;
+    final effortValues = model.effectiveReasoningEffortValues;
+    // 目录只给预算（没有 effort 取值）时，档位是我们换算出来的，副标题把预算说清楚。
+    final fallbackLadder =
+        model.activeEntry?.catalog?.reasoningEffortValues.isEmpty ?? true;
+    final current = _reasoningEffort?.trim();
+    Widget option({
+      required IconData icon,
+      required String title,
+      String? subtitle,
+      required bool selected,
+      required VoidCallback onTap,
+    }) {
+      return ListTile(
+        dense: true,
+        leading: Icon(
+          icon,
+          size: 18,
+          color: selected ? scheme.primary : scheme.outline,
+        ),
+        title: Text(title, style: const TextStyle(fontSize: 14)),
+        subtitle: subtitle == null
+            ? null
+            : Text(subtitle, style: const TextStyle(fontSize: 11)),
+        selected: selected,
+        onTap: onTap,
+      );
+    }
+
+    return Material(
+      color: scheme.surfaceContainerHighest,
+      borderRadius: BorderRadius.circular(10),
+      clipBehavior: Clip.antiAlias,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxHeight: 260),
+        child: ListView(
+          shrinkWrap: true,
+          children: [
+            option(
+              icon: !_thinking ? Icons.check_circle : Icons.circle_outlined,
+              title: '关',
+              subtitle: '不启用思考',
+              selected: !_thinking,
+              onTap: () =>
+                  _selectThinking(model, enabled: false, effort: null),
+            ),
+            option(
+              icon: _thinking && (current == null || current.isEmpty)
+                  ? Icons.check_circle
+                  : Icons.circle_outlined,
+              title: '默认',
+              subtitle: '开启思考，强度交给模型与服务端默认',
+              selected: _thinking && (current == null || current.isEmpty),
+              onTap: () =>
+                  _selectThinking(model, enabled: true, effort: null),
+            ),
+            for (final value in effortValues)
+              option(
+                icon: _thinking && current == value
+                    ? Icons.check_circle
+                    : Icons.circle_outlined,
+                title: value,
+                subtitle: fallbackLadder
+                    ? reasoningEffortBudgetLabel(value)
+                    : null,
+                selected: _thinking && current == value,
+                onTap: () =>
+                    _selectThinking(model, enabled: true, effort: value),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// 应用一次思考设置（开关 + 强度）并写进当前对话或草稿设置。
+  void _selectThinking(
+    ModelConfig model, {
+    required bool enabled,
+    required String? effort,
+  }) {
+    setState(() {
+      _thinking = enabled;
+      _reasoningEffort = effort;
+      _showThinkingMenu = false;
+    });
     if (_convId != null) {
       final conv = context.read<ConversationProvider>().getConversation(_convId!);
       if (conv != null) {
         _saveConversationSettings(
-          conv.settings.copyWith(reasoningEffort: value),
+          conv.settings.copyWith(thinking: enabled, reasoningEffort: effort),
         );
         return;
       }
     }
+    // 草稿设置可能还没建立（新对话在第一次保存设置前 `_draftSettings` 为 null），
+    // 这时按当前模型现算一份再改；否则这里选的开关与强度只影响下一次请求，
+    // 新建对话时不会写进对话设置。
     _saveDraftSettings(
       (_draftSettings ?? _currentConversationSettings(model)).copyWith(
-        reasoningEffort: value,
+        thinking: enabled,
+        reasoningEffort: effort,
       ),
     );
   }

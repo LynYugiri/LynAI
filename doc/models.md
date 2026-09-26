@@ -169,7 +169,9 @@ OCR 悬浮翻译使用请求内轻量文本组。Native OCR 输出 `text`、识�
 
 `reasoning_options` 有三种形态：`{type: toggle}`、`{type: effort, values: [...]}`、`{type: budget_tokens, min}`。`lib/models/reasoning_effort.dart` 定义客户端与后端共用的强度取值集合（`none`/`minimal`/`low`/`medium`/`high`/`xhigh`/`max`）、`none` 表示关闭思考，以及 effort → 思考预算的换算阶梯（1024/2048/8192/24576/32768/49152，用于 Anthropic 风格接口）；换算结果会被夹在 `[min, max_tokens-1]` 内。该阶梯是工程取值，不代表任何厂商推荐值。
 
-`ConversationSettings.reasoningEffort` 是对话级强度，`ModelEntry.reasoningEffort` 是模型默认强度；`ModelConfig.resolveReasoningEffort` 按「对话 > 模型默认 > 不指定」解析。不指定时客户端不下发任何强度参数。
+`ConversationSettings.reasoningEffort` 是对话级强度，`ModelEntry.reasoningEffort` 是模型默认强度；`ModelConfig.resolveReasoningEffort` 按「对话 > 模型默认 > 不指定」解析。不指定时客户端不下发任何强度参数；`none` 表示关闭思考，UI 侧会把历史配置里的 `none` 归一化成「关」。
+
+`ModelConfig.effectiveReasoningEffortValues` 是 UI 可选档位：目录给出 effort 取值时用目录值（去掉与「关」重复的 `none`）；目录只给 `budget_tokens` 的预算型模型，只在能忠实换算成下发字段的配置上回退到 `budgetReasoningEffortLadder`（`low`/`medium`/`high`，见 `lib/models/reasoning_effort.dart`）——即直连 Anthropic（`thinking.budget_tokens`），或托管 relay 且 `/relay/config` 已广告 `capabilities.reasoningEffort`（由后端按上游格式换算）。其他 OpenAI 兼容端点不做猜测，宁可不给档位。
 
 ## AppSettings、角色和提示词
 
