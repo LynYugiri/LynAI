@@ -28,4 +28,14 @@ else
   exit 1
 fi
 
-node "${FLAGS[@]}" --test scripts/ohos-arkts-tests/
+# 显式列出测试文件，不把目录交给 `--test`：Node 22 会把目录参数当成模块去加载
+# （MODULE_NOT_FOUND），而 Node 23+ 才按目录递归查找，同一个脚本在两端行为不同。
+# 通配符由 shell 展开，任何 Node 版本都只看到一组文件参数。
+shopt -s nullglob
+TESTS=(scripts/ohos-arkts-tests/*.test.mjs)
+if [[ ${#TESTS[@]} -eq 0 ]]; then
+  echo "没有找到 ArkTS 单元测试（scripts/ohos-arkts-tests/*.test.mjs）" >&2
+  exit 1
+fi
+
+node "${FLAGS[@]}" --test "${TESTS[@]}"

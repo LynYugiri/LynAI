@@ -510,6 +510,8 @@ ArkTS 侧的纯逻辑（不依赖任何鸿蒙 API 的部分）放在 `.ts` 模�
 bash scripts/ohos-arkts-tests/run.sh   # 需要 Node >= 22.6
 ```
 
+该脚本暂未纳入 GitHub Actions（发布前本地手动执行一次）。脚本按文件列表调用 `node --test`，Node 22 与 23+ 都能跑；`--test <目录>` 在 Node 22 会被当成模块加载并报 `MODULE_NOT_FOUND`，不要再改回目录写法。
+
 | 测试 | 覆盖内容 |
 |------|----------|
 | `scripts/ohos-arkts-tests/reminder_plan.test.mjs` | `ReminderPlan.ts`（日程提醒计划）：本地墙上时间解析与非法输入、epoch 优先级、过去触发点过滤、升序排列、标题/正文兜底、30 条上限截断、不修改入参 |

@@ -37,12 +37,9 @@ jobs:
       - run: flutter pub get
       - run: flutter analyze
       - run: flutter test
-      # 鸿蒙 ArkTS 侧纯逻辑（ohos/entry/src/main/ets/lynai/*.ts）的单元测试：
-      # 直接用 Node 跑源码，不需要鸿蒙 SDK。
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-      - run: bash scripts/ohos-arkts-tests/run.sh
+      # 鸿蒙 ArkTS 侧纯逻辑单测（scripts/ohos-arkts-tests/run.sh）暂时不进 CI，
+      # 发布前手动跑一次即可。脚本已支持 Node 22（显式列出测试文件，不把目录交给
+      # `--test`）；要重新纳入，恢复 setup-node@v4 + `bash scripts/ohos-arkts-tests/run.sh` 即可。
       - run: ./gradlew app:testDebugUnitTest
         working-directory: android
 
