@@ -449,6 +449,15 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
   /// 鸿蒙语音识别的会话序号：只在开始新会话或离开页面时递增，
   /// 这样松手后的最终识别结果仍能落回输入框（与其它平台的长按语义一致）。
   int _ohosSpeechSession = 0;
+
+  /// 浮层高度预留：输入区本身的高度。
+  ///
+  /// 面板锚在输入区上沿上方，而输入区与浮层是 Overlay 里的两个兄弟节点，这里
+  /// 拿不到 leader 的实际高度，只能用固定预留估算。
+  static const double _composerOverlayInputReserve = 140;
+
+  /// 浮层高度预留：面板自己的标题行与内边距（列表最大高度之外的部分）。
+  static const double _composerOverlayChromeReserve = 56;
   final _generationBackgroundService = const GenerationBackgroundService();
   late final AttachmentStorageService _attachmentStorage;
   late final ApiService _api;
@@ -502,7 +511,8 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
   final LayerLink _composerPaletteLink = LayerLink();
 
   /// `OverlayPortal` 的构造需要 controller；面板显隐完全由 overlay 内容决定
-  /// （为空时不占位），因此不调用 show/hide，避免在 build 期间触碰 scheduler。
+  /// （为空时不占位），因此只在 [initState] 里 show() 一次，之后不再触碰
+  /// show/hide——两者都断言不能在建树期间调用，而恢复草稿发生在 didUpdateWidget。
   final OverlayPortalController _composerOverlayController =
       OverlayPortalController();
 
@@ -601,6 +611,12 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
+    // 输入区上方的触发面板一直保持「已显示」，内容为空时 overlay 子节点是
+    // SizedBox.shrink()，不占位也不拦截命中。这样就不需要在 build/事件路径里
+    // 调用 OverlayPortalController.show()/hide()——两个方法都断言不能在建树期间
+    // 调用，而 didUpdateWidget 恢复草稿时正处在 build 阶段（曾经直接触发断言）。
+    // 此时 OverlayPortal 还没建出来，show() 只记录意图，附加后自动生效。
+    _composerOverlayController.show();
     _historyScrollController = ScrollController(keepScrollOffset: false)
       ..addListener(_rememberHistoryScrollOffset);
     _attachmentStorage = AttachmentStorageService(
@@ -982,6 +998,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       modelId: role.modelId ?? model.id,
       modelName: role.modelName ?? model.modelName,
       thinking: _thinking,
+      reasoningEffort: _reasoningEffort,
       agentEnabled: _agentEnabled,
       maxToolRounds: settings.agentMaxToolRounds,
       selectedSystemPromptId: role.id == ChatRole.defaultId ? null : role.id,
@@ -1738,6 +1755,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       if (conv != null) {
         return conv.settings.copyWith(
           thinking: _thinking,
+          reasoningEffort: _reasoningEffort,
           agentEnabled: _agentEnabled,
         );
       }
@@ -1747,6 +1765,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
         modelId: model.id,
         modelName: model.modelName,
         thinking: _thinking,
+        reasoningEffort: _reasoningEffort,
         agentEnabled: _agentEnabled,
       );
     }
@@ -1763,6 +1782,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       modelId: model.id,
       modelName: model.modelName,
       thinking: _thinking,
+      reasoningEffort: _reasoningEffort,
       agentEnabled: _agentEnabled,
       maxToolRounds: set.agentMaxToolRounds,
       selectedSystemPromptId: set.selectedSystemPromptId,
@@ -1804,6 +1824,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       if (conv != null) {
         return conv.settings.copyWith(
           thinking: _thinking,
+          reasoningEffort: _reasoningEffort,
           agentEnabled: _agentEnabled,
         );
       }
@@ -1890,7 +1911,6 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
   }
 
   void _closeComposerPalette() {
-    _setComposerOverlayVisible(false);
     _composerTrigger = null;
     _composerPendingSelector = null;
     _composerItemRows = const [];
@@ -1923,7 +1943,6 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
         _composerTrigger?.query != match.query ||
         _composerTrigger?.start != match.start;
     if (!changed) return;
-    _setComposerOverlayVisible(true);
     setState(() {
       _composerTrigger = match;
       _composerSelectedIndex = 0;
@@ -2259,7 +2278,6 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       _showMissingChatModelTip();
       return;
     }
-    _setComposerOverlayVisible(true);
     setState(() => _composerCommandBusy = '正在压缩较早的对话历史…');
     final conversationsReadAvailable = _conversationsReadAvailable();
     try {
@@ -2313,7 +2331,6 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     } finally {
       if (mounted) {
         setState(() => _composerCommandBusy = null);
-        if (_composerTrigger == null) _setComposerOverlayVisible(false);
       }
     }
   }
@@ -2338,7 +2355,6 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       _showMissingChatModelTip();
       return;
     }
-    _setComposerOverlayVisible(true);
     setState(() => _composerCommandBusy = '正在总结这段对话…');
     final conversationsReadAvailable = _conversationsReadAvailable();
     try {
@@ -2397,7 +2413,6 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     } finally {
       if (mounted) {
         setState(() => _composerCommandBusy = null);
-        if (_composerTrigger == null) _setComposerOverlayVisible(false);
       }
     }
   }
@@ -6416,7 +6431,9 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
           targetAnchor: Alignment.topCenter,
           followerAnchor: Alignment.bottomCenter,
           child: _composerTrigger != null || _composerCommandBusy != null
-              ? _composerOverlayPanels()
+              ? _composerOverlayPanels(
+                  maxHeight: _composerOverlayMaxHeight(context),
+                )
               : const SizedBox.shrink(),
         ),
       ),
@@ -6525,25 +6542,25 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     );
   }
 
-  /// 浮在输入区上方的触发面板与 `/压缩`、`/总结` 进度条。
-  /// 同步 overlay 显隐。
+  /// 浮层可用的最大高度。
   ///
-  /// `OverlayPortalController.show()/hide()` 不允许在 build 期间调用，因此这里
-  /// 只在状态真正变化的事件处理路径（触发态建立/关闭、指令开始/结束）里调用；
-  /// 组件树在 [dispose] 后也会走到这里，所以要判 [mounted]。
-  void _setComposerOverlayVisible(bool shouldShow) {
-    if (!mounted) return;
-    if (shouldShow) {
-      if (!_composerOverlayController.isShowing) {
-        _composerOverlayController.show();
-      }
-    } else if (_composerOverlayController.isShowing) {
-      _composerOverlayController.hide();
-    }
+  /// 面板锚在输入区上沿上方，所以可用高度是「输入区上沿 - 状态栏」。这里拿不到
+  /// leader 的实际高度（输入区与浮层是 Overlay 里的两个兄弟节点），用固定预留值
+  /// 估算：短屏或横屏时如果不夹取，面板顶部（含返回行与首批候选）会被顶出屏幕，
+  /// 那部分连滚动都回不来。
+  double _composerOverlayMaxHeight(BuildContext context) {
+    final media = MediaQuery.of(context);
+    final available =
+        media.size.height -
+        media.viewInsets.bottom -
+        media.padding.top -
+        _composerOverlayInputReserve -
+        _composerOverlayChromeReserve;
+    return available.clamp(96.0, 320.0);
   }
 
   /// 浮在输入区上方的触发面板与 `/压缩`、`/总结` 进度条。
-  Widget _composerOverlayPanels() {
+  Widget _composerOverlayPanels({required double maxHeight}) {
     final trigger = _composerTrigger;
     final busy = _composerCommandBusy;
     if (trigger == null && busy == null) return const SizedBox.shrink();
@@ -6561,7 +6578,8 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
               // `/压缩`、`/总结` 要跑一次模型调用：没有反馈时用户会以为没反应
               // 而重复触发。
               if (busy != null) _composerBusyBanner(),
-              if (trigger != null) _composerPalette(trigger),
+              if (trigger != null)
+                _composerPalette(trigger, maxHeight: maxHeight),
             ],
           ),
         ),
@@ -6605,12 +6623,16 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
   }
 
   /// `@` / `/` 触发面板主体。
-  Widget _composerPalette(ComposerTriggerMatch trigger) {
+  Widget _composerPalette(
+    ComposerTriggerMatch trigger, {
+    required double maxHeight,
+  }) {
     return Material(
       elevation: 8,
       borderRadius: BorderRadius.circular(12),
       color: Colors.transparent,
       child: ComposerTriggerPalette(
+        maxHeight: maxHeight,
         sourceRows: _composerSourceRows,
         itemRows: _composerItemRows,
         pendingItems: trigger.isReference && _composerPendingSelector != null,
@@ -7228,6 +7250,10 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
   }
 
   /// 保存思考强度到当前对话（或草稿）设置。
+  ///
+  /// 草稿设置可能还没建立（新对话在第一次保存设置前 `_draftSettings` 为 null），
+  /// 这种情况下用 [_currentConversationSettings] 现算一份再改，否则这里选的强度
+  /// 只对第一次请求生效，新建对话时不会写进对话设置。
   void _setReasoningEffort(String? value, ModelConfig model) {
     setState(() => _reasoningEffort = value);
     if (_convId != null) {
@@ -7239,10 +7265,11 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
         return;
       }
     }
-    final draft = _draftSettings;
-    if (draft != null) {
-      _saveDraftSettings(draft.copyWith(reasoningEffort: value));
-    }
+    _saveDraftSettings(
+      (_draftSettings ?? _currentConversationSettings(model)).copyWith(
+        reasoningEffort: value,
+      ),
+    );
   }
 
   Widget _ocrBtn() {
@@ -7577,8 +7604,6 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       );
     }
     if (!supportsVoiceInput) {
-      // 鸿蒙上 record/speech_to_text 暂无可用适配，不展示语音输入入口，
-      // 避免长按后抛 MissingPluginException。
       return const SizedBox.shrink();
     }
     return Tooltip(

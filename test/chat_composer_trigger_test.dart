@@ -3,8 +3,10 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lynai/models/conversation.dart';
 import 'package:lynai/pages/chat_page.dart';
 import 'package:lynai/providers/calendar_provider.dart';
+import 'package:lynai/providers/conversation_provider.dart';
 import 'package:lynai/providers/feature_provider.dart';
 import 'package:lynai/providers/jotting_provider.dart';
 import 'package:lynai/providers/knowledge_provider.dart';
@@ -40,13 +42,21 @@ void main() {
     WidgetTester tester, {
     FeatureProvider? features,
     TaskProvider? tasks,
+    ConversationProvider? conversations,
+    String? conversationId,
+    Size surface = const Size(500, 800),
   }) async {
-    await tester.binding.setSurfaceSize(const Size(500, 800));
-    addTearDown(() => tester.binding.setSurfaceSize(null));
+    // 用 view 而不是 setSurfaceSize：后者只改布局面，MediaQuery 仍报告默认的
+    // 800x600，面板宽度取自 MediaQuery，测试就永远测不到横向溢出。
+    tester.view.physicalSize = surface;
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
     await tester.pumpWidget(
       MultiProvider(
         providers: [
-          ChangeNotifierProvider.value(value: memoryConversationProvider()),
+          ChangeNotifierProvider.value(
+            value: conversations ?? memoryConversationProvider(),
+          ),
           ChangeNotifierProvider.value(value: memorySettingsProvider()),
           ChangeNotifierProvider.value(value: memoryWorkspaceProvider()),
           ChangeNotifierProvider.value(value: memoryModelConfigProvider()),
@@ -60,7 +70,7 @@ void main() {
           ChangeNotifierProvider(create: (_) => BackendClient()),
           Provider.value(value: storage),
         ],
-        child: const MaterialApp(home: ChatPage()),
+        child: MaterialApp(home: ChatPage(conversationId: conversationId)),
       ),
     );
     await tester.pump();
@@ -97,10 +107,57 @@ void main() {
       lessThanOrEqualTo(composer.top + 1),
       reason: '面板底边应贴在输入框上沿之外，而不是盖住输入框',
     );
+    // 面板整体必须落在视口内：顶部被顶出屏幕的部分连滚动都回不来。
+    expect(palette.top, greaterThanOrEqualTo(0));
+    expect(palette.left, greaterThanOrEqualTo(0));
+    expect(palette.right, lessThanOrEqualTo(tester.view.physicalSize.width));
 
     // 输入框与发送按钮仍然可见、可点。
     expect(composer.height, greaterThan(0));
     expect(find.byTooltip('插入引用（也可直接输入 @）'), findsOneWidget);
+    await settleDrafts(tester);
+  });
+
+  testWidgets('短屏下触发面板被夹在输入区上方且顶部可见', (tester) async {
+    // 横屏/小屏：面板原本按列表最大高度撑开，顶部（含返回行）会被顶出屏幕。
+    await pumpChat(tester, surface: const Size(400, 360));
+    await typeInComposer(tester, '@');
+    expect(find.byType(ComposerTriggerPalette), findsOneWidget);
+
+    final palette = paletteRect(tester);
+    expect(palette.top, greaterThanOrEqualTo(0));
+    expect(palette.bottom, lessThanOrEqualTo(composerRect(tester).top + 1));
+    await settleDrafts(tester);
+  });
+
+  testWidgets('切换对话重建页面时不在 build 期间操作浮层', (tester) async {
+    // HomePage 用 `ChatPage(conversationId: ...)` 重建页面来切换对话，会走
+    // didUpdateWidget → 恢复草稿 → 同步浮层。OverlayPortalController 的
+    // show()/hide() 都断言不能在建树期间调用，v4.2.0 在这里直接触发断言。
+    final conversations = memoryConversationProvider();
+    final first = conversations.createConversation(
+      ConversationSettings(modelId: 'm1'),
+    );
+    final second = conversations.createConversation(
+      ConversationSettings(modelId: 'm1'),
+    );
+
+    await pumpChat(
+      tester,
+      conversations: conversations,
+      conversationId: first,
+    );
+    await typeInComposer(tester, '@');
+    expect(find.byType(ComposerTriggerPalette), findsOneWidget);
+
+    // 同一个位置重建 ChatPage（切换对话）：不能抛断言，浮层按新对话草稿收起。
+    await pumpChat(
+      tester,
+      conversations: conversations,
+      conversationId: second,
+    );
+    expect(tester.takeException(), isNull);
+    expect(find.byType(ComposerTriggerPalette), findsNothing);
     await settleDrafts(tester);
   });
 

@@ -115,6 +115,7 @@ class ComposerTriggerPalette extends StatefulWidget {
     required this.onEnterSource,
     required this.onBack,
     this.emptyHint = '没有匹配项',
+    this.maxHeight = 280,
   });
 
   /// 首层候选项（跨源搜索结果或指令列表）。
@@ -141,6 +142,12 @@ class ComposerTriggerPalette extends StatefulWidget {
   final VoidCallback onBack;
 
   final String emptyHint;
+
+  /// 列表区最大高度。
+  ///
+  /// 面板锚在输入区上沿上方，短屏/横屏时可用高度会明显小于 280：超出部分会被
+  /// 顶出屏幕外，面板顶部的返回行与首批候选都点不到，因此由页面按可用空间下发。
+  final double maxHeight;
 
   @override
   State<ComposerTriggerPalette> createState() => _ComposerTriggerPaletteState();
@@ -192,7 +199,7 @@ class _ComposerTriggerPaletteState extends State<ComposerTriggerPalette> {
         children: [
           _header(scheme),
           ConstrainedBox(
-            constraints: const BoxConstraints(maxHeight: 280),
+            constraints: BoxConstraints(maxHeight: widget.maxHeight),
             child: rows.isEmpty
                 ? Padding(
                     padding: const EdgeInsets.all(20),
