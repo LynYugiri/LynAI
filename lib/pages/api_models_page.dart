@@ -20,6 +20,49 @@ import 'mcp_settings_page.dart';
 import 'model_catalog_settings_page.dart';
 import 'web_search_settings_page.dart';
 
+/// 子模型能力开关弹窗的保存结果。
+class CapabilityEditResult {
+  /// 创建保存结果。
+  const CapabilityEditResult({
+    required this.overrides,
+    required this.configured,
+  });
+
+  /// 需要写进 `ModelEntry.capabilityOverrides` 的显式覆盖。
+  final Map<String, bool> overrides;
+
+  /// 需要写回子模型手填字段的能力（只包含用户拨动过的开关）。
+  final Map<String, bool> configured;
+}
+
+/// 把弹窗里的能力开关合并成「手填值 + 显式覆盖」。
+///
+/// 规则：
+/// - 用户没拨动过的开关保持原样：不写回手填字段（目录推导出来的值写回去会变成
+///   「用户显式关闭」，之后目录更新也改不回来），原有覆盖也保留；
+/// - 拨动过的开关写回手填字段，并在「与目录建议不同」或「目录还没有建议」时固定
+///   成显式覆盖，避免下一次目录刷新把用户的选择改回去。
+CapabilityEditResult resolveCapabilityEdits({
+  required Map<String, bool> existingOverrides,
+  required Map<String, bool?> catalogValues,
+  required Map<String, bool> chosen,
+  required Set<String> touched,
+}) {
+  final overrides = Map<String, bool>.from(existingOverrides);
+  final configured = <String, bool>{};
+  for (final item in chosen.entries) {
+    if (!touched.contains(item.key)) continue;
+    configured[item.key] = item.value;
+    final fromCatalog = catalogValues[item.key];
+    if (fromCatalog == null || fromCatalog != item.value) {
+      overrides[item.key] = item.value;
+    } else {
+      overrides.remove(item.key);
+    }
+  }
+  return CapabilityEditResult(overrides: overrides, configured: configured);
+}
+
 const _endpointPresets = [
   {'name': 'OpenAI', 'url': 'https://api.openai.com/v1', 'type': 'openai'},
   {'name': 'DeepSeek', 'url': 'https://api.deepseek.com', 'type': 'openai'},
@@ -483,6 +526,11 @@ class _EditModelPageState extends State<_EditModelPage> {
     _modelEntries =
         model?.models.toList() ?? [ModelEntry(name: '', enabled: false)];
     _filteredPresets = List.from(_currentEndpointPresets);
+    // 手动指定的目录来源不在默认集合里时，重新登记一次，刷新才不会把它裁掉。
+    registerConfiguredCatalogProviders(
+      modelCatalogOrNull(context),
+      widget.provider.models,
+    );
   }
 
   String _defaultName() => '';
@@ -1816,6 +1864,11 @@ class _EditModelPageState extends State<_EditModelPage> {
       document: catalog?.document,
     );
     final selected = _catalogProviderId;
+    // 已保存的手动来源可能不在当前目录文档里（目录尚未加载、后端代理只返回默认
+    // 集合、或该 provider 已被上游移除）。DropdownButton 要求 value 恰好命中一个
+    // item，否则直接断言失败，因此把缺失的当前值补进候选。
+    final missingSelection =
+        selected != null && !providers.any((item) => item.id == selected);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1841,13 +1894,24 @@ class _EditModelPageState extends State<_EditModelPage> {
                 value: provider.id,
                 child: Text('${provider.name}（${provider.id}）'),
               ),
+            if (missingSelection)
+              DropdownMenuItem<String?>(
+                value: selected,
+                child: Text('$selected（目录中暂无）'),
+              ),
           ],
-          onChanged: (value) => setState(() => _catalogProviderId = value),
+          onChanged: (value) {
+            // 手动指定的来源不一定在默认集合里，登记后下次刷新会把它一起拉取。
+            if (value != null) catalog?.requestProvider(value);
+            setState(() => _catalogProviderId = value);
+          },
         ),
         const SizedBox(height: 4),
         Text(
           providers.isEmpty
               ? '还没有目录数据：可在「设置 → 模型目录」里刷新，或先保存一次让内置快照生效。'
+              : missingSelection
+              ? '当前来源不在目录数据里：可刷新一次目录，或改回自动识别。'
               : '目录只用于补全空缺参数；手填值、Endpoint 返回值优先。',
           style: TextStyle(fontSize: 12, color: Colors.grey[600]),
         ),
@@ -2253,6 +2317,9 @@ class _EditModelPageState extends State<_EditModelPage> {
       'supportsTools',
       entry.supportsTools,
     );
+    // 用户真正拨动过的开关：只有这些才写回子模型字段并固定成显式覆盖，没动过的
+    // 继续跟随目录。否则「目录还没有数据时打开开关」会在下次刷新被目录改回去。
+    final touchedCapabilities = <String>{};
     var reasoningEffort = entry.reasoningEffort;
     final result = await showDialog<ModelEntry>(
       context: context,
@@ -2275,21 +2342,30 @@ class _EditModelPageState extends State<_EditModelPage> {
                     title: const Text('视觉'),
                     subtitle: const Text('可用于图片/文件识别和视觉输入'),
                     value: supportsVision,
-                    onChanged: (v) => setDialog(() => supportsVision = v),
+                    onChanged: (v) => setDialog(() {
+                      supportsVision = v;
+                      touchedCapabilities.add('supportsVision');
+                    }),
                   ),
                   SwitchListTile(
                     contentPadding: EdgeInsets.zero,
                     title: const Text('思考'),
                     subtitle: const Text('发送 thinking/reasoning 相关参数'),
                     value: supportsThinking,
-                    onChanged: (v) => setDialog(() => supportsThinking = v),
+                    onChanged: (v) => setDialog(() {
+                      supportsThinking = v;
+                      touchedCapabilities.add('supportsThinking');
+                    }),
                   ),
                   SwitchListTile(
                     contentPadding: EdgeInsets.zero,
                     title: const Text('工具使用'),
                     subtitle: const Text('OpenAI 格式下发送 tools/tool_choice'),
                     value: supportsTools,
-                    onChanged: (v) => setDialog(() => supportsTools = v),
+                    onChanged: (v) => setDialog(() {
+                      supportsTools = v;
+                      touchedCapabilities.add('supportsTools');
+                    }),
                   ),
                   const SizedBox(height: 12),
                   TextFormField(
@@ -2400,40 +2476,39 @@ class _EditModelPageState extends State<_EditModelPage> {
             TextButton(
               onPressed: () {
                 if (!formKey.currentState!.validate()) return;
-                final overrides = Map<String, bool>.from(
-                  entry.capabilityOverrides,
+                final edit = resolveCapabilityEdits(
+                  existingOverrides: entry.capabilityOverrides,
+                  catalogValues: <String, bool?>{
+                    'supportsVision': catalogHint?.supportsVision,
+                    'supportsTools': catalogHint?.supportsTools,
+                    'supportsThinking': catalogHint?.supportsThinking,
+                  },
+                  chosen: <String, bool>{
+                    'supportsVision': supportsVision,
+                    'supportsTools': supportsTools,
+                    'supportsThinking': supportsThinking,
+                  },
+                  touched: touchedCapabilities,
                 );
-                final catalogValues = <String, bool?>{
-                  'supportsVision': catalogHint?.supportsVision,
-                  'supportsTools': catalogHint?.supportsTools,
-                  'supportsThinking': catalogHint?.supportsThinking,
-                };
-                final chosen = <String, bool>{
-                  'supportsVision': supportsVision,
-                  'supportsTools': supportsTools,
-                  'supportsThinking': supportsThinking,
-                };
-                for (final item in chosen.entries) {
-                  final fromCatalog = catalogValues[item.key];
-                  if (fromCatalog != null && fromCatalog != item.value) {
-                    // 用户选择与目录建议不同：固定下来，别被下次刷新改回去。
-                    overrides[item.key] = item.value;
-                  } else {
-                    overrides.remove(item.key);
-                  }
-                }
                 Navigator.pop(
                   ctx,
                   entry.copyWith(
-                    supportsVision: supportsVision,
-                    supportsThinking: supportsThinking,
-                    supportsTools: supportsTools,
+                    // 只有用户拨动过的开关才写回子模型字段：把目录推导出来的值写进
+                    // 手填字段会让它变成「用户显式关闭」，之后目录更新也改不回来。
+                    supportsVision:
+                        edit.configured['supportsVision'] ??
+                        entry.supportsVision,
+                    supportsThinking:
+                        edit.configured['supportsThinking'] ??
+                        entry.supportsThinking,
+                    supportsTools:
+                        edit.configured['supportsTools'] ?? entry.supportsTools,
                     maxTokens: int.tryParse(maxTokens.text.trim()),
                     temperature: double.tryParse(temperature.text.trim()),
                     topP: double.tryParse(topP.text.trim()),
                     contextWindow: int.tryParse(contextWindow.text.trim()),
                     reasoningEffort: reasoningEffort,
-                    capabilityOverrides: overrides,
+                    capabilityOverrides: edit.overrides,
                   ),
                 );
               },

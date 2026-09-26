@@ -117,9 +117,9 @@ OCR 和文件识别是发送前处理。处理结果会替换历史附件并标�
 `ModelCatalogService` 负责加载、缓存与查询 models.dev 模型目录，供模型配置自动补全上下文窗口、输出上限、能力与思考强度。数据来源优先级：后端 `GET /models/catalog` 代理 → 直连 `https://models.dev/api.json` → 本地缓存文件 → 内置精简快照（`assets/model_catalog/catalog.json`，由 `scripts/build_model_catalog.dart` 生成）。任何一环失败都保留上一份可用数据并把原因写进状态，不向调用方抛异常。
 
 - 直连请求走 `BoundedOutboundHttpClient` + `OutboundNetworkPolicy`（HTTPS、公网 DNS、禁止重定向、8 MiB 上限、30s 超时），带 `If-None-Match`，304 时只更新检查时间；后端代理走 `BackendClient.getBounded('/models/catalog', maxBytes: 6 MiB)`，返回 404/405 时回退直连。
-- 裁剪规则与后端、内置快照一致：只保留默认 provider 集合（与 `defaultModelCatalogProviderIds` 相同）与目录文档需要的字段；命中目录不代表会改写用户配置。
-- 缓存文件是 `model_catalog_cache.json`，位于 storage_v2 根目录同级的 `model_catalog/`（无 storage 时用应用支持目录），内容 = 目录文档 + `etag` + `checkedAt`。它是派生缓存：不进 storage_v2、备份、云同步或 LAN 同步，删除后仍可用内置快照离线补全。
-- `ensureLoaded()` 共享同一次本地加载；缓存超过 `refreshTtl`（7 天）时后台刷新一次。`refresh()` 是显式刷新（设置页按钮、补全按钮），并发调用共享同一个 Future；`clearCache()` 删除缓存并回退内置快照。
+- 裁剪规则与后端、内置快照一致：只保留默认 provider 集合（与 `defaultModelCatalogProviderIds` 相同）与目录文档需要的字段；命中目录不代表会改写用户配置。手动指定到默认集合之外的 provider 由 `requestProvider()` 登记（模型编辑页选择时、设置页与模型编辑页打开时按已保存配置登记），随后刷新会把它一起带上，并在有额外来源时通过 `?providers=` 传给后端代理（最多 32 个，与后端 `MaxProviders` 一致）。
+- 缓存文件是 `model_catalog_cache.json`，位于 storage_v2 根目录同级的 `model_catalog/`（无 storage 时用应用支持目录），内容 = 目录文档 + `etag` + `extraProviders` + `checkedAt`。写入串行化并先写临时文件再 rename：刷新与登记来源可能并发触发写入，直接并发 `writeAsString` 会写出损坏的 JSON。它是派生缓存：不进 storage_v2、备份、云同步或 LAN 同步，删除后仍可用内置快照离线补全。
+- `ensureLoaded()` 共享同一次本地加载；缓存超过 `refreshTtl`（7 天）时后台刷新一次。`refresh()` 是显式刷新（设置页按钮、补全按钮），并发调用共享同一个 Future，成功后清空上一次的失败原因（304 分支同样清空）；`clearCache()` 删除缓存、保留手动登记的来源并回退内置快照。
 - 查询入口是 `hintFor(config, modelName)` / `hintForEndpoint(...)`（返回 `ModelCatalogHint`）与 `candidates(...)`（歧义时给候选）。匹配规则见 [数据模型](models.md)。隐私：只下载公开目录，不上传 API Key、对话内容或任何本机数据。
 
 ## OnDeviceLlmService

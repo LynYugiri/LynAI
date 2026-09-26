@@ -140,7 +140,7 @@
 | 字段 | 说明 |
 |------|------|
 | `catalog` | 从模型目录补全的建议值（`ModelCatalogHint`）：上下文窗口、输出上限、视觉/工具/思考能力、思考强度取值、命中的 `providerId`/`modelId` 与抓取时间。派生数据，刷新时整体替换，不写入用户字段。 |
-| `capabilityOverrides` | 用户在模型编辑器里显式设定的能力开关。只在选择与目录建议不同时记录，避免下次目录刷新把用户显式开启的能力改回去。 |
+| `capabilityOverrides` | 用户在模型编辑器里拨动过的能力开关。只在「与目录建议不同」或「目录还没有建议」时记录，避免下次目录刷新把用户显式开启/关闭的能力改回去；没拨动过的开关不写入，继续跟随目录。 |
 | `reasoningEffort` | 该模型默认使用的思考强度；为空表示不指定，交给服务端默认行为。可选值来自目录的 `reasoning_options`。 |
 
 `effectiveContextWindow` 的优先级是：托管/本机 `userOverrides` > 子模型手填 `contextWindow` > 端点拉取 `fetchedContextWindow` > 目录 `catalog.contextWindow` > Provider 级 `contextWindow`。`effectiveMaxTokens` 同理（目录字段是 `catalog.maxOutputTokens`）。能力开关的生效规则：条目 `capabilityOverrides` > `userOverrides` > 目录建议 > 子模型字段（`false` 视为用户显式关闭，`true` 只是历史默认值）> true；托管配置的值来自服务端下发，只可能被本机覆盖关掉。目录永远只补空缺，不覆盖任何用户输入。
@@ -164,6 +164,8 @@ OCR 悬浮翻译使用请求内轻量文本组。Native OCR 输出 `text`、识�
 `ModelCatalogDocument` 是 models.dev 目录在客户端的规范化视图，字段名沿用上游 wire 名称：`providers.<id>.models.<id>` 下保留 `id`、`name`、`limit`（`context`/`input`/`output`）、`attachment`、`tool_call`、`reasoning`、`reasoning_options`、`modalities`、`temperature`、`release_date`、`last_updated`；`description`、`cost` 等字段在裁剪阶段丢弃。解析容忍单条损坏记录与未知字段，但顶层结构不可识别或 `schemaVersion` 高于当前支持版本时整份拒绝。内置快照、本地缓存、后端 `/models/catalog` 响应共用这一种形状。
 
 `ModelCatalogIndex` 按 provider + 模型名匹配：先精确 id，再依次做小写、去 `vendor/` 前缀、去 `:latest`/`-latest`/`-preview`/日期后缀的归一化匹配；归一化后仍有多个不同模型时返回 null（宁可不填也不猜），候选列表交给 UI。`ModelCatalogProviderResolver` 按「显式 `catalogProviderId` > 已知 endpoint host 表 > 目录里 provider 的 `api` host」解析 provider，本地/未知 endpoint 返回 null。
+
+`ModelConfig.resolveReasoningEffort` 在目录给出该模型 effort 取值时只接受列表里的值：切换模型后残留的强度会被跳过并退回模型默认（`none` 是显式关闭思考，不受列表限制），避免把上一个模型的取值发给当前模型。
 
 `reasoning_options` 有三种形态：`{type: toggle}`、`{type: effort, values: [...]}`、`{type: budget_tokens, min}`。`lib/models/reasoning_effort.dart` 定义客户端与后端共用的强度取值集合（`none`/`minimal`/`low`/`medium`/`high`/`xhigh`/`max`）、`none` 表示关闭思考，以及 effort → 思考预算的换算阶梯（1024/2048/8192/24576/32768/49152，用于 Anthropic 风格接口）；换算结果会被夹在 `[min, max_tokens-1]` 内。该阶梯是工程取值，不代表任何厂商推荐值。
 

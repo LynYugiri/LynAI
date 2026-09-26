@@ -43,6 +43,21 @@ String modelCatalogSourceLabel(ModelCatalogLoadSource source) {
   };
 }
 
+/// 登记已保存配置里手动指定的目录来源。
+///
+/// 目录服务只按默认 provider 集合裁剪数据；手动指定到集合之外的来源必须在这里
+/// 重新登记，后续刷新（含后端代理）才会继续带上它，否则该配置会突然匹配不到目录。
+void registerConfiguredCatalogProviders(
+  ModelCatalogService? catalog,
+  Iterable<ModelConfig> models,
+) {
+  if (catalog == null) return;
+  for (final model in models) {
+    final id = model.catalogProviderId?.trim() ?? '';
+    if (id.isNotEmpty) catalog.requestProvider(id);
+  }
+}
+
 /// 为 [model] 的每个子模型补全或刷新目录建议。
 ///
 /// 只写 `ModelEntry.catalog`（派生数据），不改动用户手填的 `maxTokens`、
@@ -160,6 +175,10 @@ class _ModelCatalogSettingsPageState extends State<ModelCatalogSettingsPage> {
     super.initState();
     final catalog = modelCatalogOrNull(context);
     if (catalog != null) {
+      registerConfiguredCatalogProviders(
+        catalog,
+        context.read<ModelConfigProvider>().models,
+      );
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) catalog.ensureLoaded();
       });

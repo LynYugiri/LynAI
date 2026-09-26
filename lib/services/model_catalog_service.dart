@@ -67,6 +67,9 @@ class ModelCatalogStatus {
   bool get hasData => providerCount > 0;
 }
 
+/// 状态字段「没有传」与「显式传 null」的区分标记。
+const Object _unset = Object();
+
 /// models.dev 模型目录的加载、缓存与查询入口。
 ///
 /// 数据来源优先级：后端 `/models/catalog` 代理 → 直连 models.dev →
@@ -110,6 +113,11 @@ class ModelCatalogService extends ChangeNotifier {
   /// 后端代理响应的大小上限。
   static const maxBackendBytes = 6 * 1024 * 1024;
 
+  /// 单次请求可以向服务端指定的 provider 数量上限。
+  ///
+  /// 与后端 `modelcatalog.MaxProviders` 保持一致：超过会被判为非法列表（400）。
+  static const maxProviderIds = 32;
+
   /// models.dev 的目录文档地址。
   static const remoteUrl = 'https://models.dev/api.json';
 
@@ -135,6 +143,7 @@ class ModelCatalogService extends ChangeNotifier {
   String? _etag;
   Future<void>? _loadFuture;
   Future<bool>? _refreshFuture;
+  Future<void> _cacheWrite = Future<void>.value();
   final Set<String> _extraProviderIds = {};
 
   /// 当前目录文档；尚未加载时为 null。
@@ -193,6 +202,13 @@ class ModelCatalogService extends ChangeNotifier {
           source: ModelCatalogLoadSource.cache,
           etag: cached.etag,
           checkedAt: cached.checkedAt,
+        );
+        // 缓存里记录的额外来源要在下次刷新时继续带上，否则手动指定的 provider
+        // 会在重启后的第一次刷新中被裁掉。
+        _extraProviderIds.addAll(
+          cached.extraProviderIds.where(
+            (id) => !defaultModelCatalogProviderIds.contains(id),
+          ),
         );
         applied = true;
       }
@@ -268,8 +284,14 @@ class ModelCatalogService extends ChangeNotifier {
   Future<bool> _refreshFromBackend() async {
     final backend = _backend;
     if (backend == null) return false;
+    // 手动指定的来源不在服务端默认集合里，必须显式带上（含默认集合），否则
+    // 后端裁掉的目录会让这个 provider 永远无法解析。
+    final wanted = _wantedProviderIds;
+    final query = _extraProviderIds.isEmpty
+        ? ''
+        : '?providers=${Uri.encodeQueryComponent(wanted.take(maxProviderIds).join(','))}';
     final response = await backend.getBounded(
-      backendPath,
+      '$backendPath$query',
       maxBytes: maxBackendBytes,
       headers: {
         'Accept': 'application/json',
@@ -348,20 +370,25 @@ class ModelCatalogService extends ChangeNotifier {
     if (id.isEmpty || defaultModelCatalogProviderIds.contains(id)) return;
     if (!_extraProviderIds.add(id)) return;
     _etag = null;
+    // 额外来源要跟着缓存文件一起跨进程保留，否则重启后一次刷新就会把它裁掉，
+    // 已保存的手动来源会突然解析不到。
+    if (_document != null) unawaited(_writeCacheFile());
   }
 
   /// 清除本地缓存文件，并回退到内置快照。
   ///
   /// 内置快照随包分发，因此清除缓存后仍可离线补全；下次刷新会重新下载。
+  /// 手动指定的额外 provider 属于用户意图而不是下载内容，清除缓存时保留。
   Future<void> clearCache() async {
     try {
+      // 等在途写入结束再删，否则排队中的写入会把刚删掉的文件又写回来。
+      await _cacheWrite;
       final file = await _cacheFile();
       if (file != null && await file.exists()) await file.delete();
     } catch (error) {
       debugPrint('清除模型目录缓存失败: $error');
     }
     _etag = null;
-    _extraProviderIds.clear();
     try {
       final bundled = await _readBundled();
       if (bundled != null) {
@@ -484,11 +511,7 @@ class ModelCatalogService extends ChangeNotifier {
     notifyListeners();
   }
 
-  void _setStatus({
-    bool? loading,
-    DateTime? checkedAt,
-    String? error,
-  }) {
+  void _setStatus({bool? loading, DateTime? checkedAt, Object? error = _unset}) {
     _status = ModelCatalogStatus(
       source: _status.source,
       loading: loading ?? _status.loading,
@@ -496,7 +519,7 @@ class ModelCatalogService extends ChangeNotifier {
       checkedAt: checkedAt ?? _status.checkedAt,
       providerCount: _status.providerCount,
       modelCount: _status.modelCount,
-      error: error ?? _status.error,
+      error: identical(error, _unset) ? _status.error : error as String?,
     );
     notifyListeners();
   }
@@ -517,35 +540,60 @@ class ModelCatalogService extends ChangeNotifier {
     if (document == null) return null;
     String? etag;
     DateTime? checkedAt;
+    final extra = <String>{};
     if (decoded is Map) {
       final rawEtag = decoded['etag']?.toString().trim() ?? '';
       etag = rawEtag.isEmpty ? null : rawEtag;
       checkedAt = DateTime.tryParse(decoded['checkedAt']?.toString() ?? '');
+      final rawExtra = decoded['extraProviders'];
+      if (rawExtra is List) {
+        for (final item in rawExtra) {
+          final id = item?.toString().trim() ?? '';
+          if (id.isEmpty || defaultModelCatalogProviderIds.contains(id)) {
+            continue;
+          }
+          extra.add(id);
+        }
+      }
     }
     return _CachedCatalog(
       document: document,
       etag: etag,
       checkedAt: checkedAt,
+      extraProviderIds: extra,
     );
   }
 
-  Future<void> _writeCacheFile() async {
+  /// 串行、原子地写入缓存文件，返回本次写入完成的 Future。
+  ///
+  /// 缓存可能被刷新（下载）与 [requestProvider] 同时触发写入：两个并发的
+  /// `writeAsString` 会互相截断文件，实测能写出「...}}」这种损坏 JSON。这里统一
+  /// 排队，并且先写临时文件再 rename，避免中途失败留下半份数据。
+  Future<void> _writeCacheFile() {
+    final pending = _cacheWrite.then((_) => _writeCacheFileNow());
+    _cacheWrite = pending.catchError((Object error) {
+      debugPrint('写入模型目录缓存失败: $error');
+    });
+    return _cacheWrite;
+  }
+
+  Future<void> _writeCacheFileNow() async {
     final document = _document;
     if (document == null) return;
-    try {
-      final file = await _cacheFile();
-      if (file == null) return;
-      final parent = file.parent;
-      if (!await parent.exists()) await parent.create(recursive: true);
-      final payload = <String, dynamic>{
-        ...document.toJson(),
-        if (_etag != null) 'etag': _etag,
-        'checkedAt': (_status.checkedAt ?? _now()).toUtc().toIso8601String(),
-      };
-      await file.writeAsString(jsonEncode(payload), flush: true);
-    } catch (error) {
-      debugPrint('写入模型目录缓存失败: $error');
-    }
+    final file = await _cacheFile();
+    if (file == null) return;
+    final parent = file.parent;
+    if (!await parent.exists()) await parent.create(recursive: true);
+    final payload = <String, dynamic>{
+      ...document.toJson(),
+      if (_etag != null) 'etag': _etag,
+      if (_extraProviderIds.isNotEmpty)
+        'extraProviders': _extraProviderIds.toList(growable: false),
+      'checkedAt': (_status.checkedAt ?? _now()).toUtc().toIso8601String(),
+    };
+    final temp = File('${file.path}.tmp');
+    await temp.writeAsString(jsonEncode(payload), flush: true);
+    await temp.rename(file.path);
   }
 
   Future<File?> _cacheFile() async {
@@ -579,9 +627,11 @@ class _CachedCatalog {
     required this.document,
     this.etag,
     this.checkedAt,
+    this.extraProviderIds = const {},
   });
 
   final ModelCatalogDocument document;
   final String? etag;
   final DateTime? checkedAt;
+  final Set<String> extraProviderIds;
 }

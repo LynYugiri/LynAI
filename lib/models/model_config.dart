@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'model_catalog.dart';
+import 'reasoning_effort.dart';
 
 /// 从模型目录（models.dev）得到的建议值。
 ///
@@ -555,12 +556,25 @@ class ModelConfig {
 
   /// 解析一次请求实际使用的思考强度。
   ///
-  /// 优先级：对话设置 > 模型默认 > 不指定。调用方应已确认模型支持思考且
-  /// 该值在 [effectiveReasoningEffortValues] 里；这里只负责取值与去空。
+  /// 优先级：对话设置 > 模型默认 > 不指定。目录给出了该模型的 effort 取值
+  /// （[effectiveReasoningEffortValues] 非空）时只接受列表里的值：切换模型后
+  /// 残留的强度会被跳过并退回模型默认，避免把上一个模型的取值发给当前模型。
+  /// `none` 表示显式关闭思考，不受该列表限制。
   String? resolveReasoningEffort(String? conversationEffort) {
-    final conversation = conversationEffort?.trim();
-    if (conversation != null && conversation.isNotEmpty) return conversation;
-    return effectiveReasoningEffort;
+    final allowed = effectiveReasoningEffortValues
+        .map(normalizeReasoningEffort)
+        .where((value) => value.isNotEmpty)
+        .toSet();
+    for (final candidate in [
+      conversationEffort?.trim(),
+      effectiveReasoningEffort,
+    ]) {
+      if (candidate == null || candidate.isEmpty) continue;
+      final normalized = normalizeReasoningEffort(candidate);
+      if (isReasoningEffortDisabled(normalized)) return reasoningEffortNone;
+      if (allowed.isEmpty || allowed.contains(normalized)) return normalized;
+    }
+    return null;
   }
 
   /// 生效的思考预算下限（来自模型目录，budget_tokens 型）。

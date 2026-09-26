@@ -259,6 +259,94 @@ void main() {
     expect(service.status.error, isNotNull);
   });
 
+  test('刷新成功后清除上一次的失败原因（含 304 分支）', () async {
+    var mode = 'ok';
+    final client = MockClient((request) async {
+      switch (mode) {
+        case 'fail':
+          return http.Response('boom', 500);
+        case 'notModified':
+          return http.Response('', 304);
+        default:
+          return http.Response(
+            _modelsDevApiJson(),
+            200,
+            headers: {'etag': 'remote-etag'},
+          );
+      }
+    });
+    final service = buildService(remoteClient: client);
+    await service.ensureLoaded();
+
+    expect(await service.refresh(), isTrue);
+    expect(service.status.error, isNull);
+
+    mode = 'fail';
+    expect(await service.refresh(), isTrue);
+    expect(service.status.source, ModelCatalogLoadSource.remote);
+    expect(service.status.error, isNotNull);
+
+    // 304 没有新文档，_applyDocument 不会执行，但刷新本身是成功的，错误必须清空。
+    mode = 'notModified';
+    expect(await service.refresh(), isTrue);
+    expect(service.status.error, isNull);
+  });
+
+  test('手动指定的额外来源跨缓存重启保留，并写进后端请求', () async {
+    final backendRequests = <http.BaseRequest>[];
+    final backend = BackendClient(
+      client: MockClient((request) async {
+        backendRequests.add(request);
+        return http.Response(_documentJson(source: 'backend'), 200);
+      }),
+    )..configure('https://backend.example.com');
+
+    final first = buildService(backend: backend, remoteClient: MockClient(
+      (request) async => http.Response(_modelsDevApiJson(), 200),
+    ));
+    await first.ensureLoaded();
+    first.requestProvider('not-in-defaults');
+    await first.refresh();
+    expect(backendRequests.last.url.queryParameters['providers'], contains('not-in-defaults'));
+
+    // 新进程：额外来源从缓存文件恢复，后端请求继续带上它。
+    final second = buildService(backend: backend, remoteClient: MockClient(
+      (request) async => http.Response(_modelsDevApiJson(), 200),
+    ));
+    await second.ensureLoaded();
+    await second.refresh();
+    expect(
+      backendRequests.last.url.queryParameters['providers'],
+      contains('not-in-defaults'),
+    );
+  });
+
+  test('刷新与登记来源并发写缓存时不会写出损坏的 JSON', () async {
+    final client = MockClient(
+      (request) async =>
+          http.Response(_modelsDevApiJson(), 200, headers: {'etag': 'e1'}),
+    );
+    final service = buildService(remoteClient: client);
+    await service.ensureLoaded();
+
+    // 刷新（下载后写缓存）与手动来源登记（也要写缓存）几乎同时发生。
+    final refresh = service.refresh();
+    service.requestProvider('not-in-defaults');
+    await refresh;
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+
+    final file = File('${cacheDir.path}/${ModelCatalogService.cacheFileName}');
+    final decoded = jsonDecode(await file.readAsString());
+    expect(decoded, isA<Map<String, dynamic>>());
+    expect((decoded as Map)['etag'], 'e1');
+    expect(decoded['extraProviders'], contains('not-in-defaults'));
+
+    // 下一次启动仍能从这份缓存恢复。
+    final second = buildService(remoteClient: client);
+    await second.ensureLoaded();
+    expect(second.status.source, ModelCatalogLoadSource.cache);
+  });
+
   test('清除缓存后回到内置快照', () async {
     final client = MockClient(
       (request) async => http.Response(_modelsDevApiJson(), 200),

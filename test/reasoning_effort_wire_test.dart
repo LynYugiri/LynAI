@@ -180,6 +180,38 @@ void main() {
       );
       expect(noDefault.resolveReasoningEffort(null), isNull);
     });
+
+    test('残留的强度不在当前模型支持列表里时退回模型默认', () {
+      ModelConfig build({String? modelDefault}) => ModelConfig(
+        id: 'c',
+        name: 'OpenAI',
+        endpoint: 'https://api.openai.com/v1',
+        apiKey: '',
+        modelName: 'gpt-4o',
+        apiType: 'openai',
+        priority: 0,
+        models: [
+          ModelEntry(
+            name: 'gpt-4o',
+            enabled: true,
+            reasoningEffort: modelDefault,
+            catalog: hint(
+              providerId: 'openai',
+              effortValues: const ['low', 'medium'],
+            ),
+          ),
+        ],
+      );
+
+      // 对话里的 high 是上一个模型留下的，当前模型只支持 low/medium。
+      expect(build(modelDefault: 'low').resolveReasoningEffort('high'), 'low');
+      expect(build().resolveReasoningEffort('high'), isNull);
+      expect(build().resolveReasoningEffort('medium'), 'medium');
+      // none 是显式关闭思考，不受支持列表限制。
+      expect(build().resolveReasoningEffort('none'), 'none');
+      expect(build().resolveReasoningEffort('NONE'), 'none');
+      expect(build(modelDefault: 'high').resolveReasoningEffort(null), isNull);
+    });
   });
 
   group('OpenAI 兼容 wire', () {
@@ -269,6 +301,25 @@ void main() {
       );
 
       expect(body['thinking'], {'type': 'disabled'});
+      expect(body.containsKey('reasoning_effort'), isFalse);
+    });
+
+    test('当前模型不支持该强度时不发 reasoning_effort', () async {
+      final body = await captureBody(
+        buildConfig: (endpoint) => openAiConfig(
+          endpoint: endpoint,
+          catalog: hint(
+            providerId: 'openai',
+            effortValues: const ['low', 'medium'],
+          ),
+        ),
+        responseBody: openAiResponse(),
+        thinking: true,
+        reasoningEffort: 'xhigh',
+      );
+
+      // 思考开关仍然生效，但不会把服务端没声明支持的强度发出去。
+      expect(body['thinking'], {'type': 'enabled'});
       expect(body.containsKey('reasoning_effort'), isFalse);
     });
   });
