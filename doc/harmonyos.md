@@ -338,7 +338,7 @@ bash scripts/ohos-pub-get.sh
 flutter analyze --no-pub lib
 ```
 
-`.github/workflows/ohos.yml` 用的就是这个方式（不需要下载真实 SDK，也不产出 HAP）。
+鸿蒙静态分析改为本地执行（不再占用 CI）：上面这种方式不需要下载真实 SDK，也不产出 HAP。
 
 ### 签名与安装（三条路线）
 
@@ -551,7 +551,7 @@ bash scripts/ohos-arkts-tests/run.sh   # 需要 Node >= 22.6
 | 发布证书能否本地安装 | 官方 FAQ 与问题说明 | 不能：`hdc install` 发布签名包报 `INSTALL_FAILED_APP_SOURCE_NOT_TRUSTED`，「AGC 发布的证书不支持本地安装，只能用于上架」 |
 | 自动填充接口的公开版本 | 上游 `interface_sdk-js` 的 `@ohos.app.ability.autoFillManager.d.ts` 注解 | `ViewData`/`PageNodeInfo` 等为 `@systemapi [since 11 - 24]`，`requestAutoFill`/`AutoFillCallback` 为 `@since 26.0.0`——即 API 26 起才公开；引擎侧有 `AUTOFILL_SUPPORT_API = 26` 的运行时短路 |
 | API 26 的版本号写法 | hvigor `sdkmanager-common` 的 `FIRST_DOT_API_VERSION = 26` 与 `DOT_API_VERSION_PATTERN` | API ≥ 26 只接受点分形式；`26.0.0(26)` 会被拒（`00308018 api version parameter is illegal`），改成 `26.0.0` 后构建继续 |
-| CI 门槛 | `.github/workflows/ohos.yml`（手动/master 路径触发） | 用占位 SDK 在 CI 中跑 `flutter analyze lib`，不依赖 DevEco 下载 |
+| CI 门槛 | 无（鸿蒙静态分析 workflow 已移除，见下） | 鸿蒙相关的分析与单测都由本地按本文档手动执行，不进入 GitHub Actions |
 
 构建侧已经没有未完成项。剩下的是**真机回归**：本机没有鸿蒙设备/模拟器，
 装机后的实际行为（关键资产库、图库保存、系统扫码、语音识别、长时任务、
