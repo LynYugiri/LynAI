@@ -5,7 +5,7 @@
     // versionCode / versionName 由 flutter_tools 在构建时按 pubspec.yaml 的 version
     // 覆写（ohos/hvigor_utils.dart 的 updateProjectVersion），此处为未构建时的占位。
     "versionCode": 1000000,
-    "versionName": "4.2.0",
+    "versionName": "4.2.1",
     "icon": "$media:app_icon",
     "label": "$string:app_name"
   }
