@@ -34,10 +34,18 @@ jobs:
     timeout-minutes: 60
     env:
       FLUTTER_OHOS: ${{ github.workspace }}/flutter_flutter
-      # 占位 SDK：HmosSdk 只校验 <dir>/hmscore 与 <dir>/openharmony 是否存在。
-      DEVECO_SDK_HOME: ${{ runner.temp }}/ohos-sdk-stub
     steps:
       - uses: actions/checkout@v4
+
+      - name: Prepare placeholder HarmonyOS SDK
+        run: |
+          # 占位 SDK：HmosSdk 只校验 <dir>/hmscore 与 <dir>/openharmony 是否存在。
+          # 这里用 $GITHUB_ENV 传递路径，而不是写进 job 级 env——job 级 env 不允许
+          # 引用 runner 上下文，写在那里会让整个 workflow 变成「Invalid workflow
+          # file」，一次都不会运行。（run 脚本里连注释中的表达式也会被展开，所以
+          # 这里不要写出表达式的字面形式。）
+          echo "DEVECO_SDK_HOME=$RUNNER_TEMP/ohos-sdk-stub" >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/ohos-sdk-stub/hmscore" "$RUNNER_TEMP/ohos-sdk-stub/openharmony"
 
       - name: Cache OHOS Flutter SDK clone
         uses: actions/cache@v4
@@ -57,7 +65,6 @@ jobs:
           # 浅克隆没有指向 HEAD 的 tag，flutter_tools 会把版本判成 0.0.0-unknown，
           # 导致 pub 解析 flutter_test 失败；这里补一个本地版本 tag。
           git -C "$FLUTTER_OHOS" tag -m "ci local version" "3.44.9+ohos-local.0" HEAD || true
-          mkdir -p "$DEVECO_SDK_HOME/hmscore" "$DEVECO_SDK_HOME/openharmony"
           export PATH="$FLUTTER_OHOS/bin:$PATH"
           flutter --version
 
