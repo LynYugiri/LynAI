@@ -4287,7 +4287,37 @@ PRAGMA user_version = 2;
     );
     final restoredConfig = ModelConfig.fromJson(config.toJson());
     expect(restoredConfig.catalogProviderId, 'openai');
-    expect(restoredConfig.resolveReasoningEffort('medium'), 'medium');
+    expect(restoredConfig.models.single.catalog?.contextWindow, 128000);
+    // 这条目录记录只有 budget_tokens，OpenAI 兼容端点表达不了档位：即便对话里
+    // 残留了 medium 也不会发出去（目录认识该模型却没有档位）。
+    expect(restoredConfig.resolveReasoningEffort('medium'), isNull);
+
+    // 目录列出 effort 取值时，同样的 JSON 往返后档位仍然可用。
+    final effortConfig = config.copyWith(
+      models: [
+        ModelEntry(
+          name: 'gpt-4o',
+          enabled: true,
+          catalog: ModelCatalogHint(
+            providerId: 'openai',
+            modelId: 'gpt-4o',
+            supportsThinking: true,
+            reasoningOptions: const [
+              ModelCatalogReasoningOption(
+                kind: ModelCatalogReasoningKind.effort,
+                values: ['low', 'medium', 'high'],
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+    expect(
+      ModelConfig.fromJson(
+        effortConfig.toJson(),
+      ).resolveReasoningEffort('medium'),
+      'medium',
+    );
   });
 
   test('extraParams are included in OpenAI request body', () async {

@@ -180,6 +180,35 @@ void main() {
       // 没有目录数据时不做白名单校验，原样透传由服务端判断。
       expect(noCatalog.resolveReasoningEffort('whatever'), 'whatever');
       expect(noCatalog.resolveReasoningEffort(null), isNull);
+
+      // 目录认识该模型但只有 toggle（没有任何档位）：残留档位同样不发出去。
+      final toggleOnly = ModelConfig(
+        id: 'c3',
+        name: 'Zhipu',
+        endpoint: 'https://open.bigmodel.cn/api/paas/v4',
+        apiKey: '',
+        modelName: 'glm-4.6',
+        apiType: 'openai',
+        priority: 0,
+        models: [
+          ModelEntry(
+            name: 'glm-4.6',
+            enabled: true,
+            catalog: ModelCatalogHint(
+              providerId: 'zhipuai',
+              modelId: 'glm-4.6',
+              supportsThinking: true,
+              reasoningOptions: const [
+                ModelCatalogReasoningOption(
+                  kind: ModelCatalogReasoningKind.toggle,
+                ),
+              ],
+            ),
+          ),
+        ],
+      );
+      expect(toggleOnly.resolveReasoningEffort('high'), isNull);
+      expect(toggleOnly.resolveReasoningEffort('none'), 'none');
     });
 
     test('残留的强度不在当前模型支持列表里时落回不指定', () {

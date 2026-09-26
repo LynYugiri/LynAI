@@ -135,7 +135,7 @@
 | `cloudSyncEnabled` | 用户是否明确允许同步此非托管 Provider 的非秘密配置，默认 false。托管 Provider 始终由服务端维护，不进入该同步域。 |
 | `catalogProviderId` | 手动指定的模型目录（models.dev）provider id；为空时由 endpoint host 自动推断。 |
 
-`ModelEntry` 是子模型。子模型可以独立设置启用状态、视觉能力、thinking 能力、工具能力、采样参数、思考强度默认值和 managed workflow。schema 4 下发的 Vivo LASR workflow 保存在对应 speech 子模型上，不提升到配置级。子模型还携带三类派生/覆盖数据：
+`ModelEntry` 是子模型。子模型可以独立设置启用状态、视觉能力、thinking 能力、工具能力、采样参数和 managed workflow。schema 4 下发的 Vivo LASR workflow 保存在对应 speech 子模型上，不提升到配置级。子模型还携带三类派生/覆盖数据：
 
 | 字段 | 说明 |
 |------|------|

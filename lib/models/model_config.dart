@@ -557,8 +557,9 @@ class ModelConfig {
   ///
   /// 强度只来自对话设置：没有设置就是不指定（不下发任何强度参数），模型本身不带
   /// 默认档位。目录给出了该模型的 effort 取值（[effectiveReasoningEffortValues]
-  /// 非空）时只接受列表里的值：切换模型后残留的强度会被跳过并落回不指定，避免把
-  /// 上一个模型的取值发给当前模型。`none` 表示显式关闭思考，不受该列表限制。
+  /// 非空）时只接受列表里的值；目录认识该模型但没有任何档位（只有 toggle）时同样
+  /// 落回不指定——两者都避免把上一个模型留下的档位发给当前模型。只有完全没有目录
+  /// 数据的自建端点才原样透传用户选择。`none` 表示显式关闭思考，不受该列表限制。
   String? resolveReasoningEffort(String? conversationEffort) {
     final candidate = conversationEffort?.trim();
     if (candidate == null || candidate.isEmpty) return null;
@@ -568,8 +569,12 @@ class ModelConfig {
         .map(normalizeReasoningEffort)
         .where((value) => value.isNotEmpty)
         .toSet();
-    if (allowed.isEmpty || allowed.contains(normalized)) return normalized;
-    return null;
+    if (allowed.isNotEmpty) {
+      return allowed.contains(normalized) ? normalized : null;
+    }
+    // 目录认识这个模型却没有档位（只有 toggle，或明确不支持推理）：不要把别的
+    // 模型留下的档位发过去。完全没有目录数据的自建端点则保留用户的选择。
+    return activeEntry?.catalog == null ? normalized : null;
   }
 
   /// 生效的思考预算下限（来自模型目录，budget_tokens 型）。
