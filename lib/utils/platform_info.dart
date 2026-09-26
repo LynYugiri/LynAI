@@ -97,10 +97,12 @@ bool get canScanPairingCode => supportsQrScanner || supportsSystemQrScan;
 
 /// 是否支持语音输入。
 ///
-/// Android/iOS 用 `speech_to_text` 的系统识别，鸿蒙用系统基础语音服务
-/// （Core Speech Kit，设备侧离线识别，见 `lynai/speech` 通道）；
+/// 当前所有平台都为 true：Android/iOS 用 `speech_to_text` 的系统识别，鸿蒙用
+/// 系统基础语音服务（Core Speech Kit 设备侧离线识别，见 `lynai/speech` 通道），
 /// 配置了语音转文字模型时各平台都改走录音 + 服务端转写。
-/// 缺少对应实现的平台返回 false，语音入口不展示。
+///
+/// 保留这个能力开关（而不是在页面里直接常量化）是为了让「没有语音实现的新平台
+/// 隐藏入口」只有一处判断点：新增平台时只改这里，页面不必再判断平台。
 bool get supportsVoiceInput => true;
 
 /// 面向用户的平台展示名，用于「关于」页等界面文案。

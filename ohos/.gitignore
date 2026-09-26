@@ -19,7 +19,6 @@
 **/libs/**/libflutter.so
 **/libs/**/libvmservice_snapshot.so
 
-# 构建时由 native assets 从 Flutter 引擎缓存复制进来的原生库，属于产物。
-# 注意：sqlite3 目前走的是引擎按 Linux 目标预编译的 libsqlite3.so，
-# 在鸿蒙上不可用，详见 doc/harmonyos.md「已知缺口」。
+# 构建时复制进来的原生库（sqlite3 走 ohpm 包 sqlite3-native-library，见
+# doc/harmonyos.md §3），都属于产物，不入库。
 **/libs/**/*.so

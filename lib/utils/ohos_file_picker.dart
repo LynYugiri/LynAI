@@ -48,7 +48,8 @@ class OhosFilePicker {
         .toList(growable: false);
   }
 
-  /// 另存为；用户取消或失败时返回 null，成功时返回沙箱内的副本路径。
+  /// 另存为；用户取消时返回 null（与其它平台 `file_picker.saveFile` 一致），
+  /// 成功时返回沙箱内的副本路径；真正的失败抛出 [PlatformException]。
   Future<String?> saveFile({
     required String fileName,
     required Uint8List bytes,
@@ -58,6 +59,7 @@ class OhosFilePicker {
       'bytes': bytes,
     });
     _throwIfFailed(response, '保存文件失败');
+    if (response?['cancelled'] == true) return null;
     return response?['path'] as String?;
   }
 

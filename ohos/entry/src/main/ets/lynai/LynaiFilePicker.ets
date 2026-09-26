@@ -166,9 +166,11 @@ export class LynaiFilePicker implements FlutterPlugin, MethodCallHandler {
       const error = err as BusinessError;
       return errorMap(`无法创建缓存目录: ${error.message}`);
     }
-    for (const uri of uris) {
+    const batchStamp = Date.now();
+    for (let index = 0; index < uris.length; index++) {
       try {
-        const entry = this.copyUriToCache(uri, targetDir);
+        // 时间戳按批次取一次，批内序号保证同一毫秒里的同名文件不会互相覆盖。
+        const entry = this.copyUriToCache(uris[index], targetDir, batchStamp, index);
         entries.push(entry);
       } catch (err) {
         const error = err as BusinessError;
@@ -180,9 +182,14 @@ export class LynaiFilePicker implements FlutterPlugin, MethodCallHandler {
     return map;
   }
 
-  private copyUriToCache(uri: string, targetDir: string): PickedEntry {
+  private copyUriToCache(
+    uri: string,
+    targetDir: string,
+    batchStamp: number,
+    sequence: number,
+  ): PickedEntry {
     const name = fileNameFromUri(uri);
-    const targetPath = `${targetDir}/${cacheFileName(name, Date.now())}`;
+    const targetPath = `${targetDir}/${cacheFileName(name, batchStamp, sequence)}`;
     const source = fileIo.openSync(uri, fileIo.OpenMode.READ_ONLY);
     let size = 0;
     try {
@@ -209,7 +216,11 @@ export class LynaiFilePicker implements FlutterPlugin, MethodCallHandler {
     documentPicker.save(options)
       .then((uris: string[]) => {
         if (uris.length === 0) {
-          result.success(errorMap('未选择保存位置'));
+          // 用户取消：与其它平台的 file_picker 一致，返回「成功但没有路径」，
+          // Dart 侧据此返回 null，不生成「保存失败」错误。
+          const cancelled = okMap();
+          cancelled.set('cancelled', true);
+          result.success(cancelled);
           return;
         }
         try {

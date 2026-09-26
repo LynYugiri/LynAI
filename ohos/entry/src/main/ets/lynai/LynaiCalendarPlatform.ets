@@ -36,6 +36,7 @@ import common from '@ohos.app.ability.common';
 import { formBindingData, formProvider } from '@kit.FormKit';
 import { cardPayload } from '../entryformability/EntryFormAbility';
 import { listFormIds, writeWidgetOccurrences } from './WidgetStore';
+import { fieldValue, occurrenceRecords } from './ProjectionRecord';
 import {
   MAX_REMINDERS,
   PlannedReminder,
@@ -44,20 +45,6 @@ import {
 } from './ReminderPlan';
 
 const CHANNEL_NAME: string = 'lynai/calendar_platform';
-
-/** 读取 Map 或普通对象上的字段，兼容 StandardMessageCodec 的两种解码形态。 */
-function fieldValue(source: Object | null, key: string): Object | null {
-  if (source === null) {
-    return null;
-  }
-  if (source instanceof Map) {
-    const value = (source as Map<string, Object>).get(key);
-    return value === undefined ? null : value;
-  }
-  const record = source as Record<string, Object>;
-  const value = record[key];
-  return value === undefined ? null : value;
-}
 
 function stringField(source: Object | null, key: string): string {
   const value = fieldValue(source, key);
@@ -137,13 +124,17 @@ export class LynaiCalendarPlatform implements FlutterPlugin, MethodCallHandler {
    *
    * 卡片（FormExtensionAbility）与这里属于不同上下文，通过 WidgetStore 的文件
    * 交换数据；刷新失败不影响提醒同步，因此单独 try/catch。
+   *
+   * 注意：通道解出来的发生记录是 ArkTS 的 `Map`，必须先折算成普通对象——否则
+   * 落盘会写成 `[{}]`，`WidgetPlan` 的字段访问也读不到值（卡片永远显示
+   * 「近期无日程」）。折算逻辑在 `ProjectionRecord.ts`，有 Node 单测覆盖。
    */
   private syncWidget(projection: Object): void {
+    const occurrences = occurrenceRecords(
+      listField(projection, 'widgetOccurrences'),
+    );
     try {
-      writeWidgetOccurrences(
-        this.context,
-        listField(projection, 'widgetOccurrences'),
-      );
+      writeWidgetOccurrences(this.context, occurrences);
     } catch (err) {
       return;
     }
@@ -153,7 +144,7 @@ export class LynaiCalendarPlatform implements FlutterPlugin, MethodCallHandler {
           return;
         }
         const data = formBindingData.createFormBindingData(
-          cardPayload(listField(projection, 'widgetOccurrences')),
+          cardPayload(occurrences),
         );
         for (const formId of formIds) {
           formProvider

@@ -27,10 +27,15 @@ export function fileNameFromUri(uri: string): string {
 }
 
 /**
- * 生成缓存副本的文件名：加时间戳前缀避免同批选择里的重名互相覆盖，
- * 同时去掉文件名里的路径分隔符，防止拼出沙箱外的路径。
+ * 生成缓存副本的文件名：加时间戳与批内序号，避免同批选择里的重名互相覆盖
+ * （同一毫秒内选到的两个同名文件必须落成两个不同路径），同时去掉文件名里的
+ * 路径分隔符，防止拼出沙箱外的路径。
  */
-export function cacheFileName(name: string, timestamp: number): string {
+export function cacheFileName(
+  name: string,
+  timestamp: number,
+  sequence: number = 0,
+): string {
   const safe = name.replace(/[\\/]/g, '_');
-  return `${timestamp}_${safe.length === 0 ? FALLBACK_PREFIX : safe}`;
+  return `${timestamp}_${sequence}_${safe.length === 0 ? FALLBACK_PREFIX : safe}`;
 }

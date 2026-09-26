@@ -16,11 +16,15 @@ on:
     branches: [main, master]
     paths:
       - 'ohos/**'
-      - 'lib/utils/platform_info.dart'
-      - 'lib/utils/ohos_file_picker.dart'
-      - 'pubspec_overrides.ohos.yaml'
+      - 'lib/**'
+      - 'test/ohos_*.dart'
+      - 'test/platform_info_test.dart'
+      - 'test/calendar_platform_bridge_test.dart'
+      - 'test/generation_background_service_test.dart'
       - 'scripts/ohos-*.sh'
       - 'scripts/ohos_patches/**'
+      - 'scripts/ohos-arkts-tests/**'
+      - 'pubspec_overrides.ohos.yaml'
       - '.github/workflows/ohos.yml'
 
 jobs:

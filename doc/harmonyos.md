@@ -28,10 +28,10 @@ LynAI 支持用 OpenHarmony SIG 的 Flutter SDK 分支构建鸿蒙原生应用�
 | `supportsRichClipboard` | false | `super_clipboard`/`super_native_extensions` 没有鸿蒙实现，且在未知平台直接抛 `UnimplementedError` |
 | `supportsMdnsDiscovery` | false | `bonsoir` 没有鸿蒙实现，调用会抛 `MissingPluginException` |
 | `supportsQrScanner` | false | 鸿蒙版 `mobile_scanner` 落后于当前 SDK，配对码改走图片导入 |
-| `supportsVoiceInput` | false | 鸿蒙版 `speech_to_text` 只到 3.22 分支 |
+| `supportsVoiceInput` | true | 系统识别走 Core Speech Kit（`lynai/speech`），配置语音转文字模型时改走录音 + 服务端转写 |
 
-被关闭的能力不会让功能「静默失效」：图片粘贴与「复制图片」菜单项直接不展示、
-局域网同步给出「请使用配对码手动配对」提示、语音输入入口不渲染，其余路径保持原样。
+被关闭的能力不会让功能「静默失效」：图片粘贴入口直接不展示（「复制图片」走 `lynai/clipboard`，鸿蒙可用）、
+局域网同步给出「请使用配对码手动配对」提示，其余路径保持原样。
 
 ## 2. `ohos/` 工程
 
@@ -59,7 +59,7 @@ LynAI 支持用 OpenHarmony SIG 的 Flutter SDK 分支构建鸿蒙原生应用�
 | `entry/src/main/ets/lynai/SpeechTextUtils.ts` | 语音文本的纯逻辑（语言标签折算、句子拼接），由 Node 单元测试覆盖 |
 | `entry/src/main/ets/lynai/ByteUtils.ts` | 字节视图折算：写文件/解码图片前把 `Uint8Array` 折成精确长度的 `ArrayBuffer`，避免带出多余字节 |
 | `AppScope/resources/base/media/app_icon.png`、`entry/src/main/resources/base/media/icon.png` | 应用图标，取自工程 `web/icons/Icon-512.png`（与 Android/iOS 图标一致） |
-| `build-profile.json5` | `compatibleSdkVersion`/`targetSdkVersion` 取公开 DevEco command-line-tools 自带的 HarmonyOS 5.0.1(13) |
+| `build-profile.json5` | `compatibleSdkVersion`/`targetSdkVersion` 为 HarmonyOS 26.0.0（API 26；换 SDK 时用 `scripts/ohos-sync-sdk-version.sh` 校准） |
 
 已实现的原生能力（与 Android 的 `MainActivity.kt` 对应）：
 
@@ -81,7 +81,10 @@ LynAI 支持用 OpenHarmony SIG 的 Flutter SDK 分支构建鸿蒙原生应用�
   `DATA_TRANSFER` 另有「进度长时间（首次超过 10 分钟）不更新会被系统取消」的约束，
   因此这里只在单次生成期间持有长时任务，不做后台常驻。
 - **选择文件 / 另存为**：`DocumentViewPicker` / `PhotoViewPicker`，选择结果复制进
-  应用缓存目录后再交给 Dart（系统 URI 无法用 `dart:io` 直接读取）。
+  应用缓存目录后再交给 Dart（系统 URI 无法用 `dart:io` 直接读取）；缓存副本名带批次
+  时间戳与批内序号，同一毫秒内的同名文件不会互相覆盖。用户取消「另存为」返回
+  `{ok: true, cancelled: true}`，Dart 侧据此返回 `null`，与其它平台
+  `file_picker.saveFile` 的取消语义一致（真正的写入失败仍然抛 `PlatformException`）。
 - **复制图片到剪贴板**：把图片字节解码成 `PixelMap` 后以 `MIMETYPE_PIXELMAP`
   记录写入系统剪贴板（鸿蒙**写入剪贴板不需要权限**），系统剪贴板面板与其它应用
   都能识别。反向的「从剪贴板读取图片」需要 `ohos.permission.READ_PASTEBOARD`，
@@ -94,7 +97,10 @@ LynAI 支持用 OpenHarmony SIG 的 Flutter SDK 分支构建鸿蒙原生应用�
   上下文里调用，调用失败时 Dart 侧会自动回退到既有的「导入配对码图片」路径，
   用户取消则不再二次弹窗。
 - **桌面服务卡片**：对应 Android 桌面小组件。日历插件在同步投影时把
-  `widgetOccurrences` 落盘（`WidgetStore`），卡片在添加/刷新时读取并用
+  `widgetOccurrences` 落盘（`WidgetStore`）：StandardMessageCodec 解出的发生记录是
+  ArkTS 的 `Map`，必须先经 `ProjectionRecord.ts` 折算成普通对象——`JSON.stringify`
+  对 `Map` 只会得到 `{}`，而 `WidgetPlan` 的属性访问也读不到值，两者都会让卡片永远
+  显示「近期无日程」。卡片在添加/刷新时读取并用
   `WidgetPlan` 计算文案（「今天 / 明天 / N 天后 / 进行中 · 标题」，无日程时
   「近期无日程」，与 Android `ScheduleWidgetLogic` 同一套语义）；数据变化后
   日历插件按 preferences 里记录的卡片 id 主动 `formProvider.updateForm` 刷新。
@@ -107,6 +113,11 @@ LynAI 支持用 OpenHarmony SIG 的 Flutter SDK 分支构建鸿蒙原生应用�
   失败一样提示，不静默降级。语言标签折算与句子拼接是纯逻辑，见 `SpeechTextUtils.ts`。
   会话用独立序号标识：只在开始新会话或页面销毁时失效，因此松手后到达的最终结果
   （Core Speech Kit 的 `onComplete`）仍会回填输入框，与长按说话的用户预期一致。
+  Dart 侧 `OhosSpeechBridge` 只在开始识别时安装一个静态通道回调，并把事件派发给
+  「当前正在识别」的实例：主聊天页在 `HomePage` 的 `IndexedStack` 里常驻，插件
+  AI 工作区还能再开一个聊天页，按实例注册/注销会互相抢通道或把回调摘掉。非鸿蒙
+  平台上所有方法都是空操作（内部按平台门控），页面 dispose 不会触发
+  `MissingPluginException`。
 - **日程提醒投递**：普通应用无法自行安排定时通知，因此把 Dart 生成的日历投影
   （`notificationTriggers`）转成系统**后台代理提醒**：
   `getAllValidReminders()` → 逐条 `cancelReminder()` → 按投影 `publishReminder()`
@@ -119,8 +130,7 @@ LynAI 支持用 OpenHarmony SIG 的 Flutter SDK 分支构建鸿蒙原生应用�
   `requestEnableNotification` 申请，投影同步不弹窗。
 
 Android 专有、鸿蒙未实现的能力：悬浮窗助手、屏幕翻译、无障碍设备控制、
-系统长截图、桌面小组件（鸿蒙侧对应的是服务卡片，尚未实现）、本地 OCR、
-本地 BlueLM、打开/枚举应用。这些能力在 Dart 侧原本就按
+系统长截图、本地 OCR、本地 BlueLM、打开/枚举应用（桌面小组件在鸿蒙侧由服务卡片实现）。这些能力在 Dart 侧原本就按
 `Platform.isAndroid` 或 `defaultTargetPlatform == TargetPlatform.android` 门控，
 鸿蒙上自动不展示或不执行（日程提醒投递已按上面的方式在鸿蒙实现）。
 
@@ -143,11 +153,11 @@ bash scripts/ohos-pub-get.sh --restore  # 还原锁文件与默认解析
 |----|----------|------|
 | `path_provider` | `flutter_packages@br_path_provider-v2.1.5_ohos` | 应用私有目录，storage_v2 依赖它 |
 | `shared_preferences` | `flutter_packages@oh-3.44.9-dev` | 设置项存储 |
-| `package_info_plus` | `flutter_plus_plugins@br_3.41_dev` | 版本号展示 |
+| `package_info_plus` | `package_info_plus-9.0.0-ohos-1.0.0` | 版本号展示 |
 | `url_launcher` | `flutter_packages@oh-3.44.9-dev` | 打开链接 |
 | `permission_handler` | `flutter_permission_handler@12.0.1-ohos-1.0.0` | 权限请求 |
 | `image_picker` | `flutter_packages@oh-3.44.9-dev` | 图片选择与拍照 |
-| `share_plus` | `flutter_plus_plugins@br_3.41_dev` | 系统分享 |
+| `share_plus` | `br_share_plus-v12.0.1_ohos` | 系统分享 |
 | `record` | `fluttertpc_record@br_3.41_dev` | 录音能力（语音输入另受 `supportsVoiceInput` 门控） |
 | `webview_all` | pub.dev `^1.4.1` | 1.4.x 起包内声明 `webview_all_ohos`，插件页/Mermaid/MathLive 内嵌 WebView 可用 |
 | `sqlite3` | `SageMik/sqlite3-ohos.dart@sqlite3-2.9.4` | 增加 `PlatformUtils.isOhos → DynamicLibrary.open('libsqlite3.so')` |
@@ -445,21 +455,21 @@ build/ohos/sign-local/                      中间产物与三份日志（sign-p
    但那套证书装不到零售 HarmonyOS 手机；要在真机上安装，需要 AGC 签发的**调试证书 +
    绑定设备 UDID 的调试 Profile**（发布证书不行——它不支持本地安装）。密钥库与 CSR
    已经生成好放在 `ohos/signature/`（该目录已 gitignore），只等一台设备来取 UDID。
-2. **sqlite3 / drift 的版本策略**：鸿蒙侧固定在 `sqlite3 2.9.4` + `drift 2.31.0`，
+3. **sqlite3 / drift 的版本策略**：鸿蒙侧固定在 `sqlite3 2.9.4` + `drift 2.31.0`，
    与其它平台的 `sqlite3 3.x` + `drift 2.34` 不同。已实测生产代码在鸿蒙依赖集下
    零分析问题，但测试代码使用 `sqlite3 3.x` 的 API，只在默认依赖集下运行。
    升级 sqlite3 3.x 的鸿蒙适配分支可用后，应把两侧版本重新对齐。
-3. **file_picker**：社区鸿蒙分支是 `file_picker 12.x`，与工程当前使用的
+4. **file_picker**：社区鸿蒙分支是 `file_picker 12.x`，与工程当前使用的
    `11.x` API 不兼容，因此鸿蒙改走自有 `lynai/file_picker` 通道
    （`ohos/entry/src/main/ets/lynai/LynaiFilePicker.ets` +
    `lib/utils/ohos_file_picker.dart`）：选择结果先复制进应用缓存目录再交给 Dart，
    保证 `dart:io` 可直接读取；另存为在写入用户所选位置的同时留一份沙箱副本，
    使返回值与其它平台的 `file_picker` 语义一致。其它平台仍走 file_picker。
-4. **语音输入**：系统识别已走 Core Speech Kit（`lynai/speech`）；
+5. **语音输入**：系统识别已走 Core Speech Kit（`lynai/speech`）；
    「录音 + 服务端转写」这条路径依赖 `record` 的鸿蒙适配
    （`fluttertpc_record@br_3.41_dev`，其 ArkTS 同样需要 6.1 SDK 才能编译通过），
    真机上需要一并回归。
-5. 上述补丁与覆盖分支都是社区维护的适配分支，需在真机上回归后再进入发布流程。
+6. 上述补丁与覆盖分支都是社区维护的适配分支，需在真机上回归后再进入发布流程。
 
 ## 7. 回归要求
 
@@ -496,6 +506,7 @@ bash scripts/ohos-arkts-tests/run.sh   # 需要 Node >= 22.6
 | `scripts/ohos-arkts-tests/speech_text_utils.test.mjs` | `SpeechTextUtils.ts`（语音文本）：语言标签折算（中文变体、英文、空值）与句子拼接去空白 |
 | `scripts/ohos-arkts-tests/widget_plan.test.mjs` | `WidgetPlan.ts`（服务卡片）：起止时间推导（epoch/endAtLocal/缺省）、自然日差、文案分档、过滤已结束与已完成、行数上限 |
 | `scripts/ohos-arkts-tests/picker_path_utils.test.mjs` | `PickerPathUtils.ts`（选择器 URI）：沙箱路径与 `file://` URI 取文件名、忽略 query/fragment、百分号解码、恶意与畸形输入、缓存文件名兜底 |
+| `scripts/ohos-arkts-tests/projection_record.test.mjs` | `ProjectionRecord.ts`（投影字段折算）：真实 `Map` 与普通对象两种解码形态、字段白名单、`null` 键省略、JSON 序列化后字段完整 |
 | `scripts/ohos-arkts-tests/sys_cap_utils.test.mjs` | `SysCapUtils.ts`（系统能力探测）：常量与 SDK 注解一致、probe 缺失/抛异常/空能力名一律按不支持、全部可用才放行、不可用时短路 |
 
 ## 8. 本次适配的验证记录

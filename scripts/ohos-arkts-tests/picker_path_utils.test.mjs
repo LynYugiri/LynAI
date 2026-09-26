@@ -47,12 +47,18 @@ test('目录形式与空串回退到兜底前缀', () => {
   assert.equal(fileNameFromUri('file://docs/%20'), ' ');
 });
 
-test('缓存文件名带时间戳且不含路径分隔符', () => {
-  assert.equal(cacheFileName('report.pdf', 1700000000000), '1700000000000_report.pdf');
+test('缓存文件名带时间戳与批内序号，且不含路径分隔符', () => {
   assert.equal(
-    cacheFileName('../../etc/passwd', 1),
-    '1_.._.._etc_passwd',
+    cacheFileName('report.pdf', 1700000000000),
+    '1700000000000_0_report.pdf',
   );
-  assert.equal(cacheFileName('a\\b.txt', 2), '2_a_b.txt');
-  assert.equal(cacheFileName('', 3), `3_${FALLBACK_PREFIX}`);
+  assert.equal(cacheFileName('../../etc/passwd', 1), '1_0_.._.._etc_passwd');
+  assert.equal(cacheFileName('a\\b.txt', 2), '2_0_a_b.txt');
+  assert.equal(cacheFileName('', 3), `3_0_${FALLBACK_PREFIX}`);
+});
+
+test('同一毫秒内的同名文件生成不同路径', () => {
+  const first = cacheFileName('photo.png', 1700000000000, 0);
+  const second = cacheFileName('photo.png', 1700000000000, 1);
+  assert.notEqual(first, second);
 });

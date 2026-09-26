@@ -49,7 +49,7 @@ void main() {
     expect(await OhosBarcodeBridge().scan(), isNull);
   });
 
-  test('识别不到内容时返回 null', () async {
+  test('识别不到内容按失败抛出，交给调用方回退', () async {
     mockHandler(
       (call) async => <String, Object?>{'ok': false, 'error': '未识别到二维码内容'},
     );

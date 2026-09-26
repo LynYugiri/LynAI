@@ -3,10 +3,9 @@
 #
 # 做三件事：
 #   1. 用默认依赖解析一次，确保 pub 缓存里已有需要打补丁的包；
-#   2. 把 `fluent_ui`、`flutter_math_fork` 复制到 build/ohos_deps/ 并打上
-#      scripts/ohos_patches/platform-switch-exhaustiveness.patch（鸿蒙 Flutter SDK
-#      给 TargetPlatform 增加了 ohos，上游这两个包里的 switch 不穷尽，会在鸿蒙上
-#      编译失败）；
+#   2. 把 `fluent_ui`、`flutter_math_fork` 复制到 build/ohos_deps/ 并打上各自的
+#      补丁（scripts/ohos_patches/<包名>.patch：鸿蒙 Flutter SDK 给 TargetPlatform
+#      增加了 ohos，上游这两个包里的 switch 不穷尽，会在鸿蒙上编译失败）；
 #   3. 应用 `pubspec_overrides.ohos.yaml` 并执行 flutter pub get。
 #
 # `--restore` 会移除生效中的覆盖文件并还原默认 pubspec.lock，

@@ -45,7 +45,7 @@ void main() {
 
   test('start 传语言并回报成功', () async {
     mockHandler((call) async => <String, Object?>{'ok': true});
-    final bridge = OhosSpeechBridge();
+    final bridge = OhosSpeechBridge(supported: true);
 
     final ok = await bridge.start(
       language: 'zh_CN',
@@ -63,11 +63,32 @@ void main() {
     bridge.dispose();
   });
 
+  test('非鸿蒙平台不触碰通道，也不抛异常', () async {
+    mockHandler((call) async => <String, Object?>{'ok': true});
+    final bridge = OhosSpeechBridge(supported: false);
+
+    final ok = await bridge.start(
+      language: 'zh_CN',
+      onText: (_) {},
+      onError: (_) {},
+      onDone: () {},
+    );
+
+    expect(ok, isFalse);
+    expect(bridge.isAvailable, isFalse);
+    // 这正是页面 dispose 走的路径：其它平台没有该通道实现，不能抛
+    // MissingPluginException。
+    await bridge.stop();
+    await bridge.cancel();
+    bridge.dispose();
+    expect(calls, isEmpty);
+  });
+
   test('start 失败返回 false（对应 initialize 失败路径）', () async {
     mockHandler(
       (call) async => <String, Object?>{'ok': false, 'error': '当前设备不支持系统语音识别'},
     );
-    final bridge = OhosSpeechBridge();
+    final bridge = OhosSpeechBridge(supported: true);
 
     final ok = await bridge.start(
       language: 'zh_CN',
@@ -82,7 +103,7 @@ void main() {
 
   test('onPartial 回填累计文本，onComplete 触发 done', () async {
     mockHandler((call) async => <String, Object?>{'ok': true});
-    final bridge = OhosSpeechBridge();
+    final bridge = OhosSpeechBridge(supported: true);
     final texts = <String>[];
     var doneCount = 0;
 
@@ -103,7 +124,7 @@ void main() {
 
   test('onError 回传文案并触发 done', () async {
     mockHandler((call) async => <String, Object?>{'ok': true});
-    final bridge = OhosSpeechBridge();
+    final bridge = OhosSpeechBridge(supported: true);
     final errors = <String>[];
     var doneCount = 0;
 
@@ -122,7 +143,7 @@ void main() {
 
   test('stop 与 cancel 使用各自的方法', () async {
     mockHandler((call) async => <String, Object?>{'ok': true});
-    final bridge = OhosSpeechBridge();
+    final bridge = OhosSpeechBridge(supported: true);
 
     await bridge.stop();
     await bridge.cancel();
@@ -133,7 +154,7 @@ void main() {
 
   test('dispose 之后不再回调到调用方', () async {
     mockHandler((call) async => <String, Object?>{'ok': true});
-    final bridge = OhosSpeechBridge();
+    final bridge = OhosSpeechBridge(supported: true);
     final texts = <String>[];
 
     await bridge.start(
@@ -146,6 +167,42 @@ void main() {
     await emit('onPartial', <String, Object?>{'text': '迟到的结果'});
 
     expect(texts, isEmpty);
+  });
+
+  test('多个页面共存时回调只发给正在识别的实例', () async {
+    mockHandler((call) async => <String, Object?>{'ok': true});
+    final first = OhosSpeechBridge(supported: true);
+    final second = OhosSpeechBridge(supported: true);
+    final firstTexts = <String>[];
+    final secondTexts = <String>[];
+
+    await first.start(
+      language: 'zh_CN',
+      onText: firstTexts.add,
+      onError: (_) {},
+      onDone: () {},
+    );
+    await second.start(
+      language: 'zh_CN',
+      onText: secondTexts.add,
+      onError: (_) {},
+      onDone: () {},
+    );
+    await emit('onPartial', <String, Object?>{'text': '第二个页面'});
+    expect(secondTexts, <String>['第二个页面']);
+    expect(firstTexts, isEmpty);
+
+    // 后打开的页面关闭后不能把通道摘掉：第一个页面重新开始识别仍然能收到回调。
+    second.dispose();
+    await first.start(
+      language: 'zh_CN',
+      onText: firstTexts.add,
+      onError: (_) {},
+      onDone: () {},
+    );
+    await emit('onComplete', <String, Object?>{'text': '第一个页面'});
+    expect(firstTexts, <String>['第一个页面']);
+    first.dispose();
   });
 
   test('能力开关：语音输入在支持的平台上一律开放', () {

@@ -929,6 +929,9 @@ class RoleplayPageState extends State<RoleplayPage> {
   }
 
   Future<void> _pasteClipboardImage() async {
+    // 鸿蒙上 super_clipboard 没有实现且会抛 UnimplementedError，直接跳过图片粘贴；
+    // 判断与主对话页共用同一个能力开关。
+    if (!supportsRichClipboard) return;
     final clipboard = SystemClipboard.instance;
     if (clipboard == null) return;
     try {

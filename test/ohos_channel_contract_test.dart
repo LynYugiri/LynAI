@@ -70,10 +70,12 @@ void main() {
         .where((file) => file.path.endsWith('.dart'))
         .map((file) => file.readAsStringSync())
         .join('\n');
-    final arkTsSource = Directory('ohos/entry/src/main/ets/lynai')
+    final arkTsFiles = Directory('ohos/entry/src/main/ets/lynai')
         .listSync(recursive: true)
         .whereType<File>()
         .where((file) => file.path.endsWith('.ets'))
+        .toList();
+    final arkTsSource = arkTsFiles
         .map((file) => file.readAsStringSync())
         .join('\n');
 
@@ -89,6 +91,24 @@ void main() {
         reason: '鸿蒙侧缺少 $channel 的实现',
       );
     }
+
+    // 反向检查：ArkTS 侧不能出现 Dart 侧从未使用、也不在 Android 专有清单里的
+    // 孤儿通道——否则新通道只在鸿蒙注册，谁都不会调用也无人发现。
+    final arkTsChannels = <String>{};
+    final channelPattern = RegExp(r"'(lynai/[a-z0-9_]+)'");
+    for (final file in arkTsFiles) {
+      for (final match in channelPattern.allMatches(file.readAsStringSync())) {
+        arkTsChannels.add(match.group(1)!);
+      }
+    }
+    expect(arkTsChannels, isNotEmpty);
+    expect(
+      arkTsChannels
+          .difference(ohosImplementedChannels)
+          .difference(androidOnlyChannels),
+      isEmpty,
+      reason: 'ArkTS 侧的通道必须在 Dart 侧有调用方，或加入 Android 专有清单',
+    );
   });
 
   test('安全存储通道的方法与 Dart 调用保持一致', () {

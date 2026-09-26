@@ -119,9 +119,25 @@ void main() {
     expect(args['bytes'], isA<Uint8List>());
   });
 
+  test('saveFile 用户取消时返回 null（与其它平台一致）', () async {
+    mockHandler(
+      (call) async => <String, Object?>{'ok': true, 'cancelled': true},
+    );
+
+    final path = await OhosFilePicker().saveFile(
+      fileName: 'backup.zip',
+      bytes: Uint8List.fromList(const [1, 2, 3]),
+    );
+
+    expect(path, isNull);
+  });
+
   test('saveFile 失败时抛 PlatformException', () async {
     mockHandler(
-      (call) async => <String, Object?>{'ok': false, 'error': '未选择保存位置'},
+      (call) async => <String, Object?>{
+        'ok': false,
+        'error': '写入文件失败: 空间不足',
+      },
     );
 
     await expectLater(
