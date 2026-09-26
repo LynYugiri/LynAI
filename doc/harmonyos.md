@@ -71,7 +71,10 @@ LynAI 支持用 OpenHarmony SIG 的 Flutter SDK 分支构建鸿蒙原生应用�
   `readLastLocation()` 对齐（`latitude`/`longitude`/`accuracy`/`provider`/`time`）。
 - **关键资产存储**：`asset.add/query/remove`，别名 + 密文由 HUKS 保护，等价于
   Android Keystore / iOS Keychain 的角色；`conflictResolution: OVERWRITE` 保持
-  「写入即覆盖」语义，删除不存在的键按幂等成功处理。
+  「写入即覆盖」语义，删除不存在的键按幂等成功处理。注意系统对单个关键资产的
+  Secret 有 **1-1024 字节**上限（其它平台的 `flutter_secure_storage` 没有等价限制），
+  超过时返回 `secure_storage_value_too_large`；因此把可变长 JSON 塞进 `SecretStore`
+  的调用方（例如 LAN 配对会话列表与历史 ACK 映射）在鸿蒙上可能写失败，见 §6 已知缺口。
 - **生成期间的后台存活**：`backgroundTaskManager.startBackgroundRunning` 申请
   `DATA_TRANSFER` 长时任务（需要 `ohos.permission.KEEP_BACKGROUND_RUNNING`，
   已在 `module.json5` 声明），对应 Android 的前台服务；重复 start / 未 start 就 stop
@@ -469,7 +472,15 @@ build/ohos/sign-local/                      中间产物与三份日志（sign-p
    「录音 + 服务端转写」这条路径依赖 `record` 的鸿蒙适配
    （`fluttertpc_record@br_3.41_dev`，其 ArkTS 同样需要 6.1 SDK 才能编译通过），
    真机上需要一并回归。
-6. 上述补丁与覆盖分支都是社区维护的适配分支，需在真机上回归后再进入发布流程。
+6. **关键资产的 1024 字节上限**：Asset Store Kit 限制单条 Secret 为 1-1024 字节，
+   超过时写入失败（Dart 侧收到 `PlatformException`）。`SecretStore` 的多数调用方
+   只存 API key 与短 token，但 LAN 相关路径会把 JSON 写进 `SecretStore`
+   （`lan_peer_repository.dart` 的配对会话列表与历史 ACK 映射、
+   `lan_tls_certificate_service.dart` 的自签证书 PEM：EC P-256 自签证书约 0.6-1 KB，
+   已接近上限）。真机回归时必须验证局域网同步的配对与证书写入；若确认超限，
+   应把这些值改成按别名分片存储或移出 `SecretStore`（历史 ACK 已有
+   `migrateLegacyTransportState` 迁到 storage_v2 的路径）。
+7. 上述补丁与覆盖分支都是社区维护的适配分支，需在真机上回归后再进入发布流程。
 
 ## 7. 回归要求
 
